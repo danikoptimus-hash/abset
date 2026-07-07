@@ -1,0 +1,43 @@
+# Виртуальные окружения
+.venv/
+venv/
+env/
+ENV/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Секреты
+.env
+.env.*
+.streamlit/secrets.toml
+
+# Локальные данные экспериментов и пользовательские выгрузки
+# (по умолчанию experiments_dir — ~/ab_experiments, вне репозитория;
+# паттерны ниже — на случай, если кто-то укажет путь внутри проекта)
+experiments/
+ab_experiments/
+*.csv
+*.parquet
+
+# IDE
+.idea/
+.vscode/
+
+# Claude Code — локальные (не общие) настройки разрешений
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db

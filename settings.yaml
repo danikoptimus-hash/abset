@@ -1,0 +1,5 @@
+experiments_dir: ~/ab_experiments
+default_alpha: 0.05
+default_power: 0.8
+default_correction: holm
+random_seed: null
