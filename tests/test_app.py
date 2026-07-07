@@ -96,9 +96,10 @@ def test_analyze_tab_has_onboarding_explanation(tmp_path, monkeypatch):
     analyze_tab = at.tabs[1]
 
     subheaders = [s.value for s in analyze_tab.subheader]
-    assert any("Шаг 1" in s for s in subheaders)
+    assert not any("Шаг 1" in s for s in subheaders)
 
     expander_labels = [e.label for e in analyze_tab.expander]
+    assert any("данные и что в них должно быть" in label for label in expander_labels)
     assert any("Пример" in label for label in expander_labels)
     assert any("БД" in label for label in expander_labels)
 
@@ -334,6 +335,49 @@ def test_analyze_tab_demo_flow_detects_effect(tmp_path, monkeypatch):
     exp_path = tmp_path / "demo"
     assert (exp_path / "report.html").exists()
     assert (exp_path / "results.json").exists()
+
+
+def test_analyze_tab_demo_button_works_for_non_demo_named_experiment(tmp_path, monkeypatch):
+    """UX-регрессия: раньше кнопка была скрыта, если имя эксперимента не
+    начиналось буквально с "demo" (exp_name.startswith("demo")) — т.е. для
+    любого реального эксперимента пользователя кнопка не показывалась вообще.
+    Теперь она должна быть доступна для ЛЮБОГО выбранного эксперимента."""
+    n = 500
+    data = generate_demo_design_data(n, seed=0)
+    config = make_demo_design_config("customer_checkout_test", n, seed=0)
+    Experiment.design(config, data, experiments_dir=tmp_path)
+
+    at = _fresh_app(tmp_path, monkeypatch)
+    analyze_tab = at.tabs[1]
+
+    exp_select = next(s for s in analyze_tab.selectbox if s.key == "analyze_exp_select")
+    assert exp_select.value == "customer_checkout_test"
+
+    demo_button = next(b for b in analyze_tab.button if "Сгенерировать" in b.label)
+    assert not demo_button.disabled
+    demo_button.click().run(timeout=30)
+    assert not at.exception
+
+    analyze_tab = at.tabs[1]
+    captions = [c.value for c in analyze_tab.caption]
+    assert any("строк" in c for c in captions)
+    info_messages = [i.value for i in analyze_tab.info]
+    assert any("Сгенерированы демо пост-данные" in i and "+3%" in i for i in info_messages)
+
+
+def test_analyze_tab_demo_button_disabled_without_assignments(tmp_path, monkeypatch):
+    n = 300
+    data = generate_demo_design_data(n, seed=0)
+    config = make_demo_design_config("broken_exp", n, seed=0)
+    Experiment.design(config, data, experiments_dir=tmp_path)
+    (tmp_path / "broken_exp" / "assignments.parquet").unlink()
+
+    at = _fresh_app(tmp_path, monkeypatch)
+    analyze_tab = at.tabs[1]
+
+    demo_button = next(b for b in analyze_tab.button if "Сгенерировать" in b.label)
+    assert demo_button.disabled
+    assert demo_button.help is not None and "assignments" in demo_button.help
 
 
 def test_analyze_tab_shows_help_expanders_under_charts_and_tables(tmp_path, monkeypatch):

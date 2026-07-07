@@ -17,7 +17,11 @@ from pydantic import ValidationError
 from abkit import checks, storage
 from abkit.auth.guards import AuthError, CurrentUser
 from abkit.config import DesignConfig, MetricConfig
-from abkit.demo_data import generate_demo_design_data, generate_demo_post_data, make_demo_design_config
+from abkit.demo_data import (
+    generate_demo_design_data,
+    generate_demo_post_data_for_config,
+    make_demo_design_config,
+)
 from abkit.experiment import DesignError, Experiment, compute_metric_baseline_mean
 from abkit.pipeline import PipelineError
 from abkit.validation.simulation import ABReport, AAReport, run_aa, run_ab
@@ -345,17 +349,18 @@ def _render_design_intro() -> None:
 
 
 def _render_analyze_intro() -> None:
-    st.markdown(
-        "Загрузите данные пост-периода — тех же пользователей из вашего эксперимента "
-        "и их фактические значения метрик **ЗА** время теста.\n\n"
-        "**Формат:** одна строка = один пользователь.\n\n"
-        "**Что должно быть в файле:**\n"
-        "- Та же колонка с ID пользователя, что использовалась при дизайне\n"
-        "- Фактические значения всех метрик, которые вы объявляли на этапе дизайна "
-        "(программа проверит и предупредит, если каких-то нет)\n"
-        "- Разбиение на группы (control/treatment) НЕ нужно — оно подтянется "
-        "автоматически из сохраненных assignments выбранного эксперимента"
-    )
+    with st.expander("❓ Что это за данные и что в них должно быть"):
+        st.markdown(
+            "Загрузите данные пост-периода — тех же пользователей из вашего эксперимента "
+            "и их фактические значения метрик **ЗА** время теста.\n\n"
+            "**Формат:** одна строка = один пользователь.\n\n"
+            "**Что должно быть в файле:**\n"
+            "- Та же колонка с ID пользователя, что использовалась при дизайне\n"
+            "- Фактические значения всех метрик, которые вы объявляли на этапе дизайна "
+            "(программа проверит и предупредит, если каких-то нет)\n"
+            "- Разбиение на группы (control/treatment) НЕ нужно — оно подтянется "
+            "автоматически из сохраненных assignments выбранного эксперимента"
+        )
 
     with st.expander("📊 Пример: как должны выглядеть данные"):
         st.markdown(
@@ -1148,6 +1153,9 @@ def _render_analysis_results(results) -> None:
                 )
 
 
+_ANALYZE_DEMO_EFFECT = 0.03
+
+
 def render_analyze_tab(experiments_dir: Path, current_user: CurrentUser | None = None) -> None:
     st.header("Анализ по фактическим данным")
     registry = _list_experiment_names(experiments_dir)
@@ -1155,9 +1163,18 @@ def render_analyze_tab(experiments_dir: Path, current_user: CurrentUser | None =
         st.info("Нет ни одного спроектированного эксперимента. Сначала перейдите в таб Design.")
         return
 
-    st.subheader("Шаг 1. Выберите эксперимент и загрузите данные теста")
     exp_name = st.selectbox("Эксперимент", sorted(registry.keys()), key="analyze_exp_select")
     _render_analyze_intro()
+
+    try:
+        current_experiment = Experiment.load(exp_name, experiments_dir=experiments_dir)
+    except storage.StorageError:
+        current_experiment = None
+    has_assignments = (
+        current_experiment is not None
+        and current_experiment.assignments is not None
+        and len(current_experiment.assignments) > 0
+    )
 
     col_upload, col_demo = st.columns([3, 1])
     with col_upload:
@@ -1167,21 +1184,34 @@ def render_analyze_tab(experiments_dir: Path, current_user: CurrentUser | None =
     with col_demo:
         st.write("")
         st.write("")
-        if exp_name.startswith("demo") and st.button(
-            "Сгенерировать demo-данные (с эффектом)", key="analyze_load_demo"
-        ):
-            demo_experiment = Experiment.load(exp_name, experiments_dir=experiments_dir)
-            st.session_state.analyze_data = generate_demo_post_data(
-                demo_experiment.assignments, effect=0.08, seed=1
+        demo_clicked = st.button(
+            "Сгенерировать demo пост-данные (с эффектом)",
+            key="analyze_load_demo",
+            disabled=not has_assignments,
+            help=None if has_assignments else "У этого эксперимента нет сохраненных assignments.",
+        )
+        if demo_clicked and current_experiment is not None:
+            generated = generate_demo_post_data_for_config(
+                current_experiment.config, current_experiment.assignments,
+                effect=_ANALYZE_DEMO_EFFECT, seed=1,
+            )
+            st.session_state.analyze_data = generated
+            metric_names = ", ".join(m.name for m in current_experiment.config.metrics)
+            st.session_state.analyze_demo_info = (
+                f"Сгенерированы демо пост-данные: {len(generated)} юзеров, метрики "
+                f"[{metric_names}], подсажен эффект +{_ANALYZE_DEMO_EFFECT:.0%} в тестовой группе"
             )
             st.rerun()
 
     if uploaded is not None and st.session_state.get("_analyze_file_id") != uploaded.file_id:
         st.session_state.analyze_data = _load_uploaded(uploaded)
         st.session_state["_analyze_file_id"] = uploaded.file_id
+        st.session_state.pop("analyze_demo_info", None)
     data = st.session_state.get("analyze_data")
     if data is not None:
         st.caption(f"{len(data)} строк, колонки: {', '.join(data.columns)}")
+        if st.session_state.get("analyze_demo_info"):
+            st.info(st.session_state.analyze_demo_info)
 
     compare = st.checkbox("Посчитать альтернативные методы (compare_methods)", key="analyze_compare")
     correction = st.selectbox("Поправка на множественность", ["holm", "bonferroni", "bh"], key="analyze_correction")
@@ -1209,11 +1239,7 @@ def render_analyze_tab(experiments_dir: Path, current_user: CurrentUser | None =
         if date_choice != "(нет)":
             date_col = date_choice
 
-        try:
-            exp_for_check = Experiment.load(exp_name, experiments_dir=experiments_dir)
-        except storage.StorageError:
-            exp_for_check = None
-
+        exp_for_check = current_experiment
         if exp_for_check is not None and exp_for_check.config.unit_col in data.columns:
             has_duplicates = data[exp_for_check.config.unit_col].duplicated().any()
             if has_duplicates and not date_col:
