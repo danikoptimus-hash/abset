@@ -1,5 +1,7 @@
 # abkit
 
+[![CI](https://github.com/danikoptimus-hash/abkit/actions/workflows/ci.yml/badge.svg)](https://github.com/danikoptimus-hash/abkit/actions/workflows/ci.yml)
+
 Библиотека + веб-интерфейс на Streamlit (плюс минимальный CLI для автоматизации)
 для дизайна и анализа A/B тестов: расчет мощности и MDE, (стратифицированное)
 сплитование, проверки честности (SRM, баланс страт, потери данных, pre-period
@@ -180,6 +182,26 @@ report_path = results.report()          # report.html + results.json
 Повторный `experiment.analyze()` на тех же данных с теми же аргументами дает
 бит-в-бит тот же `results.json` — все случайности (сплит, бутстрап) идут от
 `seed` из `config.yaml`.
+
+## Серверный режим: учетки, роли, Postgres, Docker
+
+Всё выше — «lite»-режим (`ABKIT_MODE=file`, дефолт): локальный
+однопользовательский инструмент, без установки чего-либо кроме Python.
+
+Для командной работы (общий доступ, роли Viewer/Editor/Admin, аудит-лог,
+Postgres вместо файлов) есть серверный режим (`ABKIT_MODE=db`),
+разворачиваемый в Docker одной командой:
+
+```bash
+git clone https://github.com/danikoptimus-hash/abkit.git && cd abkit
+cp .env.example .env   # отредактировать ABKIT_SECRET_KEY, POSTGRES_PASSWORD
+docker compose up -d
+docker compose exec app abkit-admin create-admin --email admin@co.com
+```
+
+Подробности — [`docker/README.md`](docker/README.md) (деплой, бэкап, импорт
+существующих файловых экспериментов) и [`DOCKER.md`](DOCKER.md) (полное
+техническое задание серверного режима).
 
 ## Структура проекта
 
