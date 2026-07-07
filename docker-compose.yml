@@ -1,0 +1,65 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    environment:
+      ABKIT_MODE: db
+      ABKIT_SECRET_KEY: ${ABKIT_SECRET_KEY}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-abkit}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-abkit}
+      ABKIT_DATA_DIR: /data/experiments
+      ABKIT_LOG_LEVEL: ${ABKIT_LOG_LEVEL:-INFO}
+      ABKIT_LOG_FORMAT: ${ABKIT_LOG_FORMAT:-json}
+      ABKIT_SESSION_LIFETIME_HOURS: ${ABKIT_SESSION_LIFETIME_HOURS:-72}
+      ABKIT_MAX_UPLOAD_MB: ${ABKIT_MAX_UPLOAD_MB:-400}
+      ABKIT_ALLOW_SELF_REGISTRATION: ${ABKIT_ALLOW_SELF_REGISTRATION:-false}
+      ABKIT_ADMIN_EMAIL: ${ABKIT_ADMIN_EMAIL:-}
+      ABKIT_ADMIN_PASSWORD: ${ABKIT_ADMIN_PASSWORD:-}
+      ABKIT_ADMIN_NAME: ${ABKIT_ADMIN_NAME:-Admin}
+    volumes:
+      - abkit_data:/data/experiments
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-abkit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-abkit}
+    volumes:
+      - abkit_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-abkit} -d ${POSTGRES_DB:-abkit}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Postgres наружу не публикуется (DOCKER.md §2) — доступен только другим
+    # сервисам compose по имени "postgres" внутри общей сети.
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "${ABKIT_PORT:-8080}:80"
+    environment:
+      ABKIT_MAX_UPLOAD_MB: ${ABKIT_MAX_UPLOAD_MB:-400}
+    volumes:
+      - ./docker/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      # - ./docker/certs:/etc/nginx/certs:ro  # TLS — раскомментировать вместе с блоком в nginx.conf.template
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  abkit_pgdata:
+  abkit_data:

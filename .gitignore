@@ -21,6 +21,7 @@ htmlcov/
 # Секреты
 .env
 .env.*
+!.env.example
 .streamlit/secrets.toml
 
 # Локальные данные экспериментов и пользовательские выгрузки

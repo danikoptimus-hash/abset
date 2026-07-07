@@ -1,0 +1,10 @@
+# Разработка ведется на Windows (core.autocrlf=true), но эти файлы
+# исполняются/парсятся внутри Linux-контейнеров — форсируем LF независимо от
+# платформы checkout, иначе entrypoint.sh может получить CRLF и упасть внутри
+# контейнера ("bad interpreter").
+*.sh text eol=lf
+Dockerfile text eol=lf
+docker/Dockerfile text eol=lf
+*.conf text eol=lf
+*.template text eol=lf
+.env.example text eol=lf
