@@ -1768,6 +1768,37 @@ def main() -> None:
         над ними убран (стандартный отступ Streamlit — под "шапку" тулбара) */
         .block-container { padding-top: 2rem; }
         [data-testid="stSidebarContent"] { padding-top: 0.5rem; }
+
+        /* sticky tabs (как навбар в Superset): панель вкладок остается видна
+        при скролле, не уезжает с контентом. top учитывает высоту стандартного
+        тулбара Streamlit (stHeader, ~60px) — без этого смещения панель
+        прилипала бы ПОД тулбаром (обе прибиты к верху scroll-контейнера
+        [data-testid="stMain"], тулбар просто рисуется поверх с более высоким
+        z-index).
+
+        Фон — ПРОВЕРЕНО через реальный браузер (Streamlit 1.59 emotion-css не
+        выставляет ни CSS-переменной вроде --background-color, ни data-theme
+        атрибута на html/.stApp — их просто нет в DOM, только сгенерированные
+        st-emotion-cache-* классы). Единственный рабочий вариант без хрупкой
+        привязки к внутренним классам Streamlit — prefers-color-scheme с
+        реальными измеренными цветами темы Streamlit (light #ffffff, dark
+        #0e1117 = rgb(14,17,23), подтверждено getComputedStyle(.stApp)).
+        Не покрывает случай, когда пользователь вручную переключил тему в
+        настройках Streamlit НЕ так, как у него в ОС — у самого Streamlit нет
+        стабильного публичного способа узнать это из чистого CSS. */
+        [data-testid="stTabs"] [role="tablist"] {
+            position: sticky;
+            top: 60px;
+            z-index: 100;
+            background-color: #ffffff;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+        }
+        @media (prefers-color-scheme: dark) {
+            [data-testid="stTabs"] [role="tablist"] {
+                background-color: #0e1117;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+            }
+        }
         </style>""",
         unsafe_allow_html=True,
     )
