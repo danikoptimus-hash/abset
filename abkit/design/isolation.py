@@ -4,13 +4,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
 
 import pandas as pd
 
 from abkit import storage
 
 _ACTIVE_STATUSES = ("designed", "running")
+
+
+class _OccupiedUnitsSource(Protocol):
+    """Структурный протокол — единственное, что нужно apply_isolation() от
+    хранилища в db-режиме (DOCKER.md §5: изоляция там — один SQL-запрос вместо
+    чтения assignments.parquet каждого активного эксперимента). Файловый режим
+    (дефолт) этот протокол не использует и ведет себя как раньше."""
+
+    def occupied_units(
+        self,
+        exclude_experiments: Literal["all_active"] | list[str],
+        current_experiment_name: str | None,
+    ) -> dict[str, set]: ...
 
 
 @dataclass
@@ -56,12 +69,18 @@ def apply_isolation(
     mode: Literal["exclude", "warn", "off"] = "exclude",
     exclude_experiments: Literal["all_active"] | list[str] = "all_active",
     current_experiment_name: str | None = None,
+    store: _OccupiedUnitsSource | None = None,
 ) -> IsolationResult:
     """Исключает из кандидатов юзеров, занятых в других designed/running экспериментах.
 
     mode="off" — пропустить проверку. mode="warn" — посчитать пересечение, но не
     фильтровать (решение об исключении принимается вызывающей стороной, например CLI
     после подтверждения пользователем). mode="exclude" — молча исключить.
+
+    store: в db-режиме (ABKIT_MODE=db) передается DbExperimentStore — тогда
+    список занятых unit_id получается одним SQL-запросом (store.occupied_units)
+    вместо чтения assignments.parquet каждого активного эксперимента по
+    отдельности. По умолчанию (store=None) поведение файлового режима не меняется.
     """
     n_before = len(data)
     if mode == "off":
@@ -69,11 +88,14 @@ def apply_isolation(
             candidates=data, n_before=n_before, n_excluded=0, n_available=n_before, mode=mode
         )
 
-    active = _active_experiments(experiments_dir, exclude_experiments)
-    if current_experiment_name:
-        active.pop(current_experiment_name, None)
+    if store is not None:
+        occupied = store.occupied_units(exclude_experiments, current_experiment_name)
+    else:
+        active = _active_experiments(experiments_dir, exclude_experiments)
+        if current_experiment_name:
+            active.pop(current_experiment_name, None)
+        occupied = _collect_occupied_units(active)
 
-    occupied = _collect_occupied_units(active)
     candidate_units = set(data[unit_col])
 
     excluded_by_experiment: dict[str, int] = {}

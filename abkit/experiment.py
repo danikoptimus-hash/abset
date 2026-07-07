@@ -400,12 +400,14 @@ class Experiment:
 
     @classmethod
     def load(cls, name: str, experiments_dir: Path | None = None) -> "Experiment":
-        """Загружает существующий эксперимент: config.yaml + assignments.parquet."""
+        """Загружает существующий эксперимент: config + assignments — из файлов
+        (ABKIT_MODE=file, дефолт) или из Postgres (ABKIT_MODE=db)."""
+        from abkit.experiment_store import get_experiment_store
+
         experiments_dir = experiments_dir or storage.get_experiments_dir()
-        path = storage.experiment_path(experiments_dir, name)
-        config = storage.load_config(path)
-        experiment = cls(config=config, path=path, experiments_dir=experiments_dir)
-        experiment.assignments = storage.load_assignments(path)
+        handle = get_experiment_store(experiments_dir).load_experiment(name)
+        experiment = cls(config=handle.config, path=handle.path, experiments_dir=experiments_dir)
+        experiment.assignments = handle.assignments
         return experiment
 
     @classmethod
@@ -422,7 +424,10 @@ class Experiment:
         progress_callback(label), если передан, вызывается перед каждым этапом с
         коротким описанием — для UI-индикаторов прогресса (см. app.py, st.status).
         """
+        from abkit.experiment_store import get_experiment_store
+
         experiments_dir = experiments_dir or storage.get_experiments_dir()
+        store = get_experiment_store(experiments_dir)
         cb = progress_callback or (lambda _label: None)
 
         cb("Валидируем данные...")
@@ -430,6 +435,9 @@ class Experiment:
         control_name = infer_control_name(config.groups)
 
         cb("Проверяем изоляцию от других экспериментов...")
+        # store.occupied_units — только у db-режима (ABKIT_MODE=db); файловый
+        # режим (дефолт) продолжает читать assignments.parquet как раньше
+        isolation_store = store if hasattr(store, "occupied_units") else None
         isolation_result = isolation.apply_isolation(
             data=data,
             unit_col=config.unit_col,
@@ -437,6 +445,7 @@ class Experiment:
             mode=config.isolation,
             exclude_experiments=config.exclude_experiments,
             current_experiment_name=config.name,
+            store=isolation_store,
         )
         candidates = isolation_result.candidates
         if len(candidates) == 0:
@@ -588,11 +597,8 @@ class Experiment:
         )
 
         cb("Сохраняем эксперимент...")
-        path = storage.create_experiment_dir(experiments_dir, config.name)
-        storage.save_config(path, final_config)
-        storage.save_assignments(path, assignments)
-        storage.save_group_samples(path, assignments)
-        storage.register_experiment(experiments_dir, config.name, path, status="designed")
+        handle = store.create_experiment(final_config, assignments)
+        path = handle.path
 
         experiment = cls(config=final_config, path=path, experiments_dir=experiments_dir)
         experiment.assignments = assignments

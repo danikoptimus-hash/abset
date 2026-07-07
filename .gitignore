@@ -28,6 +28,7 @@ htmlcov/
 # паттерны ниже — на случай, если кто-то укажет путь внутри проекта)
 experiments/
 ab_experiments/
+.abkit_data/
 *.csv
 *.parquet
 
