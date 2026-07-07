@@ -79,7 +79,10 @@ def test_design_command_missing_data_file_errors(tmp_path, monkeypatch):
         app, ["design", "--config", str(config_path), "--data", str(tmp_path / "missing.csv")]
     )
     assert result.exit_code == 1
-    assert "не найден" in result.output
+    # rich переносит длинные строки по ширине терминала (в CI это уже иначе, чем
+    # локально, — узкий/безtty вывод) и может перенести "не найден" через перевод
+    # строки прямо между словами; схлопываем пробелы/переносы перед сравнением.
+    assert "не найден" in " ".join(result.output.split())
 
 
 def test_design_command_invalid_config_errors(tmp_path, monkeypatch):
