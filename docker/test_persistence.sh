@@ -51,7 +51,7 @@ wait_healthy() {
 check_state() {
     docker compose exec -T \
         -e ABKIT_TEST_EMAIL="$TEST_EMAIL" -e ABKIT_TEST_EXP="$TEST_EXP_NAME" \
-        app python <<'PYEOF'
+        backend python <<'PYEOF'
 import os
 from abkit.db.repositories import AssignmentRepo, ExperimentRepo, UserRepo
 
@@ -63,7 +63,7 @@ PYEOF
 }
 
 check_report_exists() {
-    docker compose exec -T -e ABKIT_TEST_EXP="$TEST_EXP_NAME" app python <<'PYEOF'
+    docker compose exec -T -e ABKIT_TEST_EXP="$TEST_EXP_NAME" backend python <<'PYEOF'
 import os
 from abkit.db.store import get_data_dir
 
@@ -74,7 +74,7 @@ PYEOF
 
 cleanup() {
     log "Очистка тестовых сущностей (деактивация тестового пользователя)..."
-    docker compose exec -T -e ABKIT_TEST_EMAIL="$TEST_EMAIL" app python <<'PYEOF' >/dev/null 2>&1
+    docker compose exec -T -e ABKIT_TEST_EMAIL="$TEST_EMAIL" backend python <<'PYEOF' >/dev/null 2>&1
 import os
 from abkit.db.repositories import UserRepo
 
@@ -93,14 +93,14 @@ trap cleanup EXIT
 log "(а) docker compose up -d, ждем healthy..."
 docker compose up -d || { fail "docker compose up -d не выполнился"; exit 1; }
 wait_healthy postgres || { fail "postgres не стал healthy"; exit 1; }
-wait_healthy app || { fail "app не стал healthy"; exit 1; }
+wait_healthy backend || { fail "backend не стал healthy"; exit 1; }
 
 log "(б) создаем тестового пользователя и эксперимент с assignments..."
-docker compose exec -T app abkit-admin create-user \
+docker compose exec -T backend abkit-admin create-user \
     --email "$TEST_EMAIL" --name "PersistenceTest" --role admin --password "PersistTest123456" \
     || { fail "не удалось создать тестового пользователя"; exit 1; }
 
-docker compose exec -T -e ABKIT_TEST_EXP="$TEST_EXP_NAME" app python <<'PYEOF' || { echo "[test_persistence] FAIL: не удалось спроектировать тестовый эксперимент" >&2; exit 1; }
+docker compose exec -T -e ABKIT_TEST_EXP="$TEST_EXP_NAME" backend python <<'PYEOF' || { echo "[test_persistence] FAIL: не удалось спроектировать тестовый эксперимент" >&2; exit 1; }
 import os
 import numpy as np
 import pandas as pd
@@ -148,7 +148,7 @@ docker compose down || { fail "docker compose down не выполнился"; e
 log "(г) docker compose up -d, ждем healthy..."
 docker compose up -d || { fail "docker compose up -d (после down) не выполнился"; exit 1; }
 wait_healthy postgres || { fail "postgres не стал healthy после down/up"; exit 1; }
-wait_healthy app || { fail "app не стал healthy после down/up"; exit 1; }
+wait_healthy backend || { fail "backend не стал healthy после down/up"; exit 1; }
 
 log "(д) проверяем целостность данных после down/up..."
 STATE_AFTER=$(check_state)
@@ -161,9 +161,9 @@ REPORT_AFTER=$(check_report_exists)
 [ "$REPORT_AFTER" = "True" ] || fail "design_report.html недоступен после down/up"
 
 log "(е) docker compose build && up -d --force-recreate — проверяем то же самое..."
-docker compose build app || { fail "docker compose build app не выполнился"; exit 1; }
-docker compose up -d --force-recreate app || { fail "up -d --force-recreate не выполнился"; exit 1; }
-wait_healthy app || { fail "app не стал healthy после force-recreate"; exit 1; }
+docker compose build backend || { fail "docker compose build backend не выполнился"; exit 1; }
+docker compose up -d --force-recreate backend || { fail "up -d --force-recreate не выполнился"; exit 1; }
+wait_healthy backend || { fail "backend не стал healthy после force-recreate"; exit 1; }
 
 STATE_RECREATE=$(check_state)
 IFS='|' read -r USER_OK3 EXP_OK3 N_RECREATE <<< "$STATE_RECREATE"

@@ -2,6 +2,12 @@
 # Мультистейдж-сборка (DOCKER.md §7.1). Тег версии (abkit:1.4.0 + abkit:latest)
 # проставляется снаружи при `docker build -t ...` (см. .github/workflows/ci.yml,
 # этап D6) — сюда попадает только как OCI-лейбл для трассируемости образа.
+#
+# Один образ, два сервиса (FRONTEND.md §6): docker-compose.yml запускает его
+# и как `backend` (entrypoint-backend.sh, uvicorn — теперь дефолтная роль),
+# и как `legacy` (entrypoint-legacy.sh, Streamlit, временно до R8) — они
+# делят одни и те же Python-зависимости (fastapi/uvicorn уже в основных
+# dependencies), поэтому не нужен отдельный образ ради разных команд запуска.
 
 FROM python:3.12-slim AS builder
 WORKDIR /app
@@ -50,12 +56,16 @@ RUN pip install --no-cache-dir --no-compile /wheels/*.whl \
 COPY . .
 RUN mkdir -p /data/experiments \
  && chown -R abkit:abkit /app /data \
- && chmod +x /app/docker/entrypoint.sh
+ && chmod +x /app/docker/entrypoint-backend.sh /app/docker/entrypoint-legacy.sh
 
 USER abkit
-EXPOSE 8501
+# 8000 — backend (uvicorn), 8501 — legacy (Streamlit); один и тот же образ
+# слушает разный порт в зависимости от того, каким entrypoint его запускают
+# (см. docker-compose.yml). HEALTHCHECK ниже — дефолт для backend (новая
+# основная роль образа); сервис legacy переопределяет healthcheck: в compose.
+EXPOSE 8000 8501
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \
-    CMD curl -f http://localhost:8501/_stcore/health || exit 1
+    CMD curl -f http://localhost:8000/api/health || exit 1
 
-ENTRYPOINT ["/app/docker/entrypoint.sh"]
+ENTRYPOINT ["/app/docker/entrypoint-backend.sh"]

@@ -1,9 +1,10 @@
 services:
-  app:
+  backend:
     build:
       context: .
       dockerfile: docker/Dockerfile
     restart: unless-stopped
+    entrypoint: ["/app/docker/entrypoint-backend.sh"]
     environment:
       ABKIT_MODE: db
       ABKIT_SECRET_KEY: ${ABKIT_SECRET_KEY}
@@ -14,6 +15,11 @@ services:
       ABKIT_SESSION_LIFETIME_HOURS: ${ABKIT_SESSION_LIFETIME_HOURS:-72}
       ABKIT_MAX_UPLOAD_MB: ${ABKIT_MAX_UPLOAD_MB:-400}
       ABKIT_ALLOW_SELF_REGISTRATION: ${ABKIT_ALLOW_SELF_REGISTRATION:-false}
+      ABKIT_JOB_WORKERS: ${ABKIT_JOB_WORKERS:-2}
+      # false по умолчанию: внешний nginx по умолчанию слушает только HTTP
+      # (см. раздел TLS в docker/README.md) — Secure-cookie на голом HTTP
+      # браузер не сохранит вовсе. Переключить в true вместе с TLS-блоком.
+      ABKIT_COOKIE_SECURE: ${ABKIT_COOKIE_SECURE:-false}
       ABKIT_ADMIN_EMAIL: ${ABKIT_ADMIN_EMAIL:-}
       ABKIT_ADMIN_PASSWORD: ${ABKIT_ADMIN_PASSWORD:-}
       ABKIT_ADMIN_NAME: ${ABKIT_ADMIN_NAME:-Admin}
@@ -24,11 +30,49 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
+
+  legacy:
+    # Streamlit — временно, до этапа R8 (FRONTEND.md §7): полное удаление
+    # только по явному подтверждению пользователя, см. FRONTEND.md.
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    entrypoint: ["/app/docker/entrypoint-legacy.sh"]
+    environment:
+      ABKIT_MODE: db
+      ABKIT_SECRET_KEY: ${ABKIT_SECRET_KEY}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-abkit}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-abkit}
+      ABKIT_DATA_DIR: /data/experiments
+      ABKIT_LOG_LEVEL: ${ABKIT_LOG_LEVEL:-INFO}
+      ABKIT_LOG_FORMAT: ${ABKIT_LOG_FORMAT:-json}
+      ABKIT_SESSION_LIFETIME_HOURS: ${ABKIT_SESSION_LIFETIME_HOURS:-72}
+      ABKIT_MAX_UPLOAD_MB: ${ABKIT_MAX_UPLOAD_MB:-400}
+      ABKIT_ALLOW_SELF_REGISTRATION: ${ABKIT_ALLOW_SELF_REGISTRATION:-false}
+    volumes:
+      - abkit_data:/data/experiments
+    depends_on:
+      # Гарантирует, что миграции и bootstrap-админ (entrypoint-backend.sh)
+      # уже выполнены к моменту старта Streamlit — сам legacy их не повторяет.
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/legacy/_stcore/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
 
   postgres:
     image: postgres:16-alpine
@@ -58,8 +102,12 @@ services:
       - ./docker/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
       # - ./docker/certs:/etc/nginx/certs:ro  # TLS — раскомментировать вместе с блоком в nginx.conf.template
     depends_on:
-      app:
+      backend:
         condition: service_healthy
+      legacy:
+        condition: service_healthy
+      frontend:
+        condition: service_started
 
 volumes:
   abkit_pgdata:

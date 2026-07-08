@@ -27,3 +27,11 @@ ab_experiments/
 .abkit_data/
 *.csv
 *.parquet
+
+# frontend/Dockerfile делает npm ci заново внутри образа — node_modules из
+# хоста никогда не нужен в build-контексте ни для backend/legacy, ни для
+# frontend-образа (общий .dockerignore — на оба Dockerfile, context у обоих ".").
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/

@@ -1,7 +1,10 @@
 import type { APIRequestContext, Page } from '@playwright/test'
 import { expect } from '@playwright/test'
 
-const API_BASE = 'http://localhost:8000/api/v1'
+// Локально: uvicorn напрямую (localhost:8000). В CI (e2e-джоба против
+// реального docker compose стека) — через внешний nginx на E2E_BASE_URL
+// (например http://localhost:8080/api/v1), см. .github/workflows/ci.yml.
+const API_BASE = process.env.E2E_API_BASE ?? 'http://localhost:8000/api/v1'
 
 export async function loginViaUi(page: Page, email = 'admin@e2e.test', password = 'e2epass123') {
   await page.goto('/login')

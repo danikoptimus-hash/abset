@@ -48,15 +48,108 @@ jobs:
       - name: Lint (pyflakes)
         run: python -m pyflakes abkit backend tests migrations app.py cli.py cli_admin.py conftest.py
 
-      - name: Тесты
+      - name: Тесты (ядро + БД + backend)
         run: python -m pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm ci
+        run: npm ci
+
+      - name: Типы (tsc --noEmit)
+        run: npm run typecheck
+
+      - name: Lint (eslint)
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+  e2e:
+    # Playwright против реального docker compose стека (FRONTEND.md §6) — на
+    # PR и вручную (workflow_dispatch), не на каждый push: поднимает полный
+    # стек (backend+legacy+frontend+postgres+nginx), это медленнее обычного
+    # test/frontend прогона.
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    needs: [test, frontend]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Сгенерировать .env для docker compose
+        run: |
+          cat > .env <<EOF
+          ABKIT_SECRET_KEY=$(openssl rand -hex 32)
+          POSTGRES_PASSWORD=$(openssl rand -hex 16)
+          ABKIT_ADMIN_EMAIL=admin@e2e.test
+          ABKIT_ADMIN_PASSWORD=e2epass123
+          EOF
+
+      - name: docker compose up -d --build --wait
+        run: docker compose up -d --build --wait
+
+      - name: Создать viewer-пользователя для тестов прав доступа
+        run: |
+          docker compose exec -T backend abkit-admin create-user \
+            --email viewer@e2e.test --name "E2E Viewer" --role viewer --password e2epass123
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm ci
+        working-directory: frontend
+        run: npm ci
+
+      - name: Установить браузеры Playwright
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Playwright e2e (против docker compose на localhost:8080)
+        working-directory: frontend
+        env:
+          E2E_BASE_URL: http://localhost:8080
+          E2E_API_BASE: http://localhost:8080/api/v1
+        run: npx playwright test
+
+      - name: Логи контейнеров (при падении)
+        if: failure()
+        run: docker compose logs
+
+      - name: Playwright report (при падении)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
+
+      - name: docker compose down -v (уборка раннера)
+        if: always()
+        run: docker compose down -v
 
   persistence-test:
     # Опциональная джоба: docker/test_persistence.sh реально поднимает
     # docker compose (build + up/down/force-recreate), это медленно и не
     # нужно на каждый push/PR — запускается только вручную (Actions ->
     # CI -> Run workflow), например перед релизом или после правок
-    # docker-compose.yml/entrypoint.sh/схемы БД. См. docker/README.md,
+    # docker-compose.yml/entrypoint-*.sh/схемы БД. См. docker/README.md,
     # раздел "Данные и перезапуски".
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -84,8 +177,9 @@ jobs:
 
   build-and-push:
     # Только на push тега вида v* (например v1.4.0) — DOCKER.md §12/§7.1.
+    # Собирает оба образа (backend/legacy — общий, frontend — отдельный).
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: test
+    needs: [test, frontend]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -106,7 +200,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
+      - name: Образ backend/legacy
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile
@@ -114,5 +209,15 @@ jobs:
           build-args: |
             ABKIT_VERSION=${{ steps.version.outputs.version }}
           tags: |
-            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}
-            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}-backend:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository }}-backend:latest
+
+      - name: Образ frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: frontend/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}-frontend:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository }}-frontend:latest
