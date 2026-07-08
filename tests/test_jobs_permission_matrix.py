@@ -173,7 +173,9 @@ def test_run_update_status_admin_any_experiment_ok(users):
 
 
 # --------------------------------------------------------------------------
-# run_delete_experiment — Admin-only, БЕЗ исключения для владельца-editor'а
+# run_delete_experiment — владелец ИЛИ Admin (require_owner_or_admin, та же
+# политика, что у update_status). Изменено по явному запросу пользователя —
+# раньше было Admin-only без исключений; см. jobs.py.
 # --------------------------------------------------------------------------
 
 
@@ -184,13 +186,25 @@ def test_run_delete_experiment_viewer_blocked(users):
         jobs.run_delete_experiment(users["viewer"], "jobs_delete_viewer")
 
 
-def test_run_delete_experiment_owner_editor_still_blocked(users):
-    """В отличие от update_status, удаление — исключительно Admin, "свой"
-    эксперимент editor'а тут не помогает (DOCKER.md §4.1)."""
+def test_run_delete_experiment_owner_editor_allowed(users):
     data = _design_data(seed=12)
     jobs.run_design(users["editor"], _config("jobs_delete_own_editor", len(data)), data)
-    with pytest.raises(AuthError):
-        jobs.run_delete_experiment(users["editor"], "jobs_delete_own_editor")
+    jobs.run_delete_experiment(users["editor"], "jobs_delete_own_editor")
+
+    from abkit.db.repositories import ExperimentRepo
+
+    assert ExperimentRepo().get_by_name("jobs_delete_own_editor") is None
+
+
+def test_run_delete_experiment_non_owner_editor_blocked(users):
+    data = _design_data(seed=14)
+    jobs.run_design(users["editor"], _config("jobs_delete_others", len(data)), data)
+    with pytest.raises(AuthError, match="только свои"):
+        jobs.run_delete_experiment(users["other_editor"], "jobs_delete_others")
+
+    from abkit.db.repositories import ExperimentRepo
+
+    assert ExperimentRepo().get_by_name("jobs_delete_others") is not None
 
 
 def test_run_delete_experiment_admin_allowed(users):
@@ -201,6 +215,23 @@ def test_run_delete_experiment_admin_allowed(users):
     from abkit.db.repositories import ExperimentRepo
 
     assert ExperimentRepo().get_by_name("jobs_delete_admin") is None
+
+
+def test_get_experiment_deletion_summary_counts_assignments(users):
+    data = _design_data(n=250, seed=15)
+    jobs.run_design(users["editor"], _config("jobs_delete_summary", len(data)), data)
+
+    summary = jobs.get_experiment_deletion_summary(users["editor"], "jobs_delete_summary")
+    assert summary["assignments"] == 250
+    assert summary["datasets"] == 0
+    assert summary["results"] == 0
+
+
+def test_get_experiment_deletion_summary_non_owner_editor_blocked(users):
+    data = _design_data(seed=16)
+    jobs.run_design(users["editor"], _config("jobs_delete_summary_others", len(data)), data)
+    with pytest.raises(AuthError, match="только свои"):
+        jobs.get_experiment_deletion_summary(users["other_editor"], "jobs_delete_summary_others")
 
 
 # --------------------------------------------------------------------------

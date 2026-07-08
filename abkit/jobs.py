@@ -152,21 +152,48 @@ def run_update_status(current_user: CurrentUser, name: str, new_status: str) -> 
     )
 
 
+def get_experiment_deletion_summary(current_user: CurrentUser, name: str) -> dict[str, int]:
+    """Только для UI-подтверждения удаления (app.py) — сколько строк реально
+    удалится каскадом, без самого удаления. Тот же guard, что и у самого
+    удаления (require_owner_or_admin) — точные числа по чужому эксперименту
+    тоже не должен видеть посторонний Editor/Viewer."""
+    from abkit.db.repositories import AssignmentRepo, DatasetRepo, ResultRepo
+
+    exp_row = _get_experiment_row(name)
+    require_owner_or_admin(current_user, str(exp_row.owner_id))
+    return {
+        "assignments": AssignmentRepo().count_for_experiment(exp_row.id),
+        "datasets": DatasetRepo().count_for_experiment(exp_row.id),
+        "results": ResultRepo().count_for_experiment(exp_row.id),
+    }
+
+
 def run_delete_experiment(current_user: CurrentUser, name: str) -> None:
-    """Удалять эксперименты может только Admin (DOCKER.md §4.1) — без исключения
-    "свои", в отличие от смены статуса."""
-    require_role(current_user, "admin")
+    """Удалять эксперимент может владелец ИЛИ Admin (require_owner_or_admin —
+    та же политика, что у смены статуса). Раньше было Admin-only без
+    исключений; изменено по явному запросу пользователя (UX-правка, чтобы
+    Editor мог убирать за собой свои же эксперименты)."""
+    exp_row = _get_experiment_row(name)
+    require_owner_or_admin(current_user, str(exp_row.owner_id))
 
     import shutil
 
     from abkit.db.repositories import ExperimentRepo
+
+    # счетчики нужны ДО удаления (после — каскад их уже снес) — только для
+    # audit_log details, чтобы в журнале было видно, сколько именно данных
+    # было удалено вместе с экспериментом.
+    deletion_summary = get_experiment_deletion_summary(current_user, name)
+
     from abkit.db.store import DbExperimentStore
 
-    exp_row = _get_experiment_row(name)
     exp_id = str(exp_row.id)
     with _timed("delete_experiment", user=current_user.email, experiment=name):
         ExperimentRepo().delete(name)
         artifact_dir = DbExperimentStore().data_dir / name
         if artifact_dir.exists():
             shutil.rmtree(artifact_dir)
-    _audit(current_user, "experiment.delete", object_type="experiment", object_id=exp_id, object_name=name)
+    _audit(
+        current_user, "experiment.delete", object_type="experiment", object_id=exp_id, object_name=name,
+        details=deletion_summary,
+    )

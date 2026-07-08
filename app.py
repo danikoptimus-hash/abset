@@ -219,12 +219,6 @@ def _render_login_gate() -> CurrentUser | None:
 
     return current_user
 
-STATUS_TRANSITIONS = {
-    "designed": ("running", "archived"),
-    "running": ("completed", "archived"),
-    "completed": ("archived",),
-    "archived": (),
-}
 
 _AGG_LABEL_TO_CODE = {
     "Сумма": "sum",
@@ -1343,87 +1337,305 @@ def _render_audit_history(exp_name: str) -> None:
     st.dataframe(_audit_log_to_df(entries), hide_index=True)
 
 
+_FORWARD_TRANSITION = {"designed": "running", "running": "completed"}
+
+_STATUS_BADGE_STYLE = {
+    "designed": ("#e0e0e0", "#424242"),
+    "running": ("#c8e6c9", "#1b5e20"),
+    "completed": ("#bbdefb", "#0d47a1"),
+    "archived": ("#eeeeee", "#9e9e9e"),
+}
+
+
+def _status_badge_html(status: str) -> str:
+    bg, fg = _STATUS_BADGE_STYLE.get(status, ("#e0e0e0", "#424242"))
+    return (
+        f'<span style="background:{bg};color:{fg};padding:2px 10px;border-radius:10px;'
+        f'font-size:0.85em;font-weight:600;">{status}</span>'
+    )
+
+
+def _fmt_registry_dt(value: str | None) -> str:
+    if not value:
+        return "-"
+    from datetime import datetime
+
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return value
+    return dt.strftime("%Y-%m-%d %H:%M")
+
+
+def _can_mutate_experiment(current_user: CurrentUser | None, owner_id: str | None) -> bool:
+    """file-режим (current_user=None) — нет модели прав, разрешено все.
+    db-режим: Viewer — никогда, Admin — всегда, Editor — только СВОИ
+    (owner_id совпадает с current_user.id). Та же логика, что
+    require_owner_or_admin в abkit/auth/guards.py, но без исключения —
+    используется для решения ПОКАЗЫВАТЬ ли кнопки мутаций в строке."""
+    if current_user is None:
+        return True
+    if current_user.role == "viewer":
+        return False
+    if current_user.role == "admin":
+        return True
+    return owner_id is not None and str(current_user.id) == str(owner_id)
+
+
+def _apply_status_change(
+    current_user: CurrentUser | None, experiments_dir: Path, exp_name: str, new_status: str
+) -> None:
+    try:
+        if current_user is not None:
+            from abkit import jobs
+
+            jobs.run_update_status(current_user, exp_name, new_status)
+        else:
+            storage.update_status(experiments_dir, exp_name, new_status)
+    except (storage.StorageError, AuthError) as e:
+        st.error(str(e))
+    else:
+        _flash_success(f"«{exp_name}» переведен в статус «{new_status}»")
+        st.rerun()
+
+
+def _render_experiment_detail_panel(experiment: Experiment, key_prefix: str) -> None:
+    """Полный конфиг, метрики, отчеты (design_report/report — тот же контент,
+    что раньше был плоской секцией «Отчеты», включая MDE-таблицу — она внутри
+    HTML отчета, а не пересчитывается заново: Experiment.load() не хранит
+    исходные данные дизайна, нужные для точного пересчета мощности/CUPED-rho),
+    список файлов, выборки."""
+    st.markdown("**Конфигурация**")
+    st.json(experiment.config.model_dump(mode="json"), expanded=False)
+
+    metrics_df = pd.DataFrame(
+        [
+            {
+                "метрика": m.name, "тип": m.type, "роль": m.role,
+                "pre_col": m.pre_col or "-", "num/den": f"{m.num}/{m.den}" if m.type == "ratio" else "-",
+            }
+            for m in experiment.config.metrics
+        ]
+    )
+    st.markdown("**Метрики**")
+    st.dataframe(metrics_df, hide_index=True)
+
+    st.markdown("**Отчеты**")
+    available_reports = [
+        name for name in ("design_report.html", "report.html") if (experiment.path / name).exists()
+    ]
+    if not available_reports:
+        st.info("Отчеты еще не созданы для этого эксперимента.")
+    else:
+        report_choice = st.radio(
+            "Какой отчет посмотреть?", available_reports, key=f"{key_prefix}_report_choice",
+        )
+        report_path = experiment.path / report_choice
+        with st.spinner("Загружаем отчет..."):
+            st.iframe(report_path, height=800)
+        st.download_button(
+            f"Скачать {report_choice}", data=report_path.read_bytes(), file_name=report_choice,
+            key=f"{key_prefix}_dl_{report_choice}",
+        )
+
+    st.markdown("**Файлы**")
+    files = [p for p in sorted(experiment.path.rglob("*")) if p.is_file()]
+    if files:
+        files_df = pd.DataFrame(
+            [
+                {"файл": str(p.relative_to(experiment.path)), "размер, КБ": f"{p.stat().st_size / 1024:.1f}"}
+                for p in files
+            ]
+        )
+        st.dataframe(files_df, hide_index=True)
+    else:
+        st.caption("Файлов пока нет.")
+
+    _render_samples_section(experiment.path, experiment.name, key_prefix=key_prefix)
+
+
+def _render_experiment_delete_confirmation(
+    current_user: CurrentUser, experiments_dir: Path, exp_name: str,
+    placeholder: Any, row_placeholder: Any,
+) -> None:
+    """Двухшаговое подтверждение (паттерн GitHub «удалить репозиторий»):
+    кнопка активна только при точном совпадении введенного текста с DELETE.
+
+    placeholder.empty() ПЕРЕД st.rerun() на каждом выходе (отмена/ошибка
+    доступа) — без этого виджеты этого блока остаются в дереве как
+    "призраки" после того, как условие рендера уже стало False (тот же
+    класс бага, что и с login-формой — см.
+    feedback_apptest_login_gate_ghost_widgets в памяти проекта).
+
+    При УСПЕШНОМ удалении чистим не только этот под-блок, а ВСЮ строку
+    через row_placeholder.empty() — сама строка целиком пропадет из цикла
+    на следующем прогоне (в отличие от отмены, где строка остается, меняется
+    только этот под-блок). Без этого — не просто "призрак"-виджет в AppTest,
+    а реальный краш ФРОНТЕНДА Streamlit в браузере ("'setIn' cannot be
+    called on an ElementNode", воспроизведено и исправлено в этом же
+    коммите) — сдвиг delta-path всех строк ПОСЛЕ удаленной ломает
+    инкрементальную сверку дерева на клиенте, и страница становится пустой."""
+    from abkit import jobs
+
+    try:
+        summary = jobs.get_experiment_deletion_summary(current_user, exp_name)
+    except (storage.StorageError, AuthError) as e:
+        st.error(str(e))
+        placeholder.empty()
+        st.session_state.exp_delete_confirm_target = None
+        return
+
+    st.error(
+        f"Вы удаляете эксперимент «{exp_name}». Будут безвозвратно удалены: "
+        f"назначения ({summary['assignments']} строк), датасеты ({summary['datasets']}), "
+        f"результаты анализов ({summary['results']}), отчеты. Это действие нельзя отменить."
+    )
+    input_key = f"exp_delete_confirm_input_{exp_name}"
+    confirm_text = st.text_input("Введите DELETE для подтверждения", key=input_key)
+    delete_enabled = confirm_text == "DELETE"
+
+    col_confirm, col_cancel = st.columns(2)
+    if col_confirm.button(
+        "Удалить безвозвратно", key=f"exp_delete_confirm_btn_{exp_name}",
+        type="primary", disabled=not delete_enabled,
+    ):
+        try:
+            jobs.run_delete_experiment(current_user, exp_name)
+        except (storage.StorageError, AuthError) as e:
+            st.error(str(e))
+        else:
+            st.session_state.exp_delete_confirm_target = None
+            st.session_state.pop(input_key, None)
+            row_placeholder.empty()
+            st.rerun()
+    if col_cancel.button("Отмена", key=f"exp_delete_cancel_btn_{exp_name}"):
+        placeholder.empty()
+        st.session_state.exp_delete_confirm_target = None
+        st.session_state.pop(input_key, None)
+        st.rerun()
+
+
 def render_experiments_tab(experiments_dir: Path, current_user: CurrentUser | None = None) -> None:
     st.header("Реестр экспериментов")
-    status_filter = st.selectbox(
+
+    col_filter, col_search = st.columns([1, 2])
+    status_filter = col_filter.selectbox(
         "Фильтр по статусу", ["все", "designed", "running", "completed", "archived"],
         key="exp_status_filter",
     )
-    registry = _list_experiment_names(experiments_dir)
+    search_query = col_search.text_input(
+        "Поиск по названию", key="exp_search", placeholder="Введите часть названия...",
+    )
+
+    all_registry = _list_experiment_names(experiments_dir)
+    registry = all_registry
     if status_filter != "все":
         registry = {k: v for k, v in registry.items() if v["status"] == status_filter}
+    if search_query:
+        q = search_query.lower()
+        registry = {k: v for k, v in registry.items() if q in k.lower()}
 
     if not registry:
-        st.info("Экспериментов с таким статусом нет.")
+        if not all_registry:
+            st.info("Экспериментов пока нет.")
+        else:
+            st.info("Экспериментов с такими условиями фильтра/поиска не найдено.")
         return
 
-    df = pd.DataFrame(
-        [{"эксперимент": k, **v} for k, v in sorted(registry.items())]
-    )
-    df = df[["эксперимент", "created_at", "path", "status", "started_at", "completed_at"]]
-    st.dataframe(df, hide_index=True)
-
-    st.divider()
-    st.subheader("Управление статусом")
-    all_registry = _list_experiment_names(experiments_dir)
-    exp_name = st.selectbox("Эксперимент", sorted(all_registry.keys()), key="exp_status_select")
-    current_status = all_registry[exp_name]["status"]
-    st.write(f"Текущий статус: **{current_status}**")
-
-    allowed = STATUS_TRANSITIONS.get(current_status, ())
-    cols = st.columns(max(len(allowed), 1))
-    for col, new_status in zip(cols, allowed):
-        with col:
-            if st.button(f"→ {new_status}", key=f"status_btn_{new_status}"):
-                try:
-                    if current_user is not None:
-                        from abkit import jobs
-
-                        jobs.run_update_status(current_user, exp_name, new_status)
-                    else:
-                        storage.update_status(experiments_dir, exp_name, new_status)
-                except (storage.StorageError, AuthError) as e:
-                    st.error(str(e))
-                else:
-                    st.success(f"«{exp_name}» переведен в статус «{new_status}»")
-                    st.rerun()
-    if not allowed:
-        st.caption("Дальнейших переходов статуса нет (архивный эксперимент).")
-
-    if current_user is not None and current_user.role == "admin":
-        with st.expander("⚠️ Удалить эксперимент безвозвратно"):
-            st.warning("Удаляются все данные эксперимента: назначения, датасеты, результаты анализов.")
-            if st.button("Удалить безвозвратно", key="exp_delete_btn"):
-                try:
-                    from abkit import jobs
-
-                    jobs.run_delete_experiment(current_user, exp_name)
-                except (storage.StorageError, AuthError) as e:
-                    st.error(str(e))
-                else:
-                    st.success(f"«{exp_name}» удален.")
-                    st.rerun()
-
+    owner_emails: dict[str, str] = {}
     if current_user is not None:
-        st.divider()
-        with st.expander("История"):
-            _render_audit_history(exp_name)
+        from abkit.db.repositories import UserRepo
 
-    st.divider()
-    st.subheader("Отчеты")
-    exp_path = Path(all_registry[exp_name]["path"])
-    report_choice = st.radio(
-        "Какой отчет посмотреть?", ["design_report.html", "report.html"], key="exp_report_choice"
-    )
-    report_path = exp_path / report_choice
-    if report_path.exists():
-        with st.spinner("Загружаем отчет..."):
-            st.iframe(report_path, height=800)
-    else:
-        st.info(f"{report_choice} еще не создан для этого эксперимента.")
+        users_by_id = {str(u.id): u.email for u in UserRepo().list_all()}
+        for name, entry in registry.items():
+            owner_id = entry.get("owner_id")
+            owner_emails[name] = users_by_id.get(owner_id, "-") if owner_id else "-"
 
-    st.divider()
-    _render_samples_section(exp_path, exp_name, key_prefix="experiments")
+    widths = [2.4, 1.8, 1.0, 1.3, 0.5, 0.5, 0.5, 0.5]
+    header_cols = st.columns(widths)
+    for col, label in zip(
+        header_cols, ["Название", "Владелец", "Статус", "Создан", "", "", "", ""]
+    ):
+        col.markdown(f"**{label}**")
+
+    for exp_name, entry in sorted(registry.items()):
+        owner_id = entry.get("owner_id")
+        can_mutate = _can_mutate_experiment(current_user, owner_id)
+        current_status = entry["status"]
+
+        # Вся строка — в одном st.empty(), а не просто st.columns() напрямую в
+        # цикле. Без этого удаление эксперимента (строка целиком пропадает из
+        # цикла на следующем прогоне) ломает и AppTest (внутренний
+        # AssertionError при разборе дерева), и РЕАЛЬНЫЙ браузер — виджеты
+        # следующих строк сдвигаются по delta-path, фронтенд Streamlit падает
+        # с "'setIn' cannot be called on an ElementNode" и страница становится
+        # пустой. row_placeholder.empty() перед st.rerun() в момент успешного
+        # удаления явно вычищает СВОЙ путь в дереве до того, как остальные
+        # строки пересчитают свои позиции — тот же прием, что и для
+        # delete-confirmation блока (см. feedback_apptest_login_gate_ghost_widgets
+        # в памяти проекта — тот же класс бага, только на этот раз воспроизвелся
+        # и в настоящем браузере, не только в AppTest).
+        row_placeholder = st.empty()
+        with row_placeholder.container():
+            cols = st.columns(widths)
+            cols[0].write(exp_name)
+            cols[1].write(owner_emails.get(exp_name, "-"))
+            cols[2].markdown(_status_badge_html(current_status), unsafe_allow_html=True)
+            cols[3].write(_fmt_registry_dt(entry.get("created_at")))
+
+            if cols[4].button("▸", key=f"exp_toggle_{exp_name}", help="Подробнее"):
+                st.session_state.exp_detail_open = (
+                    None if st.session_state.get("exp_detail_open") == exp_name else exp_name
+                )
+                st.rerun()
+
+            if can_mutate:
+                forward_target = _FORWARD_TRANSITION.get(current_status)
+                if cols[5].button(
+                    "▶️", key=f"exp_forward_{exp_name}",
+                    disabled=forward_target is None,
+                    help=f"Перевести в «{forward_target}»" if forward_target else "Нет следующего статуса",
+                ):
+                    _apply_status_change(current_user, experiments_dir, exp_name, forward_target)
+
+                if cols[6].button(
+                    "🗄️", key=f"exp_archive_{exp_name}",
+                    disabled=current_status == "archived",
+                    help="Архивировать" if current_status != "archived" else "Уже архивирован",
+                ):
+                    _apply_status_change(current_user, experiments_dir, exp_name, "archived")
+
+                if current_user is None:
+                    cols[7].button(
+                        "🗑️", key=f"exp_delete_disabled_{exp_name}", disabled=True,
+                        help="Удаление доступно только в серверном режиме (ABKIT_MODE=db).",
+                    )
+                elif cols[7].button("🗑️", key=f"exp_delete_open_{exp_name}", help="Удалить эксперимент"):
+                    st.session_state.exp_delete_confirm_target = exp_name
+                    st.rerun()
+            else:
+                for c in cols[5:8]:
+                    c.write("")
+
+            if st.session_state.get("exp_detail_open") == exp_name:
+                with st.container(border=True):
+                    try:
+                        experiment = Experiment.load(exp_name, experiments_dir=experiments_dir)
+                    except storage.StorageError as e:
+                        st.error(str(e))
+                    else:
+                        _render_experiment_detail_panel(experiment, key_prefix=f"exp_detail_{exp_name}")
+                    if current_user is not None:
+                        with st.expander("История"):
+                            _render_audit_history(exp_name)
+
+            delete_confirm_placeholder = st.empty()
+            if current_user is not None and st.session_state.get("exp_delete_confirm_target") == exp_name:
+                with delete_confirm_placeholder.container(border=True):
+                    _render_experiment_delete_confirmation(
+                        current_user, experiments_dir, exp_name,
+                        delete_confirm_placeholder, row_placeholder,
+                    )
 
 
 # --------------------------------------------------------------------------
@@ -1802,28 +2014,31 @@ def main() -> None:
         [data-testid="stMain"], тулбар просто рисуется поверх с более высоким
         z-index).
 
-        Фон — ПРОВЕРЕНО через реальный браузер (Streamlit 1.59 emotion-css не
-        выставляет ни CSS-переменной вроде --background-color, ни data-theme
-        атрибута на html/.stApp — их просто нет в DOM, только сгенерированные
-        st-emotion-cache-* классы). Единственный рабочий вариант без хрупкой
-        привязки к внутренним классам Streamlit — prefers-color-scheme с
-        реальными измеренными цветами темы Streamlit (light #ffffff, dark
-        #0e1117 = rgb(14,17,23), подтверждено getComputedStyle(.stApp)).
-        Не покрывает случай, когда пользователь вручную переключил тему в
-        настройках Streamlit НЕ так, как у него в ОС — у самого Streamlit нет
-        стабильного публичного способа узнать это из чистого CSS. */
+        Фон: НЕ фиксированный цвет по теме. Регрессия предыдущей версии —
+        она красила фон через @media(prefers-color-scheme), а это ОС/браузер
+        -ное предпочтение, не фактически выбранная тема Streamlit. Если юзер
+        вручную переключил тему в настройках Streamlit (или задал через
+        config.toml/env) не так, как у него в ОС, — @media стреляет по ОС и
+        красит панель в цвет ДРУГОЙ темы (репортился как "черная панель на
+        светлой теме"). Проверено через реальный браузер: Streamlit 1.59
+        emotion-css не выставляет ни CSS-переменной вроде --background-color,
+        ни data-theme атрибута на html/.stApp (их просто нет в DOM) — узнать
+        фактическую тему из чистого CSS нечем, а <script> из
+        unsafe_allow_html не выполняется (Streamlit санитайзит markdown), так
+        что скопировать вычисленный фон через JS тоже нельзя.
+        Поэтому фон — полупрозрачный нейтрально-серый + blur (то же, что
+        обычно называют "glassmorphism"): не зависит от того, какая тема
+        активна на самом деле, при этом контент под панелью при скролле не
+        просвечивает четким текстом (размыт), а не по цвету "притворяется"
+        частью страницы. */
         [data-testid="stTabs"] [role="tablist"] {
             position: sticky;
             top: 60px;
             z-index: 100;
-            background-color: #ffffff;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
-        }
-        @media (prefers-color-scheme: dark) {
-            [data-testid="stTabs"] [role="tablist"] {
-                background-color: #0e1117;
-                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
-            }
+            background-color: rgba(128, 128, 128, 0.16);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
         }
         </style>""",
         unsafe_allow_html=True,

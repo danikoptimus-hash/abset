@@ -186,6 +186,10 @@ def test_experiments_tab_history_and_admin_audit_show_design_event(db_url, tmp_p
     assert not at.exception
 
     experiments_tab = at.tabs[2]
+    next(b for b in experiments_tab.button if b.key == "exp_toggle_demo").click().run(timeout=30)
+    assert not at.exception
+
+    experiments_tab = at.tabs[2]
     history_expanders = [e for e in experiments_tab.expander if e.label == "История"]
     assert len(history_expanders) == 1
     history_dfs = history_expanders[0].dataframe
@@ -256,20 +260,217 @@ def test_imported_legacy_experiment_visible_in_ui_with_status_and_report(db_url,
     assert not at.exception
 
     experiments_tab = at.tabs[2]
-    registry_dfs = experiments_tab.dataframe
-    assert len(registry_dfs) >= 1
-    registry_df = registry_dfs[0].value
-    assert "imported_exp" in registry_df["эксперимент"].values
-    row = registry_df[registry_df["эксперимент"] == "imported_exp"].iloc[0]
-    assert row["status"] == "designed"
+    row_texts = " ".join(m.value for m in experiments_tab.markdown)
+    assert "imported_exp" in row_texts
+    assert "designed" in row_texts  # цветной бейдж статуса
 
-    exp_select = next(s for s in experiments_tab.selectbox if s.key == "exp_status_select")
-    exp_select.set_value("imported_exp").run(timeout=30)
+    next(b for b in experiments_tab.button if b.key == "exp_toggle_imported_exp").click().run(timeout=30)
     experiments_tab = at.tabs[2]
     assert not at.exception
 
-    report_radio = next(r for r in experiments_tab.radio if r.key == "exp_report_choice")
+    report_radio = next(r for r in experiments_tab.radio if r.key == "exp_detail_imported_exp_report_choice")
+    assert "report.html" in report_radio.options
     report_radio.set_value("report.html").run(timeout=30)
     experiments_tab = at.tabs[2]
     assert not at.exception
     assert not any("еще не создан" in i.value for i in experiments_tab.info)
+    assert len(experiments_tab.get("iframe")) == 1
+
+
+def _prep_db_env(db_url, tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("ABKIT_MODE", "db")
+    monkeypatch.setenv("DATABASE_URL", db_url)
+    monkeypatch.setenv("ABKIT_SECRET_KEY", "a-real-generated-secret-for-apptest-scenario")
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ABKIT_EXPERIMENTS_DIR", str(tmp_path / "file_side"))
+    monkeypatch.setenv("ABKIT_FLASH_SECONDS", "0")
+
+
+def _design_via_jobs(owner_user, name: str, n: int = 200, seed: int = 0):
+    """Дизайнит эксперимент напрямую через jobs.run_design (минуя UI) — нужен
+    известный owner_id для тестов видимости кнопок мутаций по ролям. unit_id
+    с префиксом имени эксперимента — не пересекается с другими экспериментами
+    в том же тесте (иначе дефолтная изоляция "exclude" обнулит кандидатов)."""
+    import numpy as np
+
+    from abkit import jobs
+    from abkit.config import DesignConfig, MetricConfig
+
+    rng = np.random.default_rng(seed)
+    data = pd.DataFrame(
+        {"user_id": [f"{name}_u{i}" for i in range(n)], "revenue": rng.normal(100, 20, size=n)}
+    )
+    config = DesignConfig(
+        name=name, unit_col="user_id", groups={"control": 0.5, "treatment": 0.5},
+        metrics=[MetricConfig(name="revenue", type="continuous")],
+        sample_size=n, split_method="simple", seed=seed,
+    )
+    return jobs.run_design(owner_user, config, data)
+
+
+def test_experiments_tab_viewer_sees_no_mutation_buttons(db_url, tmp_path, monkeypatch):
+    _prep_db_env(db_url, tmp_path, monkeypatch)
+    from abkit.auth.guards import CurrentUser
+    from abkit.db.repositories import UserRepo
+
+    admin_id = UserRepo().create(
+        email="admin_pv@co.com", name="A", password_hash=hash_password("pw12345"), role="admin"
+    )
+    UserRepo().create(
+        email="viewer_pv@co.com", name="V", password_hash=hash_password("pw12345"), role="viewer"
+    )
+    admin_user = CurrentUser(id=str(admin_id), email="admin_pv@co.com", name="A", role="admin")
+    _design_via_jobs(admin_user, "viewer_check_exp")
+
+    at = AppTest.from_file("app.py")
+    at.run(timeout=30)
+    next(ti for ti in at.text_input if ti.label == "Email").set_value("viewer_pv@co.com")
+    next(ti for ti in at.text_input if ti.label == "Пароль").set_value("pw12345")
+    at.button[0].click().run(timeout=30)
+    assert not at.exception
+
+    experiments_tab = at.tabs[2]
+    mutation_prefixes = ("exp_forward_", "exp_archive_", "exp_delete_")
+    mutation_keys = [
+        b.key for b in experiments_tab.button if b.key and b.key.startswith(mutation_prefixes)
+    ]
+    assert mutation_keys == []
+    # но сама панель списка (view-only "подробнее") видна
+    assert any(b.key == "exp_toggle_viewer_check_exp" for b in experiments_tab.button)
+
+
+def test_experiments_tab_editor_sees_mutations_only_on_own_experiments(db_url, tmp_path, monkeypatch):
+    _prep_db_env(db_url, tmp_path, monkeypatch)
+    from abkit.auth.guards import CurrentUser
+    from abkit.db.repositories import UserRepo
+
+    admin_id = UserRepo().create(
+        email="admin_ed@co.com", name="A", password_hash=hash_password("pw12345"), role="admin"
+    )
+    editor_id = UserRepo().create(
+        email="editor_ed@co.com", name="E", password_hash=hash_password("pw12345"), role="editor"
+    )
+    admin_user = CurrentUser(id=str(admin_id), email="admin_ed@co.com", name="A", role="admin")
+    editor_user = CurrentUser(id=str(editor_id), email="editor_ed@co.com", name="E", role="editor")
+    _design_via_jobs(editor_user, "editor_own_exp", seed=1)
+    _design_via_jobs(admin_user, "admin_other_exp", seed=2)
+
+    at = AppTest.from_file("app.py")
+    at.run(timeout=30)
+    next(ti for ti in at.text_input if ti.label == "Email").set_value("editor_ed@co.com")
+    next(ti for ti in at.text_input if ti.label == "Пароль").set_value("pw12345")
+    at.button[0].click().run(timeout=30)
+    assert not at.exception
+
+    experiments_tab = at.tabs[2]
+    assert any(b.key == "exp_forward_editor_own_exp" for b in experiments_tab.button)
+    assert any(b.key == "exp_archive_editor_own_exp" for b in experiments_tab.button)
+    assert any(b.key == "exp_delete_open_editor_own_exp" for b in experiments_tab.button)
+
+    assert not any(b.key == "exp_forward_admin_other_exp" for b in experiments_tab.button)
+    assert not any(b.key == "exp_archive_admin_other_exp" for b in experiments_tab.button)
+    assert not any(b.key == "exp_delete_open_admin_other_exp" for b in experiments_tab.button)
+    # подробности на чужом эксперименте видны всем ролям (view-only)
+    assert any(b.key == "exp_toggle_admin_other_exp" for b in experiments_tab.button)
+
+
+def test_experiments_tab_delete_requires_exact_DELETE_confirmation(db_url, tmp_path, monkeypatch):
+    _prep_db_env(db_url, tmp_path, monkeypatch)
+    from abkit.auth.guards import CurrentUser
+    from abkit.db.repositories import UserRepo
+
+    admin_id = UserRepo().create(
+        email="admin_del@co.com", name="A", password_hash=hash_password("pw12345"), role="admin"
+    )
+    admin_user = CurrentUser(id=str(admin_id), email="admin_del@co.com", name="A", role="admin")
+    _design_via_jobs(admin_user, "delete_confirm_exp", n=150)
+
+    at = AppTest.from_file("app.py")
+    at.run(timeout=30)
+    next(ti for ti in at.text_input if ti.label == "Email").set_value("admin_del@co.com")
+    next(ti for ti in at.text_input if ti.label == "Пароль").set_value("pw12345")
+    at.button[0].click().run(timeout=30)
+    assert not at.exception
+
+    experiments_tab = at.tabs[2]
+    next(b for b in experiments_tab.button if b.key == "exp_delete_open_delete_confirm_exp").click().run(
+        timeout=30
+    )
+    experiments_tab = at.tabs[2]
+    assert not at.exception
+
+    error_texts = " ".join(e.value for e in experiments_tab.error)
+    assert "delete_confirm_exp" in error_texts
+    assert "150 строк" in error_texts
+
+    confirm_key = "exp_delete_confirm_btn_delete_confirm_exp"
+    input_key = "exp_delete_confirm_input_delete_confirm_exp"
+
+    confirm_btn = next(b for b in experiments_tab.button if b.key == confirm_key)
+    assert confirm_btn.disabled
+
+    for bad_value in ["delete", "Delete", "", "DELETE "]:
+        input_widget = next(t for t in experiments_tab.text_input if t.key == input_key)
+        input_widget.set_value(bad_value).run(timeout=30)
+        experiments_tab = at.tabs[2]
+        confirm_btn = next(b for b in experiments_tab.button if b.key == confirm_key)
+        assert confirm_btn.disabled, f"кнопка не должна активироваться для {bad_value!r}"
+
+    input_widget = next(t for t in experiments_tab.text_input if t.key == input_key)
+    input_widget.set_value("DELETE").run(timeout=30)
+    experiments_tab = at.tabs[2]
+    confirm_btn = next(b for b in experiments_tab.button if b.key == confirm_key)
+    assert not confirm_btn.disabled
+
+    # Удаление убирает всю "строку" (st.columns с ~15 виджетами) из цикла
+    # рендера — без row_placeholder=st.empty()+.empty() перед st.rerun() в
+    # app.py это ломало и AppTest (внутренний AssertionError при разборе
+    # дерева), и настоящий браузер ("'setIn' cannot be called on an
+    # ElementNode", воспроизведено вручную и исправлено).
+    confirm_btn.click().run(timeout=30)
+    assert not at.exception
+
+    from abkit.db.repositories import ExperimentRepo
+
+    assert ExperimentRepo().get_by_name("delete_confirm_exp") is None
+
+
+def test_experiments_tab_delete_cancel_clears_confirmation_state(db_url, tmp_path, monkeypatch):
+    _prep_db_env(db_url, tmp_path, monkeypatch)
+    from abkit.auth.guards import CurrentUser
+    from abkit.db.repositories import UserRepo
+
+    admin_id = UserRepo().create(
+        email="admin_cancel@co.com", name="A", password_hash=hash_password("pw12345"), role="admin"
+    )
+    admin_user = CurrentUser(id=str(admin_id), email="admin_cancel@co.com", name="A", role="admin")
+    _design_via_jobs(admin_user, "cancel_delete_exp")
+
+    at = AppTest.from_file("app.py")
+    at.run(timeout=30)
+    next(ti for ti in at.text_input if ti.label == "Email").set_value("admin_cancel@co.com")
+    next(ti for ti in at.text_input if ti.label == "Пароль").set_value("pw12345")
+    at.button[0].click().run(timeout=30)
+
+    experiments_tab = at.tabs[2]
+    next(b for b in experiments_tab.button if b.key == "exp_delete_open_cancel_delete_exp").click().run(
+        timeout=30
+    )
+    experiments_tab = at.tabs[2]
+    input_widget = next(
+        t for t in experiments_tab.text_input if t.key == "exp_delete_confirm_input_cancel_delete_exp"
+    )
+    input_widget.set_value("DELETE").run(timeout=30)
+
+    experiments_tab = at.tabs[2]
+    next(b for b in experiments_tab.button if b.key == "exp_delete_cancel_btn_cancel_delete_exp").click().run(
+        timeout=30
+    )
+    experiments_tab = at.tabs[2]
+    assert not at.exception
+    assert not any(e.key == "exp_delete_confirm_btn_cancel_delete_exp" for e in experiments_tab.button)
+
+    from abkit.db.repositories import ExperimentRepo
+
+    assert ExperimentRepo().get_by_name("cancel_delete_exp") is not None
+

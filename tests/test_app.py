@@ -580,20 +580,23 @@ def test_experiments_tab_shows_registry_and_status_transition(tmp_path, monkeypa
     exp_tab = at.tabs[2]
     assert not at.exception
 
-    status_button = next(b for b in exp_tab.button if b.label == "→ running")
-    status_button.click().run(timeout=30)
+    row_texts = [m.value for m in exp_tab.markdown]
+    assert any("demo" in t for t in row_texts)
+    assert any("designed" in t for t in row_texts)  # цветной бейдж статуса
+
+    forward_button = next(b for b in exp_tab.button if b.key == "exp_forward_demo")
+    forward_button.click().run(timeout=30)
     assert not at.exception
-    exp_tab = at.tabs[2]
-    assert any("running" in s.value for s in exp_tab.success)
 
     registry = storage.read_registry(tmp_path)
     assert registry["demo"]["status"] == "running"
+    exp_tab = at.tabs[2]
+    assert any("running" in m.value for m in exp_tab.markdown)
 
 
-def test_experiments_tab_registry_table_column_order(tmp_path, monkeypatch):
-    """UX: слева информация об эксперименте (имя/created_at/path/status), справа —
-    временные метки жизненного цикла в хронологическом порядке (started_at до
-    completed_at)."""
+def test_experiments_tab_row_shows_owner_and_status_columns(tmp_path, monkeypatch):
+    """Superset-стиль реестра (файловый режим — владелец всегда "-", своего
+    понятия владельца в файловом режиме нет)."""
     n = 300
     data = generate_demo_design_data(n, seed=0)
     config = make_demo_design_config("demo", n, seed=0)
@@ -602,42 +605,52 @@ def test_experiments_tab_registry_table_column_order(tmp_path, monkeypatch):
     at = _fresh_app(tmp_path, monkeypatch)
     assert not at.exception
     exp_tab = at.tabs[2]
-    registry_df = exp_tab.dataframe[0].value
-    assert list(registry_df.columns) == [
-        "эксперимент", "created_at", "path", "status", "started_at", "completed_at",
-    ]
+    header_labels = [m.value for m in exp_tab.markdown]
+    assert any("Название" in h for h in header_labels)
+    assert any("Владелец" in h for h in header_labels)
+    assert any("Статус" in h for h in header_labels)
 
 
-def test_experiments_tab_renders_design_report_iframe(tmp_path, monkeypatch):
+def test_experiments_tab_detail_panel_shows_report_iframe_after_expand(tmp_path, monkeypatch):
+    """Отчет теперь внутри детальной панели (клик по ▸), не на верхнем уровне таба."""
     n = 500
     data = generate_demo_design_data(n, seed=0)
     config = make_demo_design_config("demo", n, seed=0)
     Experiment.design(config, data, experiments_dir=tmp_path)
 
     at = _fresh_app(tmp_path, monkeypatch)
+    exp_tab = at.tabs[2]
+    assert not exp_tab.get("iframe")  # свернуто по умолчанию
+
+    toggle_button = next(b for b in exp_tab.button if b.key == "exp_toggle_demo")
+    toggle_button.click().run(timeout=30)
     assert not at.exception
+
     exp_tab = at.tabs[2]
     assert len(exp_tab.get("iframe")) == 1
 
 
-def test_experiments_tab_shows_samples_section_for_existing_experiment(tmp_path, monkeypatch):
+def test_experiments_tab_detail_panel_shows_samples_section(tmp_path, monkeypatch):
     """Регрессия: секция скачивания выборок должна быть доступна для ЛЮБОГО
-    ранее спроектированного эксперимента через таб Experiments, а не только
-    сразу после дизайна в табе Design в текущей сессии."""
+    ранее спроектированного эксперимента через таб Experiments (детальная
+    панель), а не только сразу после дизайна в табе Design в текущей сессии."""
     n = 500
     data = generate_demo_design_data(n, seed=0)
     config = make_demo_design_config("demo", n, seed=0)
     Experiment.design(config, data, experiments_dir=tmp_path)
 
     at = _fresh_app(tmp_path, monkeypatch)
+    exp_tab = at.tabs[2]
+    next(b for b in exp_tab.button if b.key == "exp_toggle_demo").click().run(timeout=30)
     assert not at.exception
+
     exp_tab = at.tabs[2]
     assert any("Выборки для передачи" in m.value for m in exp_tab.markdown)
     assert any("control.csv" in m.value for m in exp_tab.markdown)
     assert any("treatment.csv" in m.value for m in exp_tab.markdown)
 
 
-def test_experiments_tab_samples_missing_shows_info(tmp_path, monkeypatch):
+def test_experiments_tab_detail_panel_samples_missing_shows_info(tmp_path, monkeypatch):
     """Обратная совместимость: эксперимент, спроектированный до появления
     samples/ (например, старой версией кода), не должен ронять таб — только
     информативное сообщение."""
@@ -650,9 +663,31 @@ def test_experiments_tab_samples_missing_shows_info(tmp_path, monkeypatch):
     shutil.rmtree(tmp_path / "demo" / "samples")
 
     at = _fresh_app(tmp_path, monkeypatch)
+    exp_tab = at.tabs[2]
+    next(b for b in exp_tab.button if b.key == "exp_toggle_demo").click().run(timeout=30)
     assert not at.exception
+
     exp_tab = at.tabs[2]
     assert any("не найдены" in i.value for i in exp_tab.info)
+
+
+def test_experiments_tab_search_filters_by_name(tmp_path, monkeypatch):
+    n = 200
+    for name in ("alpha_checkout", "beta_signup"):
+        data = generate_demo_design_data(n, seed=0)
+        config = make_demo_design_config(name, n, seed=0)
+        Experiment.design(config, data, experiments_dir=tmp_path)
+
+    at = _fresh_app(tmp_path, monkeypatch)
+    exp_tab = at.tabs[2]
+    search = next(t for t in exp_tab.text_input if t.key == "exp_search")
+    search.set_value("alpha").run(timeout=30)
+    assert not at.exception
+
+    exp_tab = at.tabs[2]
+    row_texts = " ".join(m.value for m in exp_tab.markdown)
+    assert "alpha_checkout" in row_texts
+    assert "beta_signup" not in row_texts
 
 
 def test_validation_tab_renders_without_error_when_no_experiments(tmp_path, monkeypatch):

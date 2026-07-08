@@ -242,6 +242,19 @@ class AssignmentRepo:
             ).all()
         return pd.DataFrame(rows, columns=["unit_id", "group", "stratum", "assigned_at"])
 
+    def count_for_experiment(self, experiment_id: uuid_mod.UUID) -> int:
+        """Для диалога подтверждения удаления (app.py) — сколько строк
+        реально удалится каскадом вместе с экспериментом."""
+        with session_scope() as s:
+            return (
+                s.scalar(
+                    select(func.count()).select_from(Assignment).where(
+                        Assignment.experiment_id == experiment_id
+                    )
+                )
+                or 0
+            )
+
     def occupied_units_for_active_experiments(
         self, exclude_experiment_ids: set[uuid_mod.UUID] | None = None
     ) -> dict[str, set[str]]:
@@ -328,6 +341,15 @@ class DatasetRepo:
     def compute_sha256(data: pd.DataFrame) -> str:
         return hashlib.sha256(pd.util.hash_pandas_object(data, index=True).to_numpy().tobytes()).hexdigest()
 
+    def count_for_experiment(self, experiment_id: uuid_mod.UUID) -> int:
+        with session_scope() as s:
+            return (
+                s.scalar(
+                    select(func.count()).select_from(Dataset).where(Dataset.experiment_id == experiment_id)
+                )
+                or 0
+            )
+
 
 class ResultRepo:
     def create(
@@ -362,6 +384,17 @@ class ResultRepo:
             if r is not None:
                 s.expunge(r)
             return r
+
+    def count_for_experiment(self, experiment_id: uuid_mod.UUID) -> int:
+        with session_scope() as s:
+            return (
+                s.scalar(
+                    select(func.count()).select_from(AnalysisResult).where(
+                        AnalysisResult.experiment_id == experiment_id
+                    )
+                )
+                or 0
+            )
 
 
 class AuditRepo:
