@@ -57,6 +57,9 @@ class Experiment(Base):
         CheckConstraint(
             "status IN ('designed','running','completed','archived')", name="ck_experiments_status"
         ),
+        CheckConstraint(
+            "publication_status IN ('draft','published')", name="ck_experiments_publication_status"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -65,6 +68,9 @@ class Experiment(Base):
     name: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
+    # Редакционный статус (FRONTEND.md §1/§3.3) — независим от операционного
+    # status выше; draft видят владелец+admin, published — все роли.
+    publication_status: Mapped[str] = mapped_column(Text, nullable=False, default="draft")
     config: Mapped[dict] = mapped_column(JSONB, nullable=False)
     design_summary: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -102,8 +108,12 @@ class Dataset(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    experiment_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("experiments.id", ondelete="CASCADE"), nullable=False
+    # nullable: датасет kind='pre_design' загружается ДО того, как эксперимент
+    # создан (визард шаг 1, FRONTEND.md §3.2: "POST /datasets {..., experiment_id?}");
+    # design-джоба привязывает его через DatasetRepo.attach_to_experiment()
+    # после успешного создания эксперимента.
+    experiment_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("experiments.id", ondelete="CASCADE"), nullable=True
     )
     kind: Mapped[str] = mapped_column(Text, nullable=False)
     filename: Mapped[str] = mapped_column(Text, nullable=False)
@@ -157,3 +167,66 @@ class AuditLog(Base):
     object_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     object_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     details: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+
+class ExperimentBlock(Base):
+    """Markdown-блоки страницы теста (FRONTEND.md §1/§3.3): Гипотеза/Выводы/
+    Решение — автосоздаются пустыми при создании эксперимента (ExperimentRepo.
+    create), плюс произвольные custom-блоки, добавляемые из UI."""
+
+    __tablename__ = "experiment_blocks"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('hypothesis','conclusion','decision','custom')",
+            name="ck_experiment_blocks_kind",
+        ),
+        Index("ix_experiment_blocks_experiment", "experiment_id", "position"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    experiment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("experiments.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    content_md: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class Job(Base):
+    """Фоновые задачи (design/analyze/validate) — FRONTEND.md §4. Без Celery:
+    ThreadPoolExecutor (backend/jobs/runner.py) + эта таблица как источник
+    правды для GET /jobs/{id} (переживает рестарт воркера, в отличие от
+    состояния в памяти процесса)."""
+
+    __tablename__ = "jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','running','requires_confirmation','completed','failed')",
+            name="ck_jobs_status",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    type: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    progress: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    result_ref: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

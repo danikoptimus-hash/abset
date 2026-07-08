@@ -8,7 +8,12 @@ from abkit.auth.passwords import hash_password
 from abkit.db.repositories import ExperimentRepo, ResultRepo, UserRepo
 
 
-def _login(app_client, email="editor@co.com", role="editor"):
+def _login(app_client, email="editor@co.com", role="admin"):
+    """Дефолт admin (не editor): большинство тестов этого файла проверяют
+    механику списка/деталей, а не видимость draft (FRONTEND.md §3.3 — draft
+    видят только владелец и admin) — эксперименты в _make_experiment создаются
+    с чужим owner_id, иначе не-владелец/не-admin их бы не увидел. Видимость
+    draft для чужого editor/viewer проверяется отдельным тестом ниже."""
     UserRepo().create(email=email, name="E", password_hash=hash_password("pw12345"), role=role)
     app_client.post("/api/v1/auth/login", json={"email": email, "password": "pw12345"})
 
@@ -66,6 +71,48 @@ def test_list_experiments_filters_by_owner(app_client):
     assert body["total"] == 1
     assert body["items"][0]["name"] == "exp_owner_a"
     assert body["items"][0]["owner_email"] == "owner_a@co.com"
+
+
+def test_draft_experiment_hidden_from_non_owner_non_admin(app_client):
+    other_owner = UserRepo().create(
+        email="draft_owner@co.com", name="O", password_hash=hash_password("pw12345"), role="editor"
+    )
+    _make_experiment("draft_exp", owner_id=other_owner)  # publication_status="draft" по умолчанию
+
+    _login(app_client, email="outsider@co.com", role="editor")
+    resp_list = app_client.get("/api/v1/experiments")
+    assert resp_list.json()["total"] == 0
+
+    resp_detail = app_client.get("/api/v1/experiments/draft_exp")
+    assert resp_detail.status_code == 404
+
+
+def test_draft_experiment_visible_to_owner_and_admin(app_client):
+    owner_id = UserRepo().create(
+        email="draft_owner2@co.com", name="O2", password_hash=hash_password("pw12345"), role="editor"
+    )
+    _make_experiment("draft_exp2", owner_id=owner_id)
+
+    _login(app_client, email="admin_viewer@co.com", role="admin")
+    resp = app_client.get("/api/v1/experiments/draft_exp2")
+    assert resp.status_code == 200
+    assert resp.json()["publication_status"] == "draft"
+
+
+def test_published_experiment_visible_to_anyone(app_client):
+    from abkit.db.repositories import ExperimentRepo
+
+    other_owner = UserRepo().create(
+        email="pub_owner@co.com", name="P", password_hash=hash_password("pw12345"), role="editor"
+    )
+    _make_experiment("pub_exp", owner_id=other_owner)
+    ExperimentRepo().update_publication_status("pub_exp", "published")
+
+    _login(app_client, email="anyone@co.com", role="viewer")
+    resp = app_client.get("/api/v1/experiments/pub_exp")
+    assert resp.status_code == 200
+    resp_list = app_client.get("/api/v1/experiments", params={"pub": "published"})
+    assert resp_list.json()["total"] == 1
 
 
 def test_get_experiment_detail_design_summary_is_null_by_default(app_client):

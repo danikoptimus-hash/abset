@@ -11,8 +11,10 @@ import pytest
 from abkit.db.repositories import (
     AssignmentRepo,
     AuditRepo,
+    BlockRepo,
     DatasetRepo,
     ExperimentRepo,
+    JobRepo,
     RepoError,
     ResultRepo,
     UserRepo,
@@ -211,6 +213,146 @@ def test_result_repo_create_and_latest(db_url):
     assert latest is not None
     assert latest.id == latest_id
     assert latest.results == {"v": 2}
+
+
+def test_experiment_repo_create_auto_creates_default_blocks(db_url):
+    owner_id = _make_user(db_url, email="owner8@co.com")
+    exp = ExperimentRepo().create(name="blocks_exp", owner_id=owner_id, status="designed", config={})
+    assert exp.publication_status == "draft"
+
+    blocks = BlockRepo().list_for_experiment(exp.id)
+    assert [b.kind for b in blocks] == ["hypothesis", "conclusion", "decision"]
+    assert all(b.content_md == "" for b in blocks)
+
+
+def test_experiment_repo_publication_status_toggle(db_url):
+    owner_id = _make_user(db_url, email="owner9@co.com")
+    ExperimentRepo().create(name="pub_exp", owner_id=owner_id, status="designed", config={})
+
+    ExperimentRepo().update_publication_status("pub_exp", "published")
+    assert ExperimentRepo().get_by_name("pub_exp").publication_status == "published"
+
+    ExperimentRepo().update_publication_status("pub_exp", "draft")
+    assert ExperimentRepo().get_by_name("pub_exp").publication_status == "draft"
+
+
+def test_experiment_repo_rename(db_url):
+    owner_id = _make_user(db_url, email="owner10@co.com")
+    ExperimentRepo().create(name="old_name", owner_id=owner_id, status="designed", config={})
+
+    ExperimentRepo().rename("old_name", "new_name")
+    assert ExperimentRepo().get_by_name("old_name") is None
+    assert ExperimentRepo().get_by_name("new_name") is not None
+
+
+def test_experiment_repo_rename_rejects_existing_name(db_url):
+    owner_id = _make_user(db_url, email="owner11@co.com")
+    ExperimentRepo().create(name="taken", owner_id=owner_id, status="designed", config={})
+    ExperimentRepo().create(name="to_rename", owner_id=owner_id, status="designed", config={})
+
+    with pytest.raises(RepoError, match="уже существует"):
+        ExperimentRepo().rename("to_rename", "taken")
+
+
+def test_block_repo_upsert_updates_existing_and_adds_custom(db_url):
+    owner_id = _make_user(db_url, email="owner12@co.com")
+    exp = ExperimentRepo().create(name="upsert_exp", owner_id=owner_id, status="designed", config={})
+    repo = BlockRepo()
+
+    initial = repo.list_for_experiment(exp.id)
+    hypothesis = next(b for b in initial if b.kind == "hypothesis")
+
+    updated = repo.upsert_many(
+        exp.id,
+        [
+            {"id": hypothesis.id, "kind": "hypothesis", "title": "H", "content_md": "новая гипотеза", "position": 0},
+            {"kind": "custom", "title": "Доп. блок", "content_md": "текст", "position": 3},
+        ],
+        updated_by=owner_id,
+    )
+    kinds = [b.kind for b in updated]
+    assert kinds.count("hypothesis") == 1
+    assert "custom" in kinds
+
+    all_blocks = repo.list_for_experiment(exp.id)
+    assert len(all_blocks) == 4  # hypothesis(обновлен)+conclusion+decision+новый custom
+    hyp = next(b for b in all_blocks if b.kind == "hypothesis")
+    assert hyp.content_md == "новая гипотеза"
+
+
+def test_block_repo_upsert_deletes_omitted_custom_block(db_url):
+    owner_id = _make_user(db_url, email="owner13@co.com")
+    exp = ExperimentRepo().create(name="del_block_exp", owner_id=owner_id, status="designed", config={})
+    repo = BlockRepo()
+
+    repo.upsert_many(exp.id, [{"kind": "custom", "title": "Temp", "content_md": "x", "position": 5}])
+    assert any(b.kind == "custom" for b in repo.list_for_experiment(exp.id))
+
+    # Пустой список custom-блоков в payload -> существующий custom удаляется,
+    # фиксированные (hypothesis/conclusion/decision) остаются нетронутыми.
+    repo.upsert_many(exp.id, [])
+    remaining = repo.list_for_experiment(exp.id)
+    assert [b.kind for b in remaining] == ["hypothesis", "conclusion", "decision"]
+
+
+def test_dataset_repo_create_without_experiment_then_attach(db_url):
+    owner_id = _make_user(db_url, email="owner14@co.com")
+    ds_id = DatasetRepo().create(
+        kind="pre_design", filename="pre.csv", n_rows=10, columns=["a"],
+        storage_path="/data/pre.csv", sha256="x", uploaded_by=owner_id,
+    )
+    assert DatasetRepo().get_by_id(ds_id).experiment_id is None
+
+    exp = ExperimentRepo().create(name="attach_exp", owner_id=owner_id, status="designed", config={})
+    DatasetRepo().attach_to_experiment(ds_id, exp.id)
+    assert DatasetRepo().get_by_id(ds_id).experiment_id == exp.id
+
+
+def test_job_repo_lifecycle(db_url):
+    owner_id = _make_user(db_url, email="owner15@co.com")
+    repo = JobRepo()
+
+    job = repo.create(type="design", created_by=owner_id)
+    assert job.status == "pending"
+
+    repo.mark_running(job.id)
+    assert repo.get_by_id(job.id).status == "running"
+
+    repo.update_progress(job.id, {"stage": "Считаем мощность...", "pct": 40})
+    assert repo.get_by_id(job.id).progress == {"stage": "Считаем мощность...", "pct": 40}
+
+    repo.mark_completed(job.id, {"experiment_name": "exp_a"})
+    completed = repo.get_by_id(job.id)
+    assert completed.status == "completed"
+    assert completed.result_ref == {"experiment_name": "exp_a"}
+    assert completed.finished_at is not None
+
+
+def test_job_repo_mark_failed_and_requires_confirmation(db_url):
+    repo = JobRepo()
+
+    failed_job = repo.create(type="analyze")
+    repo.mark_failed(failed_job.id, "что-то пошло не так")
+    assert repo.get_by_id(failed_job.id).status == "failed"
+    assert repo.get_by_id(failed_job.id).error == "что-то пошло не так"
+
+    confirm_job = repo.create(type="design")
+    repo.mark_requires_confirmation(confirm_job.id, {"overlap": 5, "by_experiment": {"x": 5}})
+    confirmed = repo.get_by_id(confirm_job.id)
+    assert confirmed.status == "requires_confirmation"
+    assert confirmed.result_ref == {"overlap": 5, "by_experiment": {"x": 5}}
+
+
+def test_job_repo_list_unfinished(db_url):
+    repo = JobRepo()
+    pending = repo.create(type="design")
+    running = repo.create(type="analyze")
+    repo.mark_running(running.id)
+    done = repo.create(type="validate_aa")
+    repo.mark_completed(done.id)
+
+    unfinished_ids = {j.id for j in repo.list_unfinished()}
+    assert unfinished_ids == {pending.id, running.id}
 
 
 def test_audit_repo_log_and_filter(db_url):

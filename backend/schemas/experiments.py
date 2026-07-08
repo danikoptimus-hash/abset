@@ -11,6 +11,7 @@ REPORT_FILENAMES = ("design_report.html", "report.html")
 class ExperimentSummary(BaseModel):
     name: str
     status: str
+    publication_status: str
     owner_email: str | None
     created_at: datetime
     started_at: datetime | None
@@ -39,6 +40,7 @@ class SampleInfo(BaseModel):
 class ExperimentDetail(BaseModel):
     name: str
     status: str
+    publication_status: str
     owner_email: str | None
     owner_name: str | None
     config: dict[str, Any]
@@ -71,3 +73,34 @@ class PaginatedAudit(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class StatusChangeRequest(BaseModel):
+    to: str
+
+
+class PatchExperimentRequest(BaseModel):
+    publication_status: str | None = None
+    name: str | None = None
+
+
+class DeleteExperimentRequest(BaseModel):
+    confirm: str
+
+
+class AnalyzeRequest(BaseModel):
+    dataset_id: str
+    correction: str = "holm"
+    compare_methods: bool = False
+    date_col: str | None = None
+
+
+class AnalyzeDemoRequest(BaseModel):
+    effect: float = 0.03
+
+
+class ValidateRequest(BaseModel):
+    dataset_id: str
+    n_sims: int = 2000
+    compare_methods: bool = False
+    effect: float = 0.05

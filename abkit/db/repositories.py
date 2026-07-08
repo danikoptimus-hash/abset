@@ -16,9 +16,19 @@ from sqlalchemy import func, insert, select
 
 from abkit import storage
 from abkit.db.engine import session_scope
-from abkit.db.models import AnalysisResult, AuditLog, Assignment, Dataset, Experiment, User
+from abkit.db.models import (
+    AnalysisResult,
+    AuditLog,
+    Assignment,
+    Dataset,
+    Experiment,
+    ExperimentBlock,
+    Job,
+    User,
+)
 
 _ACTIVE_STATUSES = ("designed", "running")
+_DEFAULT_BLOCK_KINDS = ("hypothesis", "conclusion", "decision")
 
 
 class RepoError(storage.StorageError):
@@ -143,6 +153,7 @@ class ExperimentRepo:
         status: str,
         config: dict[str, Any],
         design_summary: dict[str, Any] | None = None,
+        publication_status: str = "draft",
         created_at: datetime | None = None,
         started_at: datetime | None = None,
         completed_at: datetime | None = None,
@@ -151,12 +162,17 @@ class ExperimentRepo:
         """created_at/started_at/completed_at/archived_at — обычно проставляются
         БД (server_default/update_status); явные значения нужны только для
         импорта легаси-экспериментов (DOCKER.md §9), чтобы сохранить настоящую
-        историю статусов, а не создать новую с текущим временем."""
+        историю статусов, а не создать новую с текущим временем.
+
+        Автосоздает пустые markdown-блоки hypothesis/conclusion/decision в той
+        же транзакции (FRONTEND.md §3.3: "При создании эксперимента
+        автосоздаются пустые hypothesis/conclusion/decision")."""
         with session_scope() as s:
             if s.scalar(select(Experiment).where(Experiment.name == name)) is not None:
                 raise RepoError(f"Эксперимент с именем '{name}' уже существует")
             exp = Experiment(
-                name=name, owner_id=owner_id, status=status, config=config, design_summary=design_summary
+                name=name, owner_id=owner_id, status=status, config=config,
+                design_summary=design_summary, publication_status=publication_status,
             )
             if created_at is not None:
                 exp.created_at = created_at
@@ -168,6 +184,8 @@ class ExperimentRepo:
                 exp.archived_at = archived_at
             s.add(exp)
             s.flush()
+            for position, kind in enumerate(_DEFAULT_BLOCK_KINDS):
+                s.add(ExperimentBlock(experiment_id=exp.id, kind=kind, position=position))
             s.refresh(exp)
             s.expunge(exp)
             return exp
@@ -202,6 +220,23 @@ class ExperimentRepo:
                 exp.completed_at = now
             elif new_status == "archived":
                 exp.archived_at = now
+
+    def update_publication_status(self, name: str, publication_status: str) -> None:
+        """draft<->published — переходы обратимы в обе стороны (FRONTEND.md §3.3)."""
+        with session_scope() as s:
+            exp = s.scalar(select(Experiment).where(Experiment.name == name))
+            if exp is None:
+                raise RepoError(f"Эксперимент '{name}' не найден")
+            exp.publication_status = publication_status
+
+    def rename(self, name: str, new_name: str) -> None:
+        with session_scope() as s:
+            exp = s.scalar(select(Experiment).where(Experiment.name == name))
+            if exp is None:
+                raise RepoError(f"Эксперимент '{name}' не найден")
+            if new_name != name and s.scalar(select(Experiment).where(Experiment.name == new_name)) is not None:
+                raise RepoError(f"Эксперимент с именем '{new_name}' уже существует")
+            exp.name = new_name
 
     def delete(self, name: str) -> None:
         """Admin-only (DOCKER.md §4.1, "Удалять эксперименты") — реальное
@@ -300,13 +335,13 @@ class DatasetRepo:
     def create(
         self,
         *,
-        experiment_id: uuid_mod.UUID,
         kind: str,
         filename: str,
         n_rows: int,
         columns: list[str],
         storage_path: str,
         sha256: str,
+        experiment_id: uuid_mod.UUID | None = None,
         uploaded_by: uuid_mod.UUID | None = None,
     ) -> uuid_mod.UUID:
         with session_scope() as s:
@@ -330,6 +365,16 @@ class DatasetRepo:
             if ds is not None:
                 s.expunge(ds)
             return ds
+
+    def attach_to_experiment(self, dataset_id: uuid_mod.UUID, experiment_id: uuid_mod.UUID) -> None:
+        """Привязывает pre_design датасет (загружен до создания эксперимента,
+        experiment_id=None) к только что созданному эксперименту — вызывается
+        design-джобой после успешного Experiment.design()."""
+        with session_scope() as s:
+            ds = s.get(Dataset, dataset_id)
+            if ds is None:
+                raise RepoError(f"Датасет {dataset_id} не найден")
+            ds.experiment_id = experiment_id
 
     def list_for_experiment(self, experiment_id: uuid_mod.UUID) -> list[Dataset]:
         with session_scope() as s:
@@ -496,3 +541,145 @@ class AuditRepo:
                 date_from=date_from, date_to=date_to,
             )
             return s.scalar(stmt) or 0
+
+
+class BlockRepo:
+    """Markdown-блоки страницы теста (FRONTEND.md §1/§3.3). Дефолтные
+    hypothesis/conclusion/decision создаются в ExperimentRepo.create();
+    здесь — чтение и upsert-списком (PUT /experiments/{name}/blocks)."""
+
+    def list_for_experiment(self, experiment_id: uuid_mod.UUID) -> list[ExperimentBlock]:
+        with session_scope() as s:
+            rows = list(
+                s.scalars(
+                    select(ExperimentBlock)
+                    .where(ExperimentBlock.experiment_id == experiment_id)
+                    .order_by(ExperimentBlock.position)
+                )
+            )
+            for r in rows:
+                s.expunge(r)
+            return rows
+
+    def upsert_many(
+        self,
+        experiment_id: uuid_mod.UUID,
+        blocks: list[dict[str, Any]],
+        updated_by: uuid_mod.UUID | None = None,
+    ) -> list[ExperimentBlock]:
+        """blocks: список {id?, kind, title, content_md, position}. id задан и
+        принадлежит этому эксперименту -> обновление; иначе -> создание новой
+        строки (обычно custom-блок). Существующие custom-блоки, чьих id нет в
+        списке, удаляются (это и есть "удалить блок" в UI) — блоки
+        hypothesis/conclusion/decision никогда не удаляются этим методом, даже
+        если отсутствуют в списке."""
+        with session_scope() as s:
+            existing = list(
+                s.scalars(select(ExperimentBlock).where(ExperimentBlock.experiment_id == experiment_id))
+            )
+            existing_by_id = {e.id: e for e in existing}
+            kept_ids: set[uuid_mod.UUID] = set()
+
+            result: list[ExperimentBlock] = []
+            for block in blocks:
+                block_id = block.get("id")
+                existing_block = existing_by_id.get(block_id) if block_id else None
+                if existing_block is not None:
+                    existing_block.title = block.get("title", existing_block.title)
+                    existing_block.content_md = block.get("content_md", existing_block.content_md)
+                    existing_block.position = block.get("position", existing_block.position)
+                    existing_block.updated_by = updated_by
+                    kept_ids.add(existing_block.id)
+                    result.append(existing_block)
+                else:
+                    new_block = ExperimentBlock(
+                        experiment_id=experiment_id,
+                        kind=block.get("kind", "custom"),
+                        title=block.get("title", ""),
+                        content_md=block.get("content_md", ""),
+                        position=block.get("position", 0),
+                        updated_by=updated_by,
+                    )
+                    s.add(new_block)
+                    s.flush()
+                    kept_ids.add(new_block.id)
+                    result.append(new_block)
+
+            for e in existing:
+                if e.kind != "custom":
+                    continue
+                if e.id not in kept_ids:
+                    s.delete(e)
+
+            result.sort(key=lambda b: b.position)
+            for r in result:
+                s.refresh(r)
+                s.expunge(r)
+            return result
+
+
+class JobRepo:
+    """Фоновые задачи (FRONTEND.md §4) — источник правды для GET /jobs/{id},
+    переживает рестарт процесса (в отличие от состояния ThreadPoolExecutor
+    в памяти, см. backend/jobs/runner.py)."""
+
+    def create(self, *, type: str, created_by: uuid_mod.UUID | None = None) -> Job:
+        with session_scope() as s:
+            job = Job(type=type, status="pending", created_by=created_by)
+            s.add(job)
+            s.flush()
+            s.refresh(job)
+            s.expunge(job)
+            return job
+
+    def get_by_id(self, job_id: uuid_mod.UUID) -> Job | None:
+        with session_scope() as s:
+            job = s.get(Job, job_id)
+            if job is not None:
+                s.expunge(job)
+            return job
+
+    def mark_running(self, job_id: uuid_mod.UUID) -> None:
+        with session_scope() as s:
+            job = s.get(Job, job_id)
+            if job is not None:
+                job.status = "running"
+
+    def update_progress(self, job_id: uuid_mod.UUID, progress: dict[str, Any]) -> None:
+        with session_scope() as s:
+            job = s.get(Job, job_id)
+            if job is not None:
+                job.progress = progress
+
+    def mark_completed(self, job_id: uuid_mod.UUID, result_ref: dict[str, Any] | None = None) -> None:
+        with session_scope() as s:
+            job = s.get(Job, job_id)
+            if job is not None:
+                job.status = "completed"
+                job.result_ref = result_ref
+                job.finished_at = datetime.now(timezone.utc)
+
+    def mark_requires_confirmation(self, job_id: uuid_mod.UUID, result_ref: dict[str, Any]) -> None:
+        with session_scope() as s:
+            job = s.get(Job, job_id)
+            if job is not None:
+                job.status = "requires_confirmation"
+                job.result_ref = result_ref
+                job.finished_at = datetime.now(timezone.utc)
+
+    def mark_failed(self, job_id: uuid_mod.UUID, error: str) -> None:
+        with session_scope() as s:
+            job = s.get(Job, job_id)
+            if job is not None:
+                job.status = "failed"
+                job.error = error
+                job.finished_at = datetime.now(timezone.utc)
+
+    def list_unfinished(self) -> list[Job]:
+        with session_scope() as s:
+            rows = list(
+                s.scalars(select(Job).where(Job.status.in_(("pending", "running"))))
+            )
+            for r in rows:
+                s.expunge(r)
+            return rows

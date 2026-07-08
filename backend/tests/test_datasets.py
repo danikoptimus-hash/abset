@@ -77,3 +77,62 @@ def test_list_datasets_includes_experiment_and_uploader(app_client, tmp_path):
     assert item["experiment_name"] == "exp_ds"
     assert item["filename"] == "upload.csv"
     assert item["kind"] == "pre_design"
+
+
+def test_upload_requires_editor_role(app_client, tmp_path, monkeypatch):
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    UserRepo().create(email="viewer@co.com", name="V", password_hash=hash_password("pw12345"), role="viewer")
+    app_client.post("/api/v1/auth/login", json={"email": "viewer@co.com", "password": "pw12345"})
+    resp = app_client.post(
+        "/api/v1/datasets", data={"kind": "pre_design"},
+        files={"file": ("data.csv", "a,b\n1,2\n", "text/csv")},
+    )
+    assert resp.status_code == 403
+
+
+def test_upload_without_experiment_creates_unlinked_dataset(app_client, tmp_path, monkeypatch):
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+    resp = app_client.post(
+        "/api/v1/datasets", data={"kind": "pre_design"},
+        files={"file": ("upload2.csv", "unit_id,value\nu1,1\nu2,2\n", "text/csv")},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["experiment_id"] is None
+    assert body["n_rows"] == 2
+    assert body["columns"] == ["unit_id", "value"]
+    assert body["dtypes"]["value"] in ("int64",)
+
+
+def test_upload_with_unknown_experiment_name_404(app_client, tmp_path, monkeypatch):
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+    resp = app_client.post(
+        "/api/v1/datasets", data={"kind": "post_analysis", "experiment_name": "does_not_exist"},
+        files={"file": ("upload3.csv", "unit_id,value\nu1,1\n", "text/csv")},
+    )
+    assert resp.status_code == 404
+
+
+def test_upload_invalid_kind_422(app_client, tmp_path, monkeypatch):
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+    resp = app_client.post(
+        "/api/v1/datasets", data={"kind": "bogus"},
+        files={"file": ("upload4.csv", "unit_id,value\nu1,1\n", "text/csv")},
+    )
+    assert resp.status_code == 422
+
+
+def test_upload_rejects_file_over_size_limit(app_client, tmp_path, monkeypatch):
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ABKIT_MAX_UPLOAD_MB", "1")
+    _login(app_client)
+    big_csv = "unit_id,value\n" + "\n".join(f"u{i},{i}" for i in range(200_000))
+    assert len(big_csv.encode()) > 1024 * 1024
+    resp = app_client.post(
+        "/api/v1/datasets", data={"kind": "pre_design"},
+        files={"file": ("big.csv", big_csv, "text/csv")},
+    )
+    assert resp.status_code == 413

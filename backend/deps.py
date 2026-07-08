@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from typing import Callable
 
-from fastapi import Cookie, Depends
+from fastapi import Cookie, Depends, Request
 
 from abkit.auth.guards import AuthError, CurrentUser, require_role
 from backend.errors import APIError
+from backend.jobs import JobRunner
 
 COOKIE_NAME = "abkit_session"
 
@@ -41,3 +42,9 @@ def require_min_role(min_role: str) -> Callable[[CurrentUser], CurrentUser]:
             raise APIError(403, "forbidden", str(e)) from e
 
     return _dep
+
+
+def get_job_runner(request: Request) -> JobRunner:
+    """JobRunner создается один раз в lifespan (main.py) и живет в app.state —
+    не пересоздается на каждый запрос."""
+    return request.app.state.job_runner

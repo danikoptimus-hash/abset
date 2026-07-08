@@ -8,12 +8,13 @@ from pydantic import BaseModel
 
 class DatasetOut(BaseModel):
     id: str
-    experiment_id: str
+    experiment_id: str | None
     experiment_name: str | None
     kind: str
     filename: str
     n_rows: int
     columns: list[str]
+    dtypes: dict[str, str] | None = None
     uploaded_by_email: str | None
     uploaded_at: datetime
 

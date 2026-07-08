@@ -152,6 +152,51 @@ def run_update_status(current_user: CurrentUser, name: str, new_status: str) -> 
     )
 
 
+def run_set_publication_status(current_user: CurrentUser, name: str, publication_status: str) -> None:
+    """draft<->published — то же право, что смена операционного статуса
+    (владелец или admin), обе стороны переключения аудируются (FRONTEND.md
+    §3.3: "оба направления в audit_log")."""
+    from abkit.db.repositories import ExperimentRepo
+
+    exp_row = _get_experiment_row(name)
+    require_owner_or_admin(current_user, str(exp_row.owner_id))
+    old_status = exp_row.publication_status
+    with _timed(
+        "set_publication_status", user=current_user.email, experiment=name,
+        publication_status=publication_status,
+    ):
+        ExperimentRepo().update_publication_status(name, publication_status)
+    _audit(
+        current_user, "experiment.publication_status_change",
+        object_type="experiment", object_id=str(exp_row.id), object_name=name,
+        details={"from": old_status, "to": publication_status},
+    )
+
+
+def run_rename_experiment(current_user: CurrentUser, name: str, new_name: str) -> None:
+    """Переименование — владелец или admin (та же политика, что у смены
+    статуса); артефактная директория переименовывается вместе со строкой БД,
+    чтобы experiment.path продолжал резолвиться по новому имени."""
+    import shutil
+
+    from abkit.db.repositories import ExperimentRepo
+    from abkit.db.store import DbExperimentStore
+
+    exp_row = _get_experiment_row(name)
+    require_owner_or_admin(current_user, str(exp_row.owner_id))
+    with _timed("rename_experiment", user=current_user.email, experiment=name, new_name=new_name):
+        ExperimentRepo().rename(name, new_name)
+        store = DbExperimentStore()
+        old_dir = store.data_dir / name
+        if old_dir.exists():
+            shutil.move(str(old_dir), str(store.data_dir / new_name))
+    _audit(
+        current_user, "experiment.rename",
+        object_type="experiment", object_id=str(exp_row.id), object_name=new_name,
+        details={"from": name, "to": new_name},
+    )
+
+
 def get_experiment_deletion_summary(current_user: CurrentUser, name: str) -> dict[str, int]:
     """Только для UI-подтверждения удаления (app.py) — сколько строк реально
     удалится каскадом, без самого удаления. Тот же guard, что и у самого

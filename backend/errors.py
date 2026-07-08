@@ -13,6 +13,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from abkit import storage
 from abkit.auth.guards import AuthError
 
 
@@ -53,6 +54,16 @@ def register_exception_handlers(app: FastAPI) -> None:
         status_code = _auth_error_status(exc)
         code = "unauthorized" if status_code == 401 else "forbidden"
         return JSONResponse(status_code=status_code, content=_error_body(code, str(exc)))
+
+    @app.exception_handler(storage.StorageError)
+    async def _handle_storage_error(request: Request, exc: storage.StorageError) -> JSONResponse:
+        # StorageError/RepoError/DbStoreError (abkit/db/repositories.py,
+        # abkit/db/store.py) — почти всегда "эксперимент/датасет не найден" в
+        # синхронных мутациях (status/rename/delete/blocks); сообщение уже
+        # человекочитаемое на русском, просто оборачиваем в конверт ошибок.
+        # POST /design — асинхронная job, там такие ошибки идут в job.error,
+        # а не сюда (см. backend/jobs/runner.py).
+        return JSONResponse(status_code=404, content=_error_body("not_found", str(exc)))
 
     @app.exception_handler(RequestValidationError)
     async def _handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
