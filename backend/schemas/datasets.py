@@ -31,3 +31,24 @@ class DatasetPreview(BaseModel):
     n_rows: int
     columns: list[str]
     rows: list[dict[str, Any]]
+
+
+class MetricBaselineRequest(BaseModel):
+    """Форма метрики (как MetricConfig) для расчета baseline-среднего —
+    нужен визарду дизайна (FRONTEND.md §5.2, шаг 3: live-пересчет абсолютного
+    MDE в относительный)."""
+
+    name: str
+    type: str
+    pre_col: str | None = None
+    num: str | None = None
+    den: str | None = None
+
+
+class MetricBaselineResponse(BaseModel):
+    baseline_mean: float | None
+
+
+class DemoDesignDatasetResponse(BaseModel):
+    dataset_id: str
+    suggested_config: dict[str, Any]

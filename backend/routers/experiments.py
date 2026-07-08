@@ -32,6 +32,7 @@ from backend.schemas.experiments import (
     AnalyzeRequest,
     AuditEntryOut,
     DeleteExperimentRequest,
+    DeletionSummary,
     ExperimentDetail,
     ExperimentSummary,
     FileInfo,
@@ -270,6 +271,18 @@ def patch_experiment(
     if body.publication_status:
         run_set_publication_status(user, current_name, body.publication_status)
     return _to_summary(_get_experiment_or_404(current_name))
+
+
+@router.get("/{name}/deletion-summary", response_model=DeletionSummary)
+def get_deletion_summary(name: str, user: CurrentUser = Depends(get_current_user)) -> DeletionSummary:
+    """Реальные числа для модалки подтверждения удаления (FRONTEND.md §5.2:
+    "Будут удалены: назначения (N), датасеты (M), результаты (K)") — то же
+    самое, что abkit.jobs.run_delete_experiment пишет в audit_log, но здесь
+    только для превью, без самого удаления."""
+    from abkit.jobs import get_experiment_deletion_summary
+
+    summary = get_experiment_deletion_summary(user, name)
+    return DeletionSummary(**summary)
 
 
 @router.delete("/{name}")

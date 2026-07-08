@@ -582,7 +582,12 @@ class BlockRepo:
 
             result: list[ExperimentBlock] = []
             for block in blocks:
-                block_id = block.get("id")
+                # block["id"] приходит строкой из API (BlockIn.id: str | None) —
+                # existing_by_id ключуется uuid.UUID из ORM, без преобразования
+                # lookup ВСЕГДА промахивался, и апдейт превращался в дубликат
+                # новой строки вместо обновления существующей.
+                raw_id = block.get("id")
+                block_id = uuid_mod.UUID(raw_id) if raw_id else None
                 existing_block = existing_by_id.get(block_id) if block_id else None
                 if existing_block is not None:
                     existing_block.title = block.get("title", existing_block.title)
@@ -610,6 +615,14 @@ class BlockRepo:
                     continue
                 if e.id not in kept_ids:
                     s.delete(e)
+
+            # Явный flush ПЕРЕД refresh(): апдейты существующих блоков (title/
+            # content_md/position выше) не флашились по отдельности (в отличие
+            # от новых блоков, для которых flush() уже был вызван) — без этого
+            # refresh() ниже перечитывает из БД состояние ДО этих изменений и
+            # молча их стирает из возвращаемых объектов (сами данные в БД к
+            # этому моменту уже корректны, но ответ API показывает старые).
+            s.flush()
 
             result.sort(key=lambda b: b.position)
             for r in result:

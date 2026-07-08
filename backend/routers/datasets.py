@@ -24,7 +24,14 @@ from abkit.db.repositories import DatasetRepo, ExperimentRepo, UserRepo
 from abkit.db.store import DbExperimentStore
 from backend.deps import get_current_user, require_min_role
 from backend.errors import APIError
-from backend.schemas.datasets import DatasetOut, DatasetPreview, PaginatedDatasets
+from backend.schemas.datasets import (
+    DatasetOut,
+    DatasetPreview,
+    DemoDesignDatasetResponse,
+    MetricBaselineRequest,
+    MetricBaselineResponse,
+    PaginatedDatasets,
+)
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
@@ -154,3 +161,72 @@ def preview_dataset(
         filename=ds.filename, n_rows=ds.n_rows, columns=ds.columns,
         rows=preview_df.to_dict(orient="records"),
     )
+
+
+def _next_demo_name() -> str:
+    """Как _next_demo_name в app.py, но по ExperimentRepo (db-режим) вместо
+    файлового реестра — "demo", "demo_2", "demo_3", ..."""
+    existing = {e.name for e in ExperimentRepo().list_all()}
+    name = "demo"
+    suffix = 1
+    while name in existing:
+        suffix += 1
+        name = f"demo_{suffix}"
+    return name
+
+
+@router.post("/demo-design", response_model=DemoDesignDatasetResponse, status_code=201)
+def create_demo_design_dataset(
+    user: CurrentUser = Depends(require_min_role("editor")),
+) -> DemoDesignDatasetResponse:
+    """Визард дизайна, шаг "Данные" -> кнопка "Демо-данные" (FRONTEND.md
+    §5.2) — то же самое, что app.py::render_design_tab делает при клике
+    "Загрузить демо-данные": generate_demo_design_data + make_demo_design_config,
+    только тут данные сразу сохраняются как pre_design датасет (визарду нужен
+    dataset_id, не сырой DataFrame в сессии — состояние визарда живет на
+    фронте, не в серверной сессии)."""
+    from abkit.demo_data import generate_demo_design_data, make_demo_design_config
+
+    n_demo = 5000
+    data = generate_demo_design_data(n_demo, seed=0)
+    suggested_name = _next_demo_name()
+    demo_config = make_demo_design_config(suggested_name, n_demo, seed=0)
+
+    store = DbExperimentStore()
+    dest_path = store.data_dir / "_uploads" / f"{uuid_mod.uuid4().hex}_demo_design.csv"
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    data.to_csv(dest_path, index=False)
+
+    dataset_id = DatasetRepo().create(
+        kind="pre_design", filename="demo_design.csv", n_rows=len(data), columns=list(data.columns),
+        storage_path=str(dest_path), sha256=DatasetRepo.compute_sha256(data),
+        uploaded_by=uuid_mod.UUID(user.id),
+    )
+    return DemoDesignDatasetResponse(
+        dataset_id=str(dataset_id), suggested_config=demo_config.model_dump(mode="json")
+    )
+
+
+@router.post("/{dataset_id}/metric-baseline", response_model=MetricBaselineResponse)
+def get_metric_baseline(
+    dataset_id: str, body: MetricBaselineRequest, user: CurrentUser = Depends(get_current_user),
+) -> MetricBaselineResponse:
+    """Визард дизайна, шаг "Параметры", режим "абсолютный MDE" — live-пересчет
+    в относительный MDE через baseline (среднее) метрики (FRONTEND.md §5.2).
+    Читает ПОЛНЫЙ файл датасета (не urlPreview, который ограничен 500
+    строками) — baseline должен быть точным, не оценкой по сэмплу."""
+    from abkit.config import MetricConfig
+    from abkit.experiment import compute_metric_baseline_mean
+
+    try:
+        parsed_id = uuid_mod.UUID(dataset_id)
+    except ValueError as e:
+        raise APIError(422, "validation_error", "Некорректный идентификатор датасета") from e
+    ds = DatasetRepo().get_by_id(parsed_id)
+    if ds is None:
+        raise APIError(404, "not_found", f"Датасет '{dataset_id}' не найден")
+
+    data = pd.read_csv(ds.storage_path)
+    metric = MetricConfig(name=body.name, type=body.type, pre_col=body.pre_col, num=body.num, den=body.den)
+    baseline_mean = compute_metric_baseline_mean(metric, data)
+    return MetricBaselineResponse(baseline_mean=baseline_mean)

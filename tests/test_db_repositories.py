@@ -262,10 +262,14 @@ def test_block_repo_upsert_updates_existing_and_adds_custom(db_url):
     initial = repo.list_for_experiment(exp.id)
     hypothesis = next(b for b in initial if b.kind == "hypothesis")
 
+    # id строкой, не uuid.UUID — так его реально шлет HTTP (BlockIn.id: str),
+    # см. abkit/db/models через Pydantic; раньше lookup по строке против
+    # словаря, ключующегося UUID-объектами, всегда промахивался и создавал
+    # дубликат вместо обновления (найдено e2e-тестом фронта, не этим тестом).
     updated = repo.upsert_many(
         exp.id,
         [
-            {"id": hypothesis.id, "kind": "hypothesis", "title": "H", "content_md": "новая гипотеза", "position": 0},
+            {"id": str(hypothesis.id), "kind": "hypothesis", "title": "H", "content_md": "новая гипотеза", "position": 0},
             {"kind": "custom", "title": "Доп. блок", "content_md": "текст", "position": 3},
         ],
         updated_by=owner_id,
@@ -274,10 +278,45 @@ def test_block_repo_upsert_updates_existing_and_adds_custom(db_url):
     assert kinds.count("hypothesis") == 1
     assert "custom" in kinds
 
+    # На ВОЗВРАЩЕННОМ значении, а не на отдельном свежем select() ниже — роутер
+    # сериализует в HTTP-ответ именно то, что вернул upsert_many(). Регрессия:
+    # s.refresh(r) без предшествующего s.flush() перечитывал апдейт существующих
+    # блоков ИЗ БД ДО коммита изменений, молча стирая их в возвращаемых объектах
+    # (сама БД была корректна — только ответ API показывал старые данные).
+    updated_hyp = next(b for b in updated if b.kind == "hypothesis")
+    assert updated_hyp.content_md == "новая гипотеза"
+    assert updated_hyp.id == hypothesis.id
+
     all_blocks = repo.list_for_experiment(exp.id)
     assert len(all_blocks) == 4  # hypothesis(обновлен)+conclusion+decision+новый custom
     hyp = next(b for b in all_blocks if b.kind == "hypothesis")
+    assert hyp.id == hypothesis.id  # тот же ряд обновлен, не создан новый
     assert hyp.content_md == "новая гипотеза"
+
+
+def test_block_repo_upsert_returns_updated_content_when_no_new_blocks_created(db_url):
+    """Регрессия: когда payload содержит ТОЛЬКО существующие блоки (нет ни
+    одного нового), explicit s.flush() в ветке создания нового блока не
+    вызывается вообще — без отдельного s.flush() перед финальным refresh()
+    апдейт существующих блоков не попадал в БД до refresh(), и возвращаемые
+    объекты показывали старые данные (нашлось e2e-тестом фронта: правка
+    только "Гипотезы" без добавления custom-блока — самый частый сценарий)."""
+    owner_id = _make_user(db_url, email="owner16@co.com")
+    exp = ExperimentRepo().create(name="update_only_exp", owner_id=owner_id, status="designed", config={})
+    repo = BlockRepo()
+
+    initial = repo.list_for_experiment(exp.id)
+    updated = repo.upsert_many(
+        exp.id,
+        [
+            {"id": str(b.id), "kind": b.kind, "title": b.title, "content_md": f"текст {b.kind}", "position": b.position}
+            for b in initial
+        ],
+        updated_by=owner_id,
+    )
+    assert len(updated) == 3
+    for b in updated:
+        assert b.content_md == f"текст {b.kind}"
 
 
 def test_block_repo_upsert_deletes_omitted_custom_block(db_url):

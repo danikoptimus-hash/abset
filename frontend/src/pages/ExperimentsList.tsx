@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Table, Input, Select, Button, Tag, Space, Modal, Form, message, Typography } from 'antd'
+import { Table, Input, Select, Button, Tag, Space, message } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { Link, useNavigate } from 'react-router-dom'
 import { apiClient, errorMessage } from '../api/client'
 import { useAuth, hasMinRole } from '../auth/AuthContext'
+import { DeleteExperimentModal } from '../components/DeleteExperimentModal'
 
 const STATUS_COLORS: Record<string, string> = {
   designed: 'default',
@@ -42,30 +43,7 @@ export function ExperimentsListPage() {
   })
 
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
-  const [confirmText, setConfirmText] = useState('')
-  const [deleting, setDeleting] = useState(false)
-
   const canCreate = hasMinRole(user, 'editor')
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return
-    setDeleting(true)
-    try {
-      const { error } = await apiClient.DELETE('/api/v1/experiments/{name}', {
-        params: { path: { name: deleteTarget } },
-        body: { confirm: confirmText },
-      })
-      if (error) throw new Error(errorMessage(error))
-      message.success(`Эксперимент «${deleteTarget}» удален`)
-      setDeleteTarget(null)
-      setConfirmText('')
-      queryClient.invalidateQueries({ queryKey: ['experiments'] })
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : 'Не удалось удалить')
-    } finally {
-      setDeleting(false)
-    }
-  }
 
   return (
     <div>
@@ -150,27 +128,15 @@ export function ExperimentsListPage() {
         ]}
       />
 
-      <Modal
-        title={`Удалить «${deleteTarget}»?`}
-        open={deleteTarget !== null}
-        onCancel={() => {
+      <DeleteExperimentModal
+        name={deleteTarget}
+        onCancel={() => setDeleteTarget(null)}
+        onDeleted={() => {
+          message.success(`Эксперимент «${deleteTarget}» удален`)
           setDeleteTarget(null)
-          setConfirmText('')
+          queryClient.invalidateQueries({ queryKey: ['experiments'] })
         }}
-        onOk={handleDelete}
-        okButtonProps={{ danger: true, disabled: confirmText !== 'DELETE', loading: deleting }}
-        okText="Удалить"
-      >
-        <Typography.Paragraph type="danger">
-          Это действие необратимо: будут удалены назначения, датасеты и результаты анализа этого
-          эксперимента.
-        </Typography.Paragraph>
-        <Form layout="vertical">
-          <Form.Item label='Введите "DELETE" для подтверждения'>
-            <Input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} autoFocus />
-          </Form.Item>
-        </Form>
-      </Modal>
+      />
     </div>
   )
 }

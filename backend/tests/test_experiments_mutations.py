@@ -149,8 +149,17 @@ def test_blocks_put_updates_and_adds_custom(app_client):
     )
     assert resp.status_code == 200
     updated = resp.json()
-    assert any(b["content_md"] == "новый текст" for b in updated)
+    updated_hypothesis = next(b for b in updated if b["kind"] == "hypothesis")
+    assert updated_hypothesis["content_md"] == "новый текст"
+    # тот же id, не новый ряд (регрессия: id из запроса приходит строкой, а
+    # не uuid.UUID — lookup по строке против словаря на UUID-ключах ранее
+    # всегда промахивался и плодил дубликаты вместо апдейта, см.
+    # abkit/db/repositories.py::BlockRepo.upsert_many)
+    assert updated_hypothesis["id"] == hypothesis["id"]
     assert any(b["kind"] == "custom" for b in updated)
+
+    all_blocks = app_client.get("/api/v1/experiments/blocks_edit_exp/blocks").json()
+    assert len(all_blocks) == 4  # hypothesis+conclusion+decision+custom, БЕЗ дубликата
 
 
 def test_blocks_put_forbidden_for_non_owner(app_client):
@@ -161,4 +170,37 @@ def test_blocks_put_forbidden_for_non_owner(app_client):
 
     _login(app_client, email="not_owner3@co.com", role="editor")
     resp = app_client.put("/api/v1/experiments/blocks_forbidden_exp/blocks", json=[])
+    assert resp.status_code == 403
+
+
+def test_deletion_summary_returns_real_counts(app_client):
+    import pandas as pd
+
+    from abkit.db.repositories import AssignmentRepo
+
+    owner_id = _login(app_client)
+    exp = _make_experiment("deletion_summary_exp", owner_id=owner_id)
+    AssignmentRepo().bulk_insert(
+        exp.id,
+        pd.DataFrame(
+            {"unit_id": ["u1", "u2"], "group": ["control", "treatment"], "stratum": [None, None], "assigned_at": pd.Timestamp.now(tz="UTC")}
+        ),
+    )
+
+    resp = app_client.get("/api/v1/experiments/deletion_summary_exp/deletion-summary")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["assignments"] == 2
+    assert body["datasets"] == 0
+    assert body["results"] == 0
+
+
+def test_deletion_summary_forbidden_for_non_owner(app_client):
+    other_owner = UserRepo().create(
+        email="owner_delsum@co.com", name="O", password_hash=hash_password("pw12345"), role="editor"
+    )
+    _make_experiment("delsum_exp", owner_id=other_owner)
+
+    _login(app_client, email="not_owner5@co.com", role="editor")
+    resp = app_client.get("/api/v1/experiments/delsum_exp/deletion-summary")
     assert resp.status_code == 403

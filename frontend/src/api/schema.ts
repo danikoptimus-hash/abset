@@ -227,6 +227,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/experiments/{name}/deletion-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Deletion Summary
+         * @description Реальные числа для модалки подтверждения удаления (FRONTEND.md §5.2:
+         *     "Будут удалены: назначения (N), датасеты (M), результаты (K)") — то же
+         *     самое, что abkit.jobs.run_delete_experiment пишет в audit_log, но здесь
+         *     только для превью, без самого удаления.
+         */
+        get: operations["get_deletion_summary_api_v1_experiments__name__deletion_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/experiments/{name}/blocks": {
         parameters: {
             query?: never;
@@ -325,6 +348,54 @@ export interface paths {
         get: operations["preview_dataset_api_v1_datasets__dataset_id__preview_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/datasets/demo-design": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Demo Design Dataset
+         * @description Визард дизайна, шаг "Данные" -> кнопка "Демо-данные" (FRONTEND.md
+         *     §5.2) — то же самое, что app.py::render_design_tab делает при клике
+         *     "Загрузить демо-данные": generate_demo_design_data + make_demo_design_config,
+         *     только тут данные сразу сохраняются как pre_design датасет (визарду нужен
+         *     dataset_id, не сырой DataFrame в сессии — состояние визарда живет на
+         *     фронте, не в серверной сессии).
+         */
+        post: operations["create_demo_design_dataset_api_v1_datasets_demo_design_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/datasets/{dataset_id}/metric-baseline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get Metric Baseline
+         * @description Визард дизайна, шаг "Параметры", режим "абсолютный MDE" — live-пересчет
+         *     в относительный MDE через baseline (среднее) метрики (FRONTEND.md §5.2).
+         *     Читает ПОЛНЫЙ файл датасета (не urlPreview, который ограничен 500
+         *     строками) — baseline должен быть точным, не оценкой по сэмплу.
+         */
+        post: operations["get_metric_baseline_api_v1_datasets__dataset_id__metric_baseline_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -626,6 +697,24 @@ export interface components {
             /** Confirm */
             confirm: string;
         };
+        /** DeletionSummary */
+        DeletionSummary: {
+            /** Assignments */
+            assignments: number;
+            /** Datasets */
+            datasets: number;
+            /** Results */
+            results: number;
+        };
+        /** DemoDesignDatasetResponse */
+        DemoDesignDatasetResponse: {
+            /** Dataset Id */
+            dataset_id: string;
+            /** Suggested Config */
+            suggested_config: {
+                [key: string]: unknown;
+            };
+        };
         /**
          * DesignConfig
          * @description Полный конфиг дизайна эксперимента.
@@ -829,6 +918,29 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /**
+         * MetricBaselineRequest
+         * @description Форма метрики (как MetricConfig) для расчета baseline-среднего —
+         *     нужен визарду дизайна (FRONTEND.md §5.2, шаг 3: live-пересчет абсолютного
+         *     MDE в относительный).
+         */
+        MetricBaselineRequest: {
+            /** Name */
+            name: string;
+            /** Type */
+            type: string;
+            /** Pre Col */
+            pre_col?: string | null;
+            /** Num */
+            num?: string | null;
+            /** Den */
+            den?: string | null;
+        };
+        /** MetricBaselineResponse */
+        MetricBaselineResponse: {
+            /** Baseline Mean */
+            baseline_mean: number | null;
         };
         /**
          * MetricConfig
@@ -1514,6 +1626,39 @@ export interface operations {
             };
         };
     };
+    get_deletion_summary_api_v1_experiments__name__deletion_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletionSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_blocks_api_v1_experiments__name__blocks_get: {
         parameters: {
             query?: never;
@@ -1786,6 +1931,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DatasetPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_demo_design_dataset_api_v1_datasets_demo_design_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DemoDesignDatasetResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_metric_baseline_api_v1_datasets__dataset_id__metric_baseline_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MetricBaselineRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricBaselineResponse"];
                 };
             };
             /** @description Validation Error */

@@ -3,8 +3,8 @@ import { AppLayout } from './components/AppLayout'
 import { RequireAuth } from './auth/RequireAuth'
 import { LoginPage } from './pages/Login'
 import { ExperimentsListPage } from './pages/ExperimentsList'
-import { NewExperimentStubPage } from './pages/NewExperimentStub'
-import { ExperimentDetailStubPage } from './pages/ExperimentDetailStub'
+import { DesignWizardPage } from './pages/DesignWizard'
+import { ExperimentPage } from './pages/experiment/ExperimentPage'
 import { DatasetsPage } from './pages/Datasets'
 import { ValidationStubPage } from './pages/ValidationStub'
 import { AdminPage } from './pages/Admin'
@@ -24,8 +24,15 @@ function App() {
       >
         <Route path="/" element={<Navigate to="/experiments" replace />} />
         <Route path="/experiments" element={<ExperimentsListPage />} />
-        <Route path="/experiments/new" element={<NewExperimentStubPage />} />
-        <Route path="/experiments/:name" element={<ExperimentDetailStubPage />} />
+        <Route
+          path="/experiments/new"
+          element={
+            <RequireAuth minRole="editor">
+              <DesignWizardPage />
+            </RequireAuth>
+          }
+        />
+        <Route path="/experiments/:name" element={<ExperimentPage />} />
         <Route path="/datasets" element={<DatasetsPage />} />
         <Route path="/validation" element={<ValidationStubPage />} />
         <Route path="/profile" element={<ProfilePage />} />

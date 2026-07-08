@@ -88,6 +88,12 @@ class DeleteExperimentRequest(BaseModel):
     confirm: str
 
 
+class DeletionSummary(BaseModel):
+    assignments: int
+    datasets: int
+    results: int
+
+
 class AnalyzeRequest(BaseModel):
     dataset_id: str
     correction: str = "holm"
