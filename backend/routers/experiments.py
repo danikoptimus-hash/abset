@@ -345,9 +345,23 @@ def _save_analysis(name: str, results) -> None:
     """report()+save_analysis_result — ПОСЛЕ этого GET /{name}/results
     (R2) возвращает настоящий результат, а не 404 (analysis_results иначе
     никогда не заполняется — save_analysis_result определен, но раньше нигде
-    не вызывался, см. abkit/db/store.py)."""
+    не вызывался, см. abkit/db/store.py).
+
+    Персистится НЕ results.to_json() напрямую, а тот же payload + отдельный
+    ключ "chart_data" (backend/chart_data.py) — данные для ECharts (R6,
+    FRONTEND.md §5.2), посчитанные из results.context (raw_values/
+    segment_results/daily_results), которого нет в to_json(). AnalysisResults.
+    to_json() (ядро, abkit/analysis/results.py) не меняется — им по-прежнему
+    пользуются CLI и Streamlit без каких-либо отличий."""
+    import json
+
+    from backend.chart_data import build_chart_data, sanitize_json_floats
+
     report_path = results.report()
-    DbExperimentStore().save_analysis_result(name, results.to_json(), report_path)
+    payload = json.loads(results.to_json())
+    payload["chart_data"] = build_chart_data(results)
+    payload = sanitize_json_floats(payload)
+    DbExperimentStore().save_analysis_result(name, json.dumps(payload, ensure_ascii=False), report_path)
 
 
 @router.post("/{name}/analyze", response_model=JobAccepted, status_code=202)
@@ -419,14 +433,21 @@ def start_validate(
 
         experiment = Experiment.load(name)
         reporter.stage("A/A валидация...")
+        # show_progress=False: run_aa/run_ab по умолчанию рисуют rich progress
+        # bar в консоль — в фоновом потоке backend'а (нет реального терминала)
+        # это на Windows падает с "'charmap' codec can't encode characters"
+        # (rich использует дефолтную cp1252-консоль для non-TTY вывода); прогресс
+        # и так идет через reporter.counts() -> job.progress (GET /jobs/{id}).
         aa_report = run_validate_aa(
             user, data, experiment.config, n_sims=body.n_sims,
             compare_methods=body.compare_methods, progress_callback=reporter.counts,
+            show_progress=False,
         )
         reporter.stage("A/B валидация...")
         ab_report = run_validate_ab(
             user, data, experiment.config, n_sims=body.n_sims, effect=body.effect,
             compare_methods=body.compare_methods, progress_callback=reporter.counts,
+            show_progress=False,
         )
         return {
             "aa": {"methods": [dataclasses.asdict(m) for m in aa_report.methods]},

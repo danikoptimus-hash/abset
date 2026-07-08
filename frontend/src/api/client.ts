@@ -26,3 +26,17 @@ export function errorMessage(error: unknown, fallback = 'Произошла ош
   }
   return fallback
 }
+
+/** openapi-fetch's defaultBodySerializer только пропускает body насквозь,
+ * если это УЖЕ реальный FormData (body instanceof FormData) — плоский объект
+ * с File-полем оно НЕ конвертирует в multipart автоматически, несмотря на то
+ * что сгенерированный тип (openapi-typescript) для multipart-операций рисует
+ * это как обычный object. Без ручной сборки FormData бэкенд получает
+ * kind/file как "не переданы" (проверено e2e: 422 "Field required"). */
+export function toFormData(fields: Record<string, string | Blob | undefined>): FormData {
+  const fd = new FormData()
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined) fd.append(key, value)
+  }
+  return fd
+}

@@ -7,6 +7,7 @@ import { apiClient, errorMessage } from '../../api/client'
 import { useAuth, hasMinRole } from '../../auth/AuthContext'
 import { DeleteExperimentModal } from '../../components/DeleteExperimentModal'
 import { DesignSection } from './DesignSection'
+import { AnalyzeSection } from './AnalyzeSection'
 import { HistorySection } from './HistorySection'
 import { MarkdownBlockView } from './MarkdownBlockView'
 import type { BlockDraft } from './MarkdownBlockView'
@@ -192,6 +193,10 @@ export function ExperimentPage() {
       )}
 
       <DesignSection name={name} config={data.config} availableReports={data.available_reports} />
+
+      <div style={{ marginTop: 32 }}>
+        <AnalyzeSection experimentName={name} hasAssignments />
+      </div>
 
       <Typography.Title level={4} style={{ marginTop: 32 }}>
         Выводы и решение

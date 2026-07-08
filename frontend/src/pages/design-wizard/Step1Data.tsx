@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Upload, Button, Collapse, Table, Typography, Alert, Space, Spin } from 'antd'
 import { InboxOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import type { UploadProps } from 'antd'
-import { apiClient, errorMessage } from '../../api/client'
+import { apiClient, errorMessage, toFormData } from '../../api/client'
 import {
   DESIGN_EXAMPLE_ROWS,
   DESIGN_SQL_EXAMPLE,
@@ -67,12 +67,8 @@ export function Step1Data({ state, setState }: Props) {
       setUploading(true)
       setError(null)
       try {
-        // openapi-typescript типизирует multipart-файл как `string` (нет
-        // отдельного бинарного типа) — openapi-fetch сам сериализует body в
-        // FormData, когда видит File/Blob, отсюда единственный `as unknown as
-        // string` на само значение (не на весь body).
         const { data, error } = await apiClient.POST('/api/v1/datasets', {
-          body: { kind: 'pre_design', file: file as unknown as string },
+          body: toFormData({ kind: 'pre_design', file }) as unknown as { kind: string; file: string },
         })
         if (error) throw new Error(errorMessage(error))
         const previewRows = await fetchPreview(data.id)

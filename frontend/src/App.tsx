@@ -6,7 +6,7 @@ import { ExperimentsListPage } from './pages/ExperimentsList'
 import { DesignWizardPage } from './pages/DesignWizard'
 import { ExperimentPage } from './pages/experiment/ExperimentPage'
 import { DatasetsPage } from './pages/Datasets'
-import { ValidationStubPage } from './pages/ValidationStub'
+import { ValidationPage } from './pages/Validation'
 import { AdminPage } from './pages/Admin'
 import { AuditPage } from './pages/Audit'
 import { ProfilePage } from './pages/Profile'
@@ -34,7 +34,7 @@ function App() {
         />
         <Route path="/experiments/:name" element={<ExperimentPage />} />
         <Route path="/datasets" element={<DatasetsPage />} />
-        <Route path="/validation" element={<ValidationStubPage />} />
+        <Route path="/validation" element={<ValidationPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route
           path="/admin"
