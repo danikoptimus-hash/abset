@@ -75,7 +75,7 @@ export function Step1Data({ state, setState }: Props) {
         applyDatasetResult(data.id, data.columns, data.dtypes ?? {}, data.n_rows, previewRows)
         options.onSuccess?.(data)
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Не удалось загрузить файл')
+        setError(e instanceof Error ? e.message : 'Failed to upload file')
         options.onError?.(e as Error)
       } finally {
         setUploading(false)
@@ -121,7 +121,7 @@ export function Step1Data({ state, setState }: Props) {
         sampleSize: config.sample_size ?? prev.sampleSize,
       }))
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось сгенерировать демо-данные')
+      setError(e instanceof Error ? e.message : 'Failed to generate demo data')
     } finally {
       setUploading(false)
     }
@@ -129,7 +129,7 @@ export function Step1Data({ state, setState }: Props) {
 
   return (
     <div>
-      <Typography.Title level={5}>Загрузите данные о ваших пользователях-кандидатах</Typography.Title>
+      <Typography.Title level={5}>Upload data about your candidate users</Typography.Title>
 
       <Collapse
         ghost
@@ -137,12 +137,12 @@ export function Step1Data({ state, setState }: Props) {
         items={[
           {
             key: 'what',
-            label: '❓ Что это за данные и что в них должно быть',
+            label: '❓ What is this data and what should it contain',
             children: <Typography.Paragraph style={{ whiteSpace: 'pre-line' }}>{WHAT_IS_THIS_DATA}</Typography.Paragraph>,
           },
           {
             key: 'example',
-            label: '📊 Пример: как должны выглядеть данные',
+            label: '📊 Example: what the data should look like',
             children: (
               <>
                 <Table
@@ -159,7 +159,7 @@ export function Step1Data({ state, setState }: Props) {
           },
           {
             key: 'sql',
-            label: '💡 Как выгрузить данные из БД (SQL-пример)',
+            label: '💡 How to export data from a DB (SQL example)',
             children: (
               <>
                 <Typography.Paragraph code style={{ whiteSpace: 'pre' }}>
@@ -171,7 +171,7 @@ export function Step1Data({ state, setState }: Props) {
           },
           {
             key: 'nodata',
-            label: '❓ Нет данных под рукой — хочу просто попробовать',
+            label: "❓ No data on hand — I just want to try it out",
             children: <Typography.Paragraph style={{ whiteSpace: 'pre-line' }}>{NO_DATA_EXPLANATION}</Typography.Paragraph>,
           },
         ]}
@@ -184,16 +184,16 @@ export function Step1Data({ state, setState }: Props) {
           <p className="ant-upload-drag-icon">
             <InboxOutlined />
           </p>
-          <p>Перетащите CSV сюда или нажмите для выбора файла</p>
+          <p>Drag a CSV here or click to choose a file</p>
         </Dragger>
         <Button icon={<ThunderboltOutlined />} onClick={handleDemoData} loading={uploading}>
-          Демо-данные
+          Demo Data
         </Button>
       </Space>
 
       {uploading && (
         <div style={{ marginTop: 16 }}>
-          <Spin /> Обрабатываем данные...
+          <Spin /> Processing data...
         </div>
       )}
 
@@ -202,7 +202,7 @@ export function Step1Data({ state, setState }: Props) {
           <Alert
             type="success"
             showIcon
-            message={`Данные загружены: ${state.nRows} строк, ${Object.keys(state.previewRows[0]).length} колонок`}
+            message={`Data loaded: ${state.nRows} rows, ${Object.keys(state.previewRows[0]).length} columns`}
             style={{ marginBottom: 12 }}
           />
           <Table

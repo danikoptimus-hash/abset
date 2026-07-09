@@ -27,6 +27,11 @@ export const antdTheme: ThemeConfig = {
     colorText: colors.text,
     colorBorder: colors.border,
     colorBgLayout: colors.bgLayout,
+    // Дефолт AntD для ссылок — синий, которого нет в нашей палитре (UX-пакет,
+    // п.1) — переопределяем на тот же зеленый, что и остальной primary-акцент.
+    colorLink: colors.primary,
+    colorLinkHover: colors.primaryHover,
+    colorLinkActive: colors.primaryActive,
     fontFamily: 'Inter, -apple-system, Helvetica, Arial, sans-serif',
     fontSize: 14,
     borderRadius: 4,

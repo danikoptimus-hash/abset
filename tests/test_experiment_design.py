@@ -71,13 +71,13 @@ def test_design_progress_callback_reports_all_stages_in_order(tmp_path):
     Experiment.design(config, data, experiments_dir=tmp_path, progress_callback=stages.append)
 
     assert stages == [
-        "Валидируем данные...",
-        "Проверяем изоляцию от других экспериментов...",
-        "Считаем мощность...",
-        "Строим страты...",
-        "Разбиваем на группы (сплит)...",
-        "Проверяем честность (SRM, баланс страт, pre-period A/A)...",
-        "Сохраняем эксперимент...",
+        "Validating data...",
+        "Checking isolation from other experiments...",
+        "Computing power...",
+        "Building strata...",
+        "Splitting into groups...",
+        "Checking validity (SRM, strata balance, pre-period A/A)...",
+        "Saving experiment...",
     ]
 
 
@@ -165,7 +165,7 @@ def test_design_rejects_duplicate_unit_col(tmp_path):
     data = make_synthetic_data()
     data = pd.concat([data, data.iloc[[0]]], ignore_index=True)
     config = make_config()
-    with pytest.raises(DesignError, match="дубликаты"):
+    with pytest.raises(DesignError, match="duplicates"):
         Experiment.design(config, data, experiments_dir=tmp_path)
 
 
@@ -277,7 +277,7 @@ def test_design_default_nan_strategy_does_not_raise_on_strata_nan(tmp_path):
 
     assert experiment.report.strata_nan_counts == {"platform": 150}
     assert experiment.report.n_dropped_for_nan_strata == 0
-    assert any("150 пропусков" in w for w in experiment.report.warnings)
+    assert any("150 missing values" in w for w in experiment.report.warnings)
 
 
 def test_design_nan_users_end_up_in_unknown_stratum(tmp_path):
@@ -304,14 +304,14 @@ def test_design_nan_strategy_drop_removes_users_with_missing_strata(tmp_path):
     assert len(experiment.assignments) == len(data) - 150
     nan_user_ids = set(data.loc[data["platform"].isna(), "user_id"])
     assert nan_user_ids.isdisjoint(set(experiment.assignments["unit_id"]))
-    assert any("удалены из кандидатов" in w for w in experiment.report.warnings)
+    assert any("removed from candidates" in w for w in experiment.report.warnings)
 
 
 def test_design_nan_strategy_error_raises_with_clear_message(tmp_path):
     data = make_data_with_strata_nan()
     config = make_config(name="nan_error", isolation="off", nan_strategy="error")
 
-    with pytest.raises(DesignError, match="пропуски"):
+    with pytest.raises(DesignError, match="missing values"):
         Experiment.design(config, data, experiments_dir=tmp_path)
 
 
@@ -323,7 +323,7 @@ def test_design_high_nan_fraction_triggers_attention_warning(tmp_path):
 
     experiment = Experiment.design(config, data, experiments_dir=tmp_path)
 
-    assert any("Проверьте качество данных" in w for w in experiment.report.warnings)
+    assert any("Check the data quality" in w for w in experiment.report.warnings)
 
 
 def test_design_low_nan_fraction_no_attention_warning(tmp_path):
@@ -332,4 +332,4 @@ def test_design_low_nan_fraction_no_attention_warning(tmp_path):
 
     experiment = Experiment.design(config, data, experiments_dir=tmp_path)
 
-    assert not any("Проверьте качество данных" in w for w in experiment.report.warnings)
+    assert not any("Check the data quality" in w for w in experiment.report.warnings)

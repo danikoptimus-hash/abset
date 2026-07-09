@@ -34,13 +34,13 @@ const INITIAL_STATE: WizardState = {
 
 function stepError(step: number, state: WizardState): string | null {
   if (step === 0) {
-    if (!state.datasetId) return 'Загрузите данные или сгенерируйте демо-данные'
+    if (!state.datasetId) return 'Upload data or generate demo data'
   }
   if (step === 1) {
-    if (!state.name.trim()) return 'Укажите имя эксперимента'
-    if (!state.unitCol) return 'Укажите колонку юнита'
-    if (Math.abs(groupsSum(state) - 1) > 1e-6) return 'Сумма долей групп должна быть равна 1'
-    if (!state.metrics.some((m) => m.name.trim())) return 'Добавьте хотя бы одну метрику'
+    if (!state.name.trim()) return 'Enter an experiment name'
+    if (!state.unitCol) return 'Select the unit column'
+    if (Math.abs(groupsSum(state) - 1) > 1e-6) return 'Group proportions must sum to 1'
+    if (!state.metrics.some((m) => m.name.trim())) return 'Add at least one metric'
   }
   return null
 }
@@ -58,20 +58,20 @@ export function DesignWizardPage() {
     <div>
       <Steps
         current={current}
-        items={[{ title: 'Данные' }, { title: 'Группы и метрики' }, { title: 'Параметры' }, { title: 'Запуск' }]}
+        items={[{ title: 'Data' }, { title: 'Groups & Metrics' }, { title: 'Parameters' }, { title: 'Run' }]}
         style={{ marginBottom: 32, maxWidth: 800 }}
       />
 
       {current === 1 && (
         <Space style={{ marginBottom: 24 }}>
           <Input
-            placeholder="Имя эксперимента"
+            placeholder="Experiment name"
             value={state.name}
             style={{ width: 260 }}
             onChange={(e) => setState((prev) => ({ ...prev, name: e.target.value }))}
           />
           <Select
-            placeholder="Колонка юнита (unit_col)"
+            placeholder="Unit column (unit_col)"
             style={{ width: 220 }}
             value={state.unitCol ?? undefined}
             onChange={(unitCol) => setState((prev) => ({ ...prev, unitCol }))}
@@ -91,16 +91,16 @@ export function DesignWizardPage() {
         <div style={{ marginTop: 24 }}>
           {error && <Alert type="warning" showIcon message={error} style={{ marginBottom: 12, maxWidth: 500 }} />}
           <Space>
-            {current > 0 && <Button onClick={() => setCurrent((c) => c - 1)}>Назад</Button>}
+            {current > 0 && <Button onClick={() => setCurrent((c) => c - 1)}>Back</Button>}
             <Button type="primary" disabled={!!error} onClick={() => setCurrent((c) => c + 1)}>
-              Далее
+              Next
             </Button>
           </Space>
         </div>
       )}
       {current === 3 && (
         <div style={{ marginTop: 24 }}>
-          <Button onClick={() => setCurrent((c) => c - 1)}>Назад</Button>
+          <Button onClick={() => setCurrent((c) => c - 1)}>Back</Button>
         </div>
       )}
     </div>

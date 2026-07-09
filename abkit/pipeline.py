@@ -15,8 +15,8 @@ _STAGE_ORDER = {"preprocess": 0, "variance_reduction": 1, "test": 2}
 # методологически спорные, но не запрещенные комбинации шагов -> предупреждение, не ошибка
 QUESTIONABLE_COMBINATIONS: dict[tuple[str, str], str] = {
     ("CUPED", "MannWhitney"): (
-        "MannWhitney после CUPED методологически спорен: ранговый критерий не "
-        "предполагает работу с преобразованной CUPED величиной"
+        "MannWhitney after CUPED is methodologically questionable: a rank test "
+        "does not assume it is operating on a CUPED-transformed value"
     ),
 }
 
@@ -86,14 +86,14 @@ class Pipeline:
         test_count = stages.count("test")
         if test_count != 1:
             raise PipelineError(
-                f"Пайплайн должен содержать ровно один test-шаг, получено {test_count}"
+                f"The pipeline must contain exactly one test step, got {test_count}"
             )
         seen_max = -1
         for stage in stages:
             order = _STAGE_ORDER[stage]
             if order < seen_max:
                 raise PipelineError(
-                    "Нарушен порядок стадий пайплайна: должно быть "
+                    "Pipeline stage order violated: must be "
                     "preprocess -> variance_reduction -> test"
                 )
             seen_max = max(seen_max, order)
@@ -117,9 +117,9 @@ class Pipeline:
             test_step = next(s for s in self.steps if s.stage == "test")
             if test_step.name != "DeltaMethodTTest":
                 raise PipelineError(
-                    f"Для ratio-метрики '{ctx.metric_name}' единственный допустимый test-шаг — "
-                    "DeltaMethodTTest: единица анализа может не совпадать с единицей "
-                    f"рандомизации, наивный тест по строкам запрещен. Получено '{test_step.name}'"
+                    f"For ratio metric '{ctx.metric_name}' the only allowed test step is "
+                    "DeltaMethodTTest: the analysis unit may not match the randomization unit, "
+                    f"a naive row-level test is not allowed. Got '{test_step.name}'"
                 )
 
     def run(self, ctx: MetricContext) -> MetricContext:

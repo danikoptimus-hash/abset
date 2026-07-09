@@ -13,21 +13,21 @@ test('analyze with demo post-data shows verdicts and forest plot, then exports t
   await loginViaUi(page)
 
   await page.goto(`/experiments/${name}`)
-  await expect(page.getByRole('heading', { name: 'Анализ' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Analysis' })).toBeVisible()
 
-  await page.getByRole('button', { name: /Сгенерировать демо пост-данные/ }).click()
+  await page.getByRole('button', { name: /Generate demo post-period data/ }).click()
   await expect(
-    page.getByText(/значимо позитивный|значимо негативный|эффект не обнаружен/).first(),
+    page.getByText(/significant positive|significant negative|no effect detected/).first(),
   ).toBeVisible({ timeout: 20_000 })
 
   await expect(page.getByRole('heading', { name: 'Forest plot' })).toBeVisible()
-  // ECharts рисует в canvas — сам чарт не проверить текстовым локатором,
-  // но контейнер должен существовать и быть видимым.
+  // ECharts renders into a canvas — the chart itself can't be checked with a
+  // text locator, but the container must exist and be visible.
   await expect(page.locator('canvas').first()).toBeVisible()
 
-  await expect(page.getByText('Детальная таблица результатов')).toBeVisible()
+  await expect(page.getByText('Detailed Results Table')).toBeVisible()
   const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Экспорт CSV' }).click()
+  await page.getByRole('button', { name: 'Export CSV' }).click()
   const download = await downloadPromise
   expect(download.suggestedFilename()).toContain('detailed_results.csv')
 })

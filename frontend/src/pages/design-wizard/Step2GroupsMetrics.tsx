@@ -11,7 +11,7 @@ interface Props {
 
 export function Step2GroupsMetrics({ state, setState }: Props) {
   const numeric = numericColumns(state)
-  const numericOptions = [{ value: '__none__', label: '(нет)' }, ...numeric.map((c) => ({ value: c, label: c }))]
+  const numericOptions = [{ value: '__none__', label: '(none)' }, ...numeric.map((c) => ({ value: c, label: c }))]
   const sum = groupsSum(state)
   const sumOk = Math.abs(sum - 1) < 1e-6
 
@@ -38,7 +38,7 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
 
   return (
     <div>
-      <Typography.Title level={5}>Группы</Typography.Title>
+      <Typography.Title level={5}>Groups</Typography.Title>
       <Space style={{ marginBottom: 12 }}>
         {Object.keys(GROUP_PRESETS).map((preset) => (
           <Button key={preset} size="small" onClick={() => applyPreset(preset)}>
@@ -46,14 +46,14 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
           </Button>
         ))}
         <Button size="small" onClick={normalize}>
-          Нормализовать
+          Normalize
         </Button>
       </Space>
 
       {state.groups.map((g) => (
         <Space key={g.id} style={{ display: 'flex', marginBottom: 8 }}>
           <Input
-            placeholder="Имя группы"
+            placeholder="Group name"
             value={g.name}
             style={{ width: 200 }}
             onChange={(e) =>
@@ -86,16 +86,16 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
         onClick={() => setState((prev) => ({ ...prev, groups: [...prev.groups, { id: nextId('group'), name: '', prop: 0 }] }))}
         style={{ marginBottom: 12 }}
       >
-        Добавить группу
+        Add Group
       </Button>
       <Alert
         type={sumOk ? 'success' : 'warning'}
         showIcon
-        message={`Сумма долей: ${sum.toFixed(3)}${sumOk ? '' : ' — должна быть равна 1'}`}
+        message={`Sum of proportions: ${sum.toFixed(3)}${sumOk ? '' : ' — must equal 1'}`}
         style={{ marginBottom: 24 }}
       />
 
-      <Typography.Title level={5}>Метрики (минимум одна)</Typography.Title>
+      <Typography.Title level={5}>Metrics (at least one)</Typography.Title>
       {state.metrics.map((m) => (
         <Card key={m.id} size="small" style={{ marginBottom: 12 }}>
           <Space wrap style={{ marginBottom: 8 }}>
@@ -111,14 +111,14 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
             />
             {m.type === 'ratio' ? (
               <Input
-                placeholder="Имя метрики (ярлык), например conv_rate"
+                placeholder="Metric name (label), e.g. conv_rate"
                 style={{ width: 220 }}
                 value={m.name}
                 onChange={(e) => updateMetric(setState, m.id, { name: e.target.value })}
               />
             ) : (
               <Select
-                placeholder="Столбец датафрейма"
+                placeholder="Dataframe column"
                 style={{ width: 220 }}
                 value={m.name || undefined}
                 onChange={(name) => updateMetric(setState, m.id, { name })}
@@ -143,14 +143,14 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
           {m.type === 'ratio' ? (
             <Space>
               <Select
-                placeholder="Числитель (num)"
+                placeholder="Numerator (num)"
                 style={{ width: 200 }}
                 value={m.num ?? '__none__'}
                 onChange={(v) => updateMetric(setState, m.id, { num: v === '__none__' ? null : v })}
                 options={numericOptions}
               />
               <Select
-                placeholder="Знаменатель (den)"
+                placeholder="Denominator (den)"
                 style={{ width: 200 }}
                 value={m.den ?? '__none__'}
                 onChange={(v) => updateMetric(setState, m.id, { den: v === '__none__' ? null : v })}
@@ -160,7 +160,7 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
           ) : (
             <div>
               <Select
-                placeholder="pre-period колонка (для CUPED, опционально)"
+                placeholder="pre-period column (for CUPED, optional)"
                 style={{ width: 320 }}
                 value={m.preCol ?? '__none__'}
                 onChange={(v) => updateMetric(setState, m.id, { preCol: v === '__none__' ? null : v })}
@@ -168,11 +168,11 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
               />
               {m.type === 'binary' && (
                 <div style={{ marginTop: 4 }}>
-                  <Typography.Text type="secondary">Подходящие 0/1 колонки: </Typography.Text>
+                  <Typography.Text type="secondary">Suitable 0/1 columns: </Typography.Text>
                   {binaryLikeColumns.length ? (
                     binaryLikeColumns.map((c) => <Tag key={c}>{c}</Tag>)
                   ) : (
-                    <Typography.Text type="secondary">не найдено</Typography.Text>
+                    <Typography.Text type="secondary">none found</Typography.Text>
                   )}
                 </div>
               )}
@@ -192,7 +192,7 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
           }))
         }
       >
-        Добавить метрику
+        Add Metric
       </Button>
     </div>
   )

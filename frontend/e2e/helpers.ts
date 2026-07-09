@@ -9,8 +9,8 @@ const API_BASE = process.env.E2E_API_BASE ?? 'http://localhost:8000/api/v1'
 export async function loginViaUi(page: Page, email = 'admin@e2e.test', password = 'e2epass123') {
   await page.goto('/login')
   await page.getByLabel('Email').fill(email)
-  await page.getByLabel('Пароль').fill(password)
-  await page.getByRole('button', { name: 'Войти' }).click()
+  await page.getByLabel('Password').fill(password)
+  await page.getByRole('button', { name: 'Sign In' }).click()
   await expect(page).toHaveURL(/\/experiments$/)
 }
 
@@ -28,7 +28,7 @@ export async function createUserWithTempPassword(
   if (!loginResp.ok()) throw new Error(`admin login failed: ${loginResp.status()}`)
 
   const createResp = await request.post(`${API_BASE}/admin/users`, {
-    data: { email, name: 'Temp User', role },
+    data: { email, first_name: 'Temp', last_name: 'User', role },
   })
   if (!createResp.ok()) throw new Error(`create user failed: ${createResp.status()}`)
   const body = await createResp.json()

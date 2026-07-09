@@ -8,14 +8,14 @@ import { test, expect } from '@playwright/test'
 test('registration is not hinted at anywhere on the login page when disabled', async ({ page }) => {
   await page.goto('/login')
 
-  await expect(page.getByText('Зарегистрироваться')).toHaveCount(0)
-  await expect(page.getByText('Создать аккаунт')).toHaveCount(0)
+  await expect(page.getByText('Register')).toHaveCount(0)
+  await expect(page.getByText('Create Account')).toHaveCount(0)
 })
 
 test('register API returns 403 when self-registration is disabled', async ({ request }) => {
   const base = process.env.E2E_API_BASE ?? 'http://localhost:8000/api/v1'
   const resp = await request.post(`${base}/auth/register`, {
-    data: { email: 'blocked@e2e.test', name: 'Blocked', password: 'pw12345678' },
+    data: { email: 'blocked@e2e.test', first_name: 'Blocked', password: 'pw12345678' },
   })
   expect(resp.status()).toBe(403)
 })

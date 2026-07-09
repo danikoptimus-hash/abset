@@ -84,7 +84,7 @@ class JobRunner:
         процессом, дожидаться нечего."""
         for job in self._repo.list_unfinished():
             self._repo.mark_failed(
-                job.id, "Backend был перезапущен во время выполнения задачи — запустите ее заново"
+                job.id, "The backend restarted while this job was running — please run it again"
             )
 
     def shutdown(self, wait: bool = False) -> None:

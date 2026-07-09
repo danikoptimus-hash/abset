@@ -22,6 +22,7 @@ from abkit.db.models import (
     Assignment,
     Dataset,
     Experiment,
+    ExperimentAccess,
     ExperimentBlock,
     Job,
     User,
@@ -45,17 +46,19 @@ class UserRepo:
         self,
         *,
         email: str,
-        name: str,
+        first_name: str,
+        last_name: str = "",
         password_hash: str,
         role: str,
         must_change_password: bool = False,
     ) -> uuid_mod.UUID:
         with session_scope() as s:
             if s.scalar(select(User).where(User.email == email)) is not None:
-                raise RepoError(f"Пользователь с email '{email}' уже существует")
+                raise RepoError(f"A user with email '{email}' already exists")
             user = User(
                 email=email,
-                name=name,
+                first_name=first_name,
+                last_name=last_name,
                 password_hash=password_hash,
                 role=role,
                 must_change_password=must_change_password,
@@ -93,22 +96,23 @@ class UserRepo:
         with session_scope() as s:
             user = s.get(User, user_id)
             if user is None:
-                raise RepoError(f"Пользователь {user_id} не найден")
+                raise RepoError(f"User {user_id} not found")
             user.role = role
 
     def set_active(self, user_id: uuid_mod.UUID, is_active: bool) -> None:
         with session_scope() as s:
             user = s.get(User, user_id)
             if user is None:
-                raise RepoError(f"Пользователь {user_id} не найден")
+                raise RepoError(f"User {user_id} not found")
             user.is_active = is_active
 
-    def update_name(self, user_id: uuid_mod.UUID, name: str) -> None:
+    def update_name(self, user_id: uuid_mod.UUID, first_name: str, last_name: str) -> None:
         with session_scope() as s:
             user = s.get(User, user_id)
             if user is None:
-                raise RepoError(f"Пользователь {user_id} не найден")
-            user.name = name
+                raise RepoError(f"User {user_id} not found")
+            user.first_name = first_name
+            user.last_name = last_name
 
     def set_password_hash(
         self, user_id: uuid_mod.UUID, password_hash: str, must_change_password: bool = False
@@ -116,7 +120,7 @@ class UserRepo:
         with session_scope() as s:
             user = s.get(User, user_id)
             if user is None:
-                raise RepoError(f"Пользователь {user_id} не найден")
+                raise RepoError(f"User {user_id} not found")
             user.password_hash = password_hash
             user.must_change_password = must_change_password
 
@@ -124,7 +128,7 @@ class UserRepo:
         with session_scope() as s:
             user = s.get(User, user_id)
             if user is None:
-                raise RepoError(f"Пользователь {user_id} не найден")
+                raise RepoError(f"User {user_id} not found")
             user.failed_logins = 0
             user.locked_until = None
             user.last_login_at = datetime.now(timezone.utc)
@@ -169,7 +173,7 @@ class ExperimentRepo:
         автосоздаются пустые hypothesis/conclusion/decision")."""
         with session_scope() as s:
             if s.scalar(select(Experiment).where(Experiment.name == name)) is not None:
-                raise RepoError(f"Эксперимент с именем '{name}' уже существует")
+                raise RepoError(f"An experiment named '{name}' already exists")
             exp = Experiment(
                 name=name, owner_id=owner_id, status=status, config=config,
                 design_summary=design_summary, publication_status=publication_status,
@@ -211,7 +215,7 @@ class ExperimentRepo:
         with session_scope() as s:
             exp = s.scalar(select(Experiment).where(Experiment.name == name))
             if exp is None:
-                raise RepoError(f"Эксперимент '{name}' не найден")
+                raise RepoError(f"Experiment '{name}' not found")
             exp.status = new_status
             now = datetime.now(timezone.utc)
             if new_status == "running":
@@ -226,16 +230,25 @@ class ExperimentRepo:
         with session_scope() as s:
             exp = s.scalar(select(Experiment).where(Experiment.name == name))
             if exp is None:
-                raise RepoError(f"Эксперимент '{name}' не найден")
+                raise RepoError(f"Experiment '{name}' not found")
             exp.publication_status = publication_status
+
+    def update_visible_roles(self, name: str, visible_roles: list[str] | None) -> None:
+        """Properties modal (UX-пакет) — null снимает ограничение видимости,
+        возвращая дефолтные draft/published-правила (см. abkit/access.py)."""
+        with session_scope() as s:
+            exp = s.scalar(select(Experiment).where(Experiment.name == name))
+            if exp is None:
+                raise RepoError(f"Experiment '{name}' not found")
+            exp.visible_roles = visible_roles
 
     def rename(self, name: str, new_name: str) -> None:
         with session_scope() as s:
             exp = s.scalar(select(Experiment).where(Experiment.name == name))
             if exp is None:
-                raise RepoError(f"Эксперимент '{name}' не найден")
+                raise RepoError(f"Experiment '{name}' not found")
             if new_name != name and s.scalar(select(Experiment).where(Experiment.name == new_name)) is not None:
-                raise RepoError(f"Эксперимент с именем '{new_name}' уже существует")
+                raise RepoError(f"An experiment named '{new_name}' already exists")
             exp.name = new_name
 
     def delete(self, name: str) -> None:
@@ -245,8 +258,60 @@ class ExperimentRepo:
         with session_scope() as s:
             exp = s.scalar(select(Experiment).where(Experiment.name == name))
             if exp is None:
-                raise RepoError(f"Эксперимент '{name}' не найден")
+                raise RepoError(f"Experiment '{name}' not found")
             s.delete(exp)
+
+
+class ExperimentAccessRepo:
+    """Дополнительные владельцы/редакторы эксперимента (Edit Properties modal,
+    UX-пакет) — поверх Experiment.owner_id. См. abkit/access.py для того, как
+    эти строки комбинируются с owner_id/admin в проверках прав/видимости."""
+
+    def list_for_experiment(self, experiment_id: uuid_mod.UUID) -> list[ExperimentAccess]:
+        with session_scope() as s:
+            rows = list(
+                s.scalars(
+                    select(ExperimentAccess).where(ExperimentAccess.experiment_id == experiment_id)
+                )
+            )
+            for r in rows:
+                s.expunge(r)
+            return rows
+
+    def set_for_experiment(
+        self, experiment_id: uuid_mod.UUID, grants: list[tuple[uuid_mod.UUID, str]]
+    ) -> None:
+        """Заменяет ВЕСЬ список грантов эксперимента (owners/editors мультиселекты
+        в Properties modal сохраняются целиком, не по одному) — grants: список
+        (user_id, access) пар, access in ('owner','editor')."""
+        with session_scope() as s:
+            s.query(ExperimentAccess).filter(
+                ExperimentAccess.experiment_id == experiment_id
+            ).delete(synchronize_session=False)
+            for user_id, access in grants:
+                s.add(ExperimentAccess(experiment_id=experiment_id, user_id=user_id, access=access))
+
+    def user_has_access(self, experiment_id: uuid_mod.UUID, user_id: uuid_mod.UUID) -> bool:
+        with session_scope() as s:
+            return (
+                s.scalar(
+                    select(ExperimentAccess.id).where(
+                        ExperimentAccess.experiment_id == experiment_id,
+                        ExperimentAccess.user_id == user_id,
+                    )
+                )
+                is not None
+            )
+
+    def experiment_ids_for_user(self, user_id: uuid_mod.UUID) -> set[uuid_mod.UUID]:
+        """Один запрос вместо N+1 — для фильтрации списка экспериментов по
+        видимости (GET /experiments), где can_view_experiment() иначе делал бы
+        по запросу на каждую строку."""
+        with session_scope() as s:
+            rows = s.execute(
+                select(ExperimentAccess.experiment_id).where(ExperimentAccess.user_id == user_id)
+            ).all()
+        return {r[0] for r in rows}
 
 
 class AssignmentRepo:
@@ -373,7 +438,7 @@ class DatasetRepo:
         with session_scope() as s:
             ds = s.get(Dataset, dataset_id)
             if ds is None:
-                raise RepoError(f"Датасет {dataset_id} не найден")
+                raise RepoError(f"Dataset {dataset_id} not found")
             ds.experiment_id = experiment_id
 
     def list_for_experiment(self, experiment_id: uuid_mod.UUID) -> list[Dataset]:

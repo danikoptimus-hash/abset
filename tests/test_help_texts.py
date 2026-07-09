@@ -23,9 +23,9 @@ _CHART_TYPES = [
 @pytest.mark.parametrize("chart_type", _CHART_TYPES)
 def test_get_help_text_has_all_three_sections(chart_type):
     text = get_help_text(chart_type)
-    assert "**Что показано**" in text
-    assert "**Как читать**" in text
-    assert "**Когда что-то не так**" in text
+    assert "**What is shown**" in text
+    assert "**How to read it**" in text
+    assert "**When something looks off**" in text
     # разделы разделены пустой строкой
     assert "\n\n" in text
 
@@ -39,11 +39,11 @@ def test_distribution_ratio_aliases_to_continuous():
     assert get_help_text("distribution_ratio") == get_help_text("distribution_continuous")
 
 
-def test_di_abbreviation_expanded_on_first_mention():
+def test_ci_abbreviation_expanded_on_first_mention():
     for chart_type in ("forest", "distribution_binary", "cumulative_lift", "segment_forest"):
         text = get_help_text(chart_type)
-        assert "ДИ" in text
-        assert "доверительный интервал" in text or "доверительные интервалы" in text
+        assert "CI" in text
+        assert "confidence interval" in text
 
 
 def test_cumulative_lift_and_segment_forest_have_persistent_warnings():
@@ -65,7 +65,7 @@ def test_render_help_html_wraps_in_details_summary(chart_type):
     assert html.startswith(f"<details><summary>{HELP_EXPANDER_LABEL}</summary>")
     assert html.endswith("</details>")
     assert "**" not in html  # markdown bold должен быть сконвертирован в <strong>
-    assert "<strong>Что показано</strong>" in html
+    assert "<strong>What is shown</strong>" in html
 
 
 def test_render_help_html_table_uses_table_label():
@@ -77,7 +77,7 @@ def test_render_help_html_escapes_html_special_chars():
     # ловим потенциальный XSS/поломку разметки, если кто-то допишет текст с <,>,&
     from abkit.viz import help_texts
 
-    help_texts._HELP_TEXTS["_test_escaping"] = "**Что показано**\n\n<script>alert(1)</script> & co"
+    help_texts._HELP_TEXTS["_test_escaping"] = "**What's shown**\n\n<script>alert(1)</script> & co"
     try:
         html = render_help_html("_test_escaping")
         assert "<script>" not in html

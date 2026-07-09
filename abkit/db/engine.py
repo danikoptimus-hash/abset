@@ -22,8 +22,8 @@ def get_database_url() -> str:
     url = os.environ.get("DATABASE_URL")
     if not url:
         raise DatabaseConfigError(
-            "DATABASE_URL не задан в окружении — обязателен для ABKIT_MODE=db "
-            "(см. .env.example)"
+            "DATABASE_URL is not set in the environment — required for ABKIT_MODE=db "
+            "(see .env.example)"
         )
     return url
 

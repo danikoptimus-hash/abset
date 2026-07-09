@@ -87,7 +87,7 @@ def test_ztest_proportions_matches_statsmodels():
 
     assert ctx.result.p_value == pytest.approx(expected_p)
     assert ctx.result.effect_abs == pytest.approx(treatment.mean() - control.mean())
-    assert ctx.result.method == "Z-тест пропорций"
+    assert ctx.result.method == "Z-test of proportions"
 
 
 def test_ztest_proportions_effect_rel_and_ci_sane():

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Typography, Table } from 'antd'
 import { apiClient, errorMessage } from '../../api/client'
+import { RelativeTime } from '../../components/RelativeTime'
 
 export function HistorySection({ name }: { name: string }) {
   const [page, setPage] = useState(1)
@@ -20,7 +21,7 @@ export function HistorySection({ name }: { name: string }) {
 
   return (
     <div>
-      <Typography.Title level={4}>История</Typography.Title>
+      <Typography.Title level={4}>History</Typography.Title>
       <Table
         rowKey="id"
         size="small"
@@ -28,9 +29,9 @@ export function HistorySection({ name }: { name: string }) {
         dataSource={data?.items ?? []}
         pagination={{ current: page, pageSize, total: data?.total ?? 0, onChange: setPage, showSizeChanger: false }}
         columns={[
-          { title: 'Когда', dataIndex: 'ts' },
-          { title: 'Пользователь', dataIndex: 'user_email' },
-          { title: 'Действие', dataIndex: 'action' },
+          { title: 'When', dataIndex: 'ts', render: (ts: string) => <RelativeTime iso={ts} /> },
+          { title: 'User', dataIndex: 'user_email' },
+          { title: 'Action', dataIndex: 'action' },
         ]}
       />
     </div>

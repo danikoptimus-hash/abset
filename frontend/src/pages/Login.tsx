@@ -4,6 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '../auth/AuthContext'
 import { apiClient, errorMessage } from '../api/client'
+import { PRODUCT_NAME } from '../branding'
 
 interface LoginFormValues {
   email: string
@@ -12,7 +13,8 @@ interface LoginFormValues {
 
 interface RegisterFormValues {
   email: string
-  name: string
+  first_name: string
+  last_name: string
   password: string
 }
 
@@ -28,11 +30,11 @@ function SelfRegisterForm() {
     setSuccess(false)
     try {
       const { error } = await apiClient.POST('/api/v1/auth/register', { body: values })
-      if (error) throw new Error(errorMessage(error, 'Не удалось зарегистрироваться'))
+      if (error) throw new Error(errorMessage(error, 'Failed to register'))
       setSuccess(true)
       form.resetFields()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось зарегистрироваться')
+      setError(e instanceof Error ? e.message : 'Failed to register')
     } finally {
       setSubmitting(false)
     }
@@ -44,24 +46,27 @@ function SelfRegisterForm() {
       {success && (
         <Alert
           type="success"
-          message="Аккаунт создан (роль Viewer). Теперь войдите выше."
+          message="Account created (Viewer role). Sign in above."
           showIcon
           style={{ marginBottom: 16 }}
         />
       )}
       <Form form={form} layout="vertical" onFinish={onFinish} disabled={submitting}>
-        <Form.Item name="email" label="Email" rules={[{ required: true, message: 'Введите email' }]}>
+        <Form.Item name="email" label="Email" rules={[{ required: true, message: 'Enter your email' }]}>
           <Input autoComplete="username" />
         </Form.Item>
-        <Form.Item name="name" label="Имя" rules={[{ required: true, message: 'Введите имя' }]}>
-          <Input autoComplete="name" />
+        <Form.Item name="first_name" label="First Name" rules={[{ required: true, message: 'Enter your first name' }]}>
+          <Input autoComplete="given-name" />
         </Form.Item>
-        <Form.Item name="password" label="Пароль" rules={[{ required: true, min: 8, message: 'Минимум 8 символов' }]}>
+        <Form.Item name="last_name" label="Last Name">
+          <Input autoComplete="family-name" />
+        </Form.Item>
+        <Form.Item name="password" label="Password" rules={[{ required: true, min: 8, message: 'At least 8 characters' }]}>
           <Input.Password autoComplete="new-password" />
         </Form.Item>
         <Form.Item>
           <Button htmlType="submit" block loading={submitting}>
-            Создать аккаунт
+            Create Account
           </Button>
         </Form.Item>
       </Form>
@@ -94,7 +99,7 @@ export function LoginPage() {
       await login(values.email, values.password)
       navigate(from, { replace: true })
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось войти')
+      setError(e instanceof Error ? e.message : 'Failed to sign in')
     } finally {
       setSubmitting(false)
     }
@@ -105,21 +110,21 @@ export function LoginPage() {
       <Card style={{ width: 360 }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <Typography.Title level={3} style={{ color: '#2E8B6D', marginBottom: 0 }}>
-            abkit
+            {PRODUCT_NAME}
           </Typography.Title>
-          <Typography.Text type="secondary">Вход в систему</Typography.Text>
+          <Typography.Text type="secondary">Sign in</Typography.Text>
         </div>
         {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />}
         <Form layout="vertical" onFinish={onFinish} disabled={submitting}>
-          <Form.Item name="email" label="Email" rules={[{ required: true, message: 'Введите email' }]}>
+          <Form.Item name="email" label="Email" rules={[{ required: true, message: 'Enter your email' }]}>
             <Input autoFocus autoComplete="username" />
           </Form.Item>
-          <Form.Item name="password" label="Пароль" rules={[{ required: true, message: 'Введите пароль' }]}>
+          <Form.Item name="password" label="Password" rules={[{ required: true, message: 'Enter your password' }]}>
             <Input.Password autoComplete="current-password" />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" block loading={submitting}>
-              Войти
+              Sign In
             </Button>
           </Form.Item>
         </Form>
@@ -127,7 +132,7 @@ export function LoginPage() {
           <Collapse
             ghost
             style={{ marginTop: 8 }}
-            items={[{ key: 'register', label: 'Зарегистрироваться', children: <SelfRegisterForm /> }]}
+            items={[{ key: 'register', label: 'Register', children: <SelfRegisterForm /> }]}
           />
         )}
       </Card>

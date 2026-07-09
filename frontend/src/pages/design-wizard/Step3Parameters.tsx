@@ -66,7 +66,7 @@ export function Step3Parameters({ state, setState }: Props) {
 
   return (
     <div>
-      <Typography.Title level={5}>Размер эксперимента</Typography.Title>
+      <Typography.Title level={5}>Experiment Size</Typography.Title>
       <Radio.Group
         value={state.sizeMode}
         onChange={(e) => setState((prev) => ({ ...prev, sizeMode: e.target.value }))}
@@ -83,7 +83,7 @@ export function Step3Parameters({ state, setState }: Props) {
 
       {state.sizeMode === 'mde_rel' && (
         <InputNumber
-          addonBefore="Относительный MDE"
+          addonBefore="Relative MDE"
           min={0.0001}
           step={0.01}
           value={state.mdeRel}
@@ -95,7 +95,7 @@ export function Step3Parameters({ state, setState }: Props) {
       {state.sizeMode === 'mde_abs' && (
         <div style={{ marginBottom: 24 }}>
           <Select
-            placeholder="Метрика, для которой задается абсолютный MDE"
+            placeholder="Metric to set the absolute MDE for"
             style={{ width: 320, marginBottom: 8 }}
             value={state.mdeAbsMetricId ?? undefined}
             onChange={(mdeAbsMetricId) => setState((prev) => ({ ...prev, mdeAbsMetricId }))}
@@ -103,16 +103,16 @@ export function Step3Parameters({ state, setState }: Props) {
           />
           <br />
           <InputNumber
-            addonBefore="Абсолютный MDE"
+            addonBefore="Absolute MDE"
             step={0.01}
             value={state.mdeAbsValue}
             onChange={(v) => setState((prev) => ({ ...prev, mdeAbsValue: v ?? 0 }))}
             style={{ width: 320 }}
           />
-          {baselineMean === 'loading' && <Typography.Text type="secondary"> считаем baseline...</Typography.Text>}
+          {baselineMean === 'loading' && <Typography.Text type="secondary"> computing baseline...</Typography.Text>}
           {typeof baselineMean === 'number' && relFromAbs !== null && (
             <Typography.Paragraph type="secondary" style={{ marginTop: 4 }}>
-              ≈ {(relFromAbs * 100).toFixed(1)}% относительного MDE при текущем среднем {baselineMean.toFixed(4)}
+              ≈ {(relFromAbs * 100).toFixed(1)}% relative MDE at the current mean {baselineMean.toFixed(4)}
             </Typography.Paragraph>
           )}
           {baselineMean === null && mdeAbsMetric && (
@@ -120,7 +120,7 @@ export function Step3Parameters({ state, setState }: Props) {
               type="error"
               showIcon
               style={{ marginTop: 8 }}
-              message="Не удалось определить baseline для этой метрики — нужна pre-period колонка с реальными значениями"
+              message="Could not determine the baseline for this metric — a pre-period column with real values is needed"
             />
           )}
         </div>
@@ -128,7 +128,7 @@ export function Step3Parameters({ state, setState }: Props) {
 
       {state.sizeMode === 'sample_size' && (
         <InputNumber
-          addonBefore="Размер выборки"
+          addonBefore="Sample size"
           min={1}
           step={100}
           value={state.sampleSize}
@@ -137,10 +137,10 @@ export function Step3Parameters({ state, setState }: Props) {
         />
       )}
 
-      <Typography.Title level={5}>Страты</Typography.Title>
+      <Typography.Title level={5}>Strata</Typography.Title>
       <Select
         mode="multiple"
-        placeholder="Страты (опционально)"
+        placeholder="Strata (optional)"
         style={{ width: '100%', marginBottom: 8 }}
         value={state.strata}
         onChange={(strata) => setState((prev) => ({ ...prev, strata }))}
@@ -163,7 +163,7 @@ export function Step3Parameters({ state, setState }: Props) {
                 type="warning"
                 showIcon
                 style={{ marginBottom: 4 }}
-                message={`«${col}»: ~${pct.toFixed(1)}% пропусков (оценка по превью)`}
+                message={`"${col}": ~${pct.toFixed(1)}% missing (estimated from preview)`}
               />
             )
           })}
@@ -171,7 +171,7 @@ export function Step3Parameters({ state, setState }: Props) {
       )}
 
       <Typography.Title level={5} style={{ marginTop: 24 }}>
-        Метод сплита
+        Split Method
       </Typography.Title>
       <Select
         style={{ width: '100%', marginBottom: 24 }}
@@ -180,7 +180,7 @@ export function Step3Parameters({ state, setState }: Props) {
         options={Object.entries(SPLIT_METHOD_LABELS).map(([value, label]) => ({ value, label }))}
       />
 
-      <Typography.Title level={5}>Изоляция от других активных экспериментов</Typography.Title>
+      <Typography.Title level={5}>Isolation From Other Active Experiments</Typography.Title>
       <Select
         style={{ width: '100%', marginBottom: 8 }}
         value={state.isolation}
@@ -190,12 +190,12 @@ export function Step3Parameters({ state, setState }: Props) {
       {state.isolation === 'exclude_selected' && (
         <Select
           mode="multiple"
-          placeholder="Эксперименты, из которых исключить пересекающихся участников"
+          placeholder="Experiments to exclude overlapping participants from"
           style={{ width: '100%' }}
           value={state.isolationSelected}
           onChange={(isolationSelected) => setState((prev) => ({ ...prev, isolationSelected }))}
           options={(activeExperiments ?? []).map((n) => ({ value: n, label: n }))}
-          notFoundContent={activeExperiments?.length === 0 ? 'Нет активных экспериментов для выбора' : undefined}
+          notFoundContent={activeExperiments?.length === 0 ? 'No active experiments to choose from' : undefined}
         />
       )}
     </div>

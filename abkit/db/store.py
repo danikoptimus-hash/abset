@@ -50,7 +50,7 @@ class DbExperimentStore:
         if existing is not None:
             return existing.id
         return self.users.create(
-            email=_SYSTEM_USER_EMAIL, name="system", password_hash="!", role="admin"
+            email=_SYSTEM_USER_EMAIL, first_name="system", password_hash="!", role="admin"
         )
 
     def _artifact_dir(self, name: str) -> Path:
@@ -76,7 +76,7 @@ class DbExperimentStore:
     def load_experiment(self, name: str) -> ExperimentHandle:
         exp_row = self.experiments.get_by_name(name)
         if exp_row is None:
-            raise DbStoreError(f"Эксперимент '{name}' не найден")
+            raise DbStoreError(f"Experiment '{name}' not found")
         config = DesignConfig.model_validate(exp_row.config)
         assignments = self.assignments.load(exp_row.id)
         path = self._artifact_dir(name)
@@ -90,7 +90,7 @@ class DbExperimentStore:
 
         exp_row = self.experiments.get_by_name(name)
         if exp_row is None:
-            raise DbStoreError(f"Эксперимент '{name}' не найден")
+            raise DbStoreError(f"Experiment '{name}' not found")
         self.results.create(
             experiment_id=exp_row.id, results=json.loads(results_json), report_path=str(report_path)
         )

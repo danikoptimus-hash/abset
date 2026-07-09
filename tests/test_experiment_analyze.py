@@ -103,7 +103,7 @@ def test_analyze_raises_on_duplicate_data_without_date_col(tmp_path):
             "clicks": np.random.default_rng(1).binomial(1, 0.1, size=n + 1),
         }
     )
-    with pytest.raises(AnalysisError, match="обнаружены дубли"):
+    with pytest.raises(AnalysisError, match="duplicate"):
         experiment.analyze(post_data)
 
 
@@ -127,11 +127,11 @@ def test_analyze_progress_callback_reports_stages_in_order(tmp_path):
     experiment.analyze(post_data, progress_callback=stages.append)
 
     assert stages == [
-        "Джойним с назначениями...",
-        "Проверяем честность (SRM, потери)...",
-        "Считаем метрику 1 из 2: revenue...",
-        "Считаем метрику 2 из 2: clicks...",
-        "Применяем поправку на множественность...",
+        "Joining with assignments...",
+        "Checking validity (SRM, data loss)...",
+        "Computing metric 1 of 2: revenue...",
+        "Computing metric 2 of 2: clicks...",
+        "Applying multiple-testing correction...",
     ]
 
 
@@ -155,8 +155,8 @@ def test_analyze_progress_callback_reports_aggregation_stage_with_date_col(tmp_p
 
     experiment.analyze(daily_data, date_col="event_date", progress_callback=stages.append)
 
-    assert "Агрегируем данные по дням..." in stages
-    assert stages.index("Агрегируем данные по дням...") < stages.index("Джойним с назначениями...")
+    assert "Aggregating data by day..." in stages
+    assert stages.index("Aggregating data by day...") < stages.index("Joining with assignments...")
 
 
 def test_analyze_daily_data_aggregation_matches_pre_aggregated(tmp_path):
@@ -204,7 +204,7 @@ def test_analyze_daily_data_aggregation_matches_pre_aggregated(tmp_path):
     assert results_daily["clicks"][0].effect_abs == pytest.approx(
         results_pre["clicks"][0].effect_abs, abs=1e-8
     )
-    assert any("разбивку по дням" in w for w in results_daily.global_warnings)
+    assert any("day-by-day breakdown" in w for w in results_daily.global_warnings)
 
 
 def test_analyze_cumulative_lift_builds_on_daily_data(tmp_path):
@@ -322,7 +322,7 @@ def test_analyze_ratio_metric_uses_delta_method_by_default(tmp_path):
         }
     )
     results = experiment.analyze(post_data)
-    assert results["conv"][0].method == "Дельта-метод (ratio)"
+    assert results["conv"][0].method == "Delta method (ratio)"
 
 
 def test_analyze_flags_srm_on_actual_data(tmp_path):
@@ -490,9 +490,9 @@ def test_detailed_display_rows_have_russian_column_headers(tmp_path):
     rows = results.detailed_display_rows(results.context["control_name"])
     assert rows
     expected_columns = {
-        "Метрика", "Группа сравнения", "Метод", "Designed", "Эффект (абс)",
-        "Эффект (отн, %)", "95% ДИ (отн.)", "p-value", "p-adj", "Коррекция",
-        "n (control)", "n (test)", "Снижение дисперсии", "Вердикт",
+        "Metric", "Comparison group", "Method", "Designed", "Effect (abs)",
+        "Effect (rel, %)", "95% CI (rel.)", "p-value", "p-adj", "Correction",
+        "n (control)", "n (test)", "Variance reduction", "Verdict",
     }
     assert set(rows[0].keys()) == expected_columns
     designed_row = next(r for r in rows if r["Designed"] == "✓")
@@ -517,7 +517,7 @@ def test_analyze_compare_methods_adds_alternative_chains(tmp_path):
     methods_used = {r.method for r in revenue_results}
     assert "Welch t-test" in methods_used
     assert "Bootstrap (bca)" in methods_used
-    assert "Mann-Whitney (Ходжес-Леман)" in methods_used
+    assert "Mann-Whitney (Hodges-Lehmann)" in methods_used
     assert sum(1 for r in revenue_results if not r.is_designed_method) >= 4
     # compare_methods не должен появляться для binary-метрик
     assert all(r.is_designed_method for r in results["clicks"])

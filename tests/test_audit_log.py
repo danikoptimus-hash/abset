@@ -30,7 +30,7 @@ def db_env(db_url, tmp_path, monkeypatch):
 @pytest.fixture
 def editor(db_env):
     user_id = UserRepo().create(
-        email="editor@co.com", name="Editor", password_hash=hash_password("pw"), role="editor"
+        email="editor@co.com", first_name="Editor", password_hash=hash_password("pw"), role="editor"
     )
     return CurrentUser(id=str(user_id), email="editor@co.com", name="Editor", role="editor")
 
@@ -38,7 +38,7 @@ def editor(db_env):
 @pytest.fixture
 def admin(db_env):
     user_id = UserRepo().create(
-        email="admin@co.com", name="Admin", password_hash=hash_password("pw"), role="admin"
+        email="admin@co.com", first_name="Admin", password_hash=hash_password("pw"), role="admin"
     )
     return CurrentUser(id=str(user_id), email="admin@co.com", name="Admin", role="admin")
 
@@ -157,7 +157,7 @@ def test_login_success_writes_auth_login_audit(db_env):
     from abkit.auth.service import login
 
     UserRepo().create(
-        email="loginaudit@co.com", name="L", password_hash=hash_password("realpw"), role="viewer"
+        email="loginaudit@co.com", first_name="L", password_hash=hash_password("realpw"), role="viewer"
     )
     login("loginaudit@co.com", "realpw")
 
@@ -170,7 +170,7 @@ def test_login_failure_writes_auth_login_failed_audit(db_env):
     from abkit.auth.service import login
 
     UserRepo().create(
-        email="failaudit@co.com", name="F", password_hash=hash_password("realpw"), role="viewer"
+        email="failaudit@co.com", first_name="F", password_hash=hash_password("realpw"), role="viewer"
     )
     with pytest.raises(AuthError):
         login("failaudit@co.com", "wrongpw")
@@ -184,7 +184,7 @@ def test_login_failure_writes_auth_login_failed_audit(db_env):
 def test_admin_create_user_writes_user_create_audit(admin):
     from abkit.auth.service import admin_create_user
 
-    admin_create_user(admin, email="created@co.com", name="C", role="viewer")
+    admin_create_user(admin, email="created@co.com", first_name="C", role="viewer")
 
     entry = _last_action(action="user.create")
     assert entry is not None
@@ -197,7 +197,7 @@ def test_admin_create_user_via_cli_writes_audit_with_cli_actor(db_env):
     CLI-действия (acting_user=None, доверенный abkit-admin) тоже логировались."""
     from abkit.auth.service import admin_create_user
 
-    admin_create_user(None, email="clicreated@co.com", name="CLI", role="admin")
+    admin_create_user(None, email="clicreated@co.com", first_name="CLI", role="admin")
 
     entry = _last_action(action="user.create", object_name="clicreated@co.com")
     assert entry is not None
@@ -208,7 +208,7 @@ def test_admin_create_user_via_cli_writes_audit_with_cli_actor(db_env):
 def test_admin_reset_password_writes_audit(admin):
     from abkit.auth.service import admin_create_user, admin_reset_password
 
-    admin_create_user(admin, email="resetme@co.com", name="R", role="viewer", password="initial")
+    admin_create_user(admin, email="resetme@co.com", first_name="R", role="viewer", password="initial")
     admin_reset_password(admin, target_email="resetme@co.com")
 
     entry = _last_action(action="user.password_reset")
@@ -219,7 +219,7 @@ def test_admin_reset_password_writes_audit(admin):
 def test_admin_set_role_writes_audit_with_from_to(admin):
     from abkit.auth.service import admin_create_user, admin_set_role
 
-    admin_create_user(admin, email="rolechange@co.com", name="RC", role="viewer", password="pw")
+    admin_create_user(admin, email="rolechange@co.com", first_name="RC", role="viewer", password="pw")
     admin_set_role(admin, target_email="rolechange@co.com", role="editor")
 
     entry = _last_action(action="user.role_change")
@@ -230,7 +230,7 @@ def test_admin_set_role_writes_audit_with_from_to(admin):
 def test_admin_set_active_writes_audit(admin):
     from abkit.auth.service import admin_create_user, admin_set_active
 
-    admin_create_user(admin, email="toggle@co.com", name="T", role="viewer", password="pw")
+    admin_create_user(admin, email="toggle@co.com", first_name="T", role="viewer", password="pw")
     admin_set_active(admin, target_email="toggle@co.com", is_active=False)
 
     entry = _last_action(action="user.active_change")
@@ -242,7 +242,7 @@ def test_self_register_writes_user_create_audit(db_env, monkeypatch):
     from abkit.auth.service import self_register
 
     monkeypatch.setenv("ABKIT_ALLOW_SELF_REGISTRATION", "true")
-    self_register(email="selfaudit@co.com", name="S", password="pw12345")
+    self_register(email="selfaudit@co.com", first_name="S", password="pw12345")
 
     entry = _last_action(action="user.create", object_name="selfaudit@co.com")
     assert entry is not None

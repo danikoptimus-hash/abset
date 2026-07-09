@@ -24,7 +24,7 @@ def get_optional_user(abkit_session: str | None = Cookie(default=None)) -> Curre
 
 def get_current_user(user: CurrentUser | None = Depends(get_optional_user)) -> CurrentUser:
     if user is None:
-        raise APIError(401, "unauthorized", "Требуется вход в систему")
+        raise APIError(401, "unauthorized", "Login required")
     return user
 
 

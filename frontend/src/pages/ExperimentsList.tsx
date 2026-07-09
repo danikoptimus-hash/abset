@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Table, Input, Select, Button, Tag, Space, message } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { Table, Input, Select, Button, Tag, Space, message, Tooltip } from 'antd'
+import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import { Link, useNavigate } from 'react-router-dom'
 import { apiClient, errorMessage } from '../api/client'
 import { useAuth, hasMinRole } from '../auth/AuthContext'
 import { DeleteExperimentModal } from '../components/DeleteExperimentModal'
+import { ExperimentPropertiesModal } from '../components/ExperimentPropertiesModal'
+import { UserAvatarGroup } from '../components/UserAvatar'
+import { RelativeTime } from '../components/RelativeTime'
 
 const STATUS_COLORS: Record<string, string> = {
   designed: 'default',
@@ -43,14 +46,17 @@ export function ExperimentsListPage() {
   })
 
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const [editTarget, setEditTarget] = useState<string | null>(null)
   const canCreate = hasMinRole(user, 'editor')
+
+  const refreshList = () => queryClient.invalidateQueries({ queryKey: ['experiments'] })
 
   return (
     <div>
       <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}>
         <Space>
           <Input.Search
-            placeholder="Поиск по названию"
+            placeholder="Search by name"
             allowClear
             style={{ width: 260 }}
             onSearch={(value) => {
@@ -59,7 +65,7 @@ export function ExperimentsListPage() {
             }}
           />
           <Select
-            placeholder="Статус"
+            placeholder="Status"
             allowClear
             style={{ width: 160 }}
             options={[
@@ -76,7 +82,7 @@ export function ExperimentsListPage() {
         </Space>
         {canCreate && (
           <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/experiments/new')}>
-            Создать A/B тест
+            Create A/B Test
           </Button>
         )}
       </Space>
@@ -94,36 +100,67 @@ export function ExperimentsListPage() {
         }}
         columns={[
           {
-            title: 'Название',
+            title: 'Name',
             dataIndex: 'name',
             render: (name: string) => <Link to={`/experiments/${name}`}>{name}</Link>,
           },
-          { title: 'Владелец', dataIndex: 'owner_email' },
-          { title: 'Статус', dataIndex: 'status', render: (s: string) => <StatusBadge status={s} /> },
           {
-            title: 'Публикация',
+            title: 'Owner',
+            key: 'owner',
+            render: (_, record) =>
+              record.owner_id ? (
+                <UserAvatarGroup
+                  users={[
+                    {
+                      id: record.owner_id,
+                      firstName: record.owner_first_name ?? '',
+                      lastName: record.owner_last_name ?? '',
+                      email: record.owner_email ?? '',
+                    },
+                  ]}
+                />
+              ) : null,
+          },
+          { title: 'Status', dataIndex: 'status', render: (s: string) => <StatusBadge status={s} /> },
+          {
+            title: 'Publication',
             dataIndex: 'publication_status',
             render: (s: string) => <PublicationBadge status={s} />,
           },
           {
-            title: 'Изменен',
+            title: 'Last Modified',
             key: 'updated',
-            render: (_, record) =>
-              record.archived_at ?? record.completed_at ?? record.started_at ?? record.created_at,
+            render: (_, record) => (
+              <RelativeTime
+                iso={record.archived_at ?? record.completed_at ?? record.started_at ?? record.created_at}
+              />
+            ),
           },
           {
-            title: 'Действия',
+            title: 'Actions',
             key: 'actions',
-            render: (_, record) => (
-              <Button
-                danger
-                size="small"
-                disabled={!hasMinRole(user, 'editor')}
-                onClick={() => setDeleteTarget(record.name)}
-              >
-                Удалить
-              </Button>
-            ),
+            render: (_, record) =>
+              record.can_edit && (
+                <Space className="hover-actions">
+                  <Tooltip title="Edit">
+                    <Button
+                      size="small"
+                      aria-label="Edit"
+                      icon={<EditOutlined />}
+                      onClick={() => setEditTarget(record.name)}
+                    />
+                  </Tooltip>
+                  <Tooltip title="Delete">
+                    <Button
+                      danger
+                      size="small"
+                      aria-label="Delete"
+                      icon={<DeleteOutlined />}
+                      onClick={() => setDeleteTarget(record.name)}
+                    />
+                  </Tooltip>
+                </Space>
+              ),
           },
         ]}
       />
@@ -132,9 +169,19 @@ export function ExperimentsListPage() {
         name={deleteTarget}
         onCancel={() => setDeleteTarget(null)}
         onDeleted={() => {
-          message.success(`Эксперимент «${deleteTarget}» удален`)
+          message.success(`Experiment "${deleteTarget}" deleted`)
           setDeleteTarget(null)
-          queryClient.invalidateQueries({ queryKey: ['experiments'] })
+          refreshList()
+        }}
+      />
+
+      <ExperimentPropertiesModal
+        name={editTarget}
+        onCancel={() => setEditTarget(null)}
+        onSaved={() => {
+          message.success('Saved')
+          setEditTarget(null)
+          refreshList()
         }}
       />
     </div>

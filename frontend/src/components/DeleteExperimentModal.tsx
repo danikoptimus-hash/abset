@@ -41,7 +41,7 @@ export function DeleteExperimentModal({ name, onCancel, onDeleted }: Props) {
       if (error) throw new Error(errorMessage(error))
       onDeleted()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось удалить')
+      setError(e instanceof Error ? e.message : 'Failed to delete')
     } finally {
       setDeleting(false)
     }
@@ -49,12 +49,12 @@ export function DeleteExperimentModal({ name, onCancel, onDeleted }: Props) {
 
   return (
     <Modal
-      title={`Удалить «${name}»?`}
+      title={`Delete "${name}"?`}
       open={name !== null}
       onCancel={onCancel}
       onOk={handleDelete}
       okButtonProps={{ danger: true, disabled: confirmText !== 'DELETE', loading: deleting }}
-      okText="Удалить"
+      okText="Delete"
     >
       {error && (
         <Typography.Paragraph type="danger">
@@ -63,14 +63,15 @@ export function DeleteExperimentModal({ name, onCancel, onDeleted }: Props) {
       )}
       {summary ? (
         <Typography.Paragraph type="danger">
-          Будут удалены: назначения ({summary.assignments}), датасеты ({summary.datasets}), результаты
-          анализа ({summary.results}). Это действие необратимо.
+          You are deleting experiment {name}. This will permanently delete: assignments (
+          {summary.assignments}), datasets ({summary.datasets}), analysis results ({summary.results}).
+          This action cannot be undone.
         </Typography.Paragraph>
       ) : (
         <Spin size="small" />
       )}
       <Form layout="vertical">
-        <Form.Item label='Введите "DELETE" для подтверждения'>
+        <Form.Item label='Type "DELETE" to confirm'>
           <Input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} autoFocus />
         </Form.Item>
       </Form>

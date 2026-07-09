@@ -45,7 +45,7 @@ def import_legacy_dir(legacy_dir: Path, owner_email: str) -> ImportReport:
     """
     owner = UserRepo().get_by_email(owner_email)
     if owner is None:
-        raise LegacyImportError(f"Пользователь-владелец '{owner_email}' не найден")
+        raise LegacyImportError(f"Owner user '{owner_email}' not found")
 
     registry = storage.read_registry(legacy_dir)
     report = ImportReport()

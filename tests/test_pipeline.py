@@ -78,22 +78,22 @@ def test_pipeline_only_test_step_is_valid():
 
 
 def test_pipeline_requires_exactly_one_test_step_zero():
-    with pytest.raises(PipelineError, match="ровно один test-шаг"):
+    with pytest.raises(PipelineError, match="exactly one test step"):
         Pipeline([DummyPreprocess()])
 
 
 def test_pipeline_requires_exactly_one_test_step_multiple():
-    with pytest.raises(PipelineError, match="ровно один test-шаг"):
+    with pytest.raises(PipelineError, match="exactly one test step"):
         Pipeline([DummyTest(), AnotherTest()])
 
 
 def test_pipeline_rejects_wrong_stage_order():
-    with pytest.raises(PipelineError, match="Нарушен порядок стадий"):
+    with pytest.raises(PipelineError, match="stage order violated"):
         Pipeline([DummyVarianceReduction(), DummyPreprocess(), DummyTest()])
 
 
 def test_pipeline_rejects_test_before_preprocess():
-    with pytest.raises(PipelineError, match="Нарушен порядок стадий"):
+    with pytest.raises(PipelineError, match="stage order violated"):
         Pipeline([DummyTest(), DummyPreprocess()])
 
 
@@ -155,4 +155,4 @@ def test_pipeline_questionable_combination_warns():
 
     pipeline = Pipeline([CUPED(), MannWhitney()])
     ctx = pipeline.run(make_ctx())
-    assert any("методологически спорен" in w for w in ctx.warnings)
+    assert any("methodologically questionable" in w for w in ctx.warnings)

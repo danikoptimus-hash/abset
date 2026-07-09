@@ -82,7 +82,10 @@ def register(body: RegisterRequest) -> dict[str, bool]:
     from abkit.auth.service import self_register
 
     try:
-        self_register(email=body.email, name=body.name, password=body.password)
+        self_register(
+            email=body.email, first_name=body.first_name, last_name=body.last_name,
+            password=body.password,
+        )
     except AuthError as e:
         raise APIError(403, "registration_disabled", str(e)) from e
     except RepoError as e:

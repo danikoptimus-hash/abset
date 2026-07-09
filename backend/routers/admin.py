@@ -25,7 +25,8 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 def _to_out(u) -> UserAdminOut:
     return UserAdminOut(
-        id=str(u.id), email=u.email, name=u.name, role=u.role, is_active=u.is_active,
+        id=str(u.id), email=u.email, first_name=u.first_name, last_name=u.last_name,
+        role=u.role, is_active=u.is_active,
         must_change_password=u.must_change_password, created_at=u.created_at,
         last_login_at=u.last_login_at,
     )
@@ -35,10 +36,10 @@ def _get_user_or_404(user_id: str):
     try:
         parsed_id = uuid_mod.UUID(user_id)
     except ValueError as e:
-        raise APIError(422, "validation_error", "Некорректный идентификатор пользователя") from e
+        raise APIError(422, "validation_error", "Invalid user id") from e
     user = UserRepo().get_by_id(parsed_id)
     if user is None:
-        raise APIError(404, "not_found", f"Пользователь '{user_id}' не найден")
+        raise APIError(404, "not_found", f"User '{user_id}' not found")
     return user
 
 
@@ -55,7 +56,8 @@ def create_user(
 
     try:
         user_id, generated_password = admin_create_user(
-            user, email=body.email, name=body.name, role=body.role, password=body.password,
+            user, email=body.email, first_name=body.first_name, last_name=body.last_name,
+            role=body.role, password=body.password,
         )
     except AuthError as e:
         raise APIError(403, "forbidden", str(e)) from e
@@ -73,8 +75,12 @@ def patch_user(
     from abkit.auth.service import admin_set_active, admin_set_role, admin_update_name
 
     target = _get_user_or_404(user_id)
-    if body.name is not None:
-        admin_update_name(user, target_email=target.email, name=body.name)
+    if body.first_name is not None or body.last_name is not None:
+        admin_update_name(
+            user, target_email=target.email,
+            first_name=body.first_name if body.first_name is not None else target.first_name,
+            last_name=body.last_name if body.last_name is not None else target.last_name,
+        )
     if body.role is not None:
         admin_set_role(user, target_email=target.email, role=body.role)
     if body.is_active is not None:

@@ -10,7 +10,7 @@ from abkit.db.repositories import ExperimentRepo, UserRepo
 
 
 def _login(app_client, email="editor@co.com", role="editor"):
-    UserRepo().create(email=email, name="E", password_hash=hash_password("pw12345"), role=role)
+    UserRepo().create(email=email, first_name="E", password_hash=hash_password("pw12345"), role=role)
     app_client.post("/api/v1/auth/login", json={"email": email, "password": "pw12345"})
 
 
@@ -170,4 +170,4 @@ def test_design_duplicate_name_fails_job_not_http(app_client, tmp_path, monkeypa
     assert second.status_code == 202
     job = _poll_job(app_client, second.json()["job_id"])
     assert job["status"] == "failed"
-    assert "уже существует" in job["error"]
+    assert "already exists" in job["error"]

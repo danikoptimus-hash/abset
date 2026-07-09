@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Отчет: {{ experiment_name }}</title>
+<title>Report: {{ experiment_name }} — {{ product_name }}</title>
 <style>
   body { font-family: -apple-system, Segoe UI, Arial, sans-serif; margin: 0; padding: 0 24px 60px; background: #fafafa; color: #1a1a1a; }
   h1, h2 { color: #1a1a1a; }
@@ -35,29 +35,29 @@
 
 <section id="section-header">
   <h1>{{ experiment_name }}</h1>
-  <p>Сгенерировано: {{ generated_at }}</p>
-  <p>Группы: {% for name, size in group_sizes.items() %}{{ name }} ({{ size }}){% if not loop.last %}, {% endif %}{% endfor %}</p>
-  <p>Метод сплита: {{ config.split_method }} · Поправка на множественность: {{ correction }}</p>
+  <p>Generated: {{ generated_at }}</p>
+  <p>Groups: {% for name, size in group_sizes.items() %}{{ name }} ({{ size }}){% if not loop.last %}, {% endif %}{% endfor %}</p>
+  <p>Split method: {{ config.split_method }} · Multiple-testing correction: {{ correction }}</p>
   <div class="badges">
-    <span class="badge {{ 'ok' if srm.passed else 'fail' }}">SRM: {{ 'ок' if srm.passed else 'ПРОВАЛ' }} (p={{ '%.4g' % srm.p_value }})</span>
-    <span class="badge {{ 'ok' if loss.symmetric else 'fail' }}">Потери: {{ 'симметричны' if loss.symmetric else 'АСИММЕТРИЧНЫ' }}</span>
+    <span class="badge {{ 'ok' if srm.passed else 'fail' }}">SRM: {{ 'ok' if srm.passed else 'FAIL' }} (p={{ '%.4g' % srm.p_value }})</span>
+    <span class="badge {{ 'ok' if loss.symmetric else 'fail' }}">Loss: {{ 'symmetric' if loss.symmetric else 'ASYMMETRIC' }}</span>
   </div>
   {% if global_warnings %}
   <div class="warnings">
-    <strong>Предупреждения:</strong>
+    <strong>Warnings:</strong>
     <ul>{% for w in global_warnings %}<li>{{ w }}</li>{% endfor %}</ul>
   </div>
   {% endif %}
 </section>
 
 <section id="section-verdicts">
-  <h2>Вердикты</h2>
+  <h2>Verdicts</h2>
   <div class="cards">
   {% for section in metric_sections %}
     {% for treat_name, verdict in section.verdicts.items() %}
     <div class="card {{ verdict }}">
       <div>{% if section.role == 'secondary' %}<span class="exploratory-tag">exploratory</span> {% endif %}<strong>{{ section.name }}</strong> vs {{ treat_name }}</div>
-      <div>Вердикт: {{ verdict }}</div>
+      <div>Verdict: {{ verdict }}</div>
     </div>
     {% endfor %}
   {% endfor %}
@@ -65,9 +65,9 @@
 </section>
 
 <section id="section-full-results-table">
-  <h2>Детальная таблица результатов</h2>
+  <h2>Detailed results table</h2>
   {% if detailed_rows %}
-  <p><a href="detailed_results.csv">Скачать таблицу CSV</a></p>
+  <p><a href="detailed_results.csv">Download CSV table</a></p>
   <table>
     <thead>
       <tr>{% for col in detailed_columns %}<th>{{ col }}</th>{% endfor %}</tr>
@@ -81,7 +81,7 @@
     </tbody>
   </table>
   {% else %}
-  <p>Нет вычисленных сравнений.</p>
+  <p>No comparisons were computed.</p>
   {% endif %}
   {{ help_details('verdicts_table', True) }}
 </section>
@@ -91,13 +91,13 @@
   <h2>{{ section.name }}</h2>
 
   <section id="section-forest">
-    <h3>Forest plot: методы</h3>
+    <h3>Forest plot: methods</h3>
     {{ section.forest_html | safe }}
     {{ help_details('forest') }}
   </section>
 
   <section id="section-distributions">
-    <h3>Распределения</h3>
+    <h3>Distributions</h3>
     {% if section.distribution_htmls %}
       {% for treat_name, html, clip_caption in section.distribution_htmls %}
         <p>{{ section.name }}: control vs {{ treat_name }}</p>
@@ -106,26 +106,26 @@
         {{ help_details('distribution_binary' if section.type == 'binary' else 'distribution_continuous') }}
       {% endfor %}
     {% else %}
-      <p>Распределения недоступны для этой метрики (ratio-метрики не поддерживают распределение по сырым значениям).</p>
+      <p>Distributions are not available for this metric (ratio metrics don't support a raw-value distribution).</p>
     {% endif %}
   </section>
 
   <section id="section-segments">
-    <h3>Эффект по сегментам <span class="exploratory-tag">exploratory</span></h3>
+    <h3>Effect by segment <span class="exploratory-tag">exploratory</span></h3>
     {% if section.segment_htmls %}
       <div class="warnings">{{ chart_warning('segment_forest') }}</div>
       {% for treat_name, html in section.segment_htmls %}
-        <p>{{ section.name }}: {{ treat_name }} по стратам</p>
+        <p>{{ section.name }}: {{ treat_name }} by stratum</p>
         {{ html | safe }}
         {{ help_details('segment_forest') }}
       {% endfor %}
     {% else %}
-      <p>Недостаточно страт для сегментного разреза.</p>
+      <p>Not enough strata for a segment breakdown.</p>
     {% endif %}
   </section>
 
   <section id="section-cumulative">
-    <h3>Динамика <span class="exploratory-tag">exploratory</span></h3>
+    <h3>Trend <span class="exploratory-tag">exploratory</span></h3>
     {% if section.daily_htmls %}
       <div class="warnings">{{ chart_warning('cumulative_lift') }}</div>
       {% for treat_name, html in section.daily_htmls %}
@@ -134,26 +134,26 @@
         {{ help_details('cumulative_lift') }}
       {% endfor %}
     {% else %}
-      <p>Колонка даты не передана в analyze() (date_col) — динамика недоступна.</p>
+      <p>No date column was passed to analyze() (date_col) — trend is not available.</p>
     {% endif %}
   </section>
 </div>
 {% endfor %}
 
 <section id="section-diagnostics">
-  <h2>Диагностика</h2>
+  <h2>Diagnostics</h2>
   <h3>SRM</h3>
   <table>
-    <tr><th>Группа</th><th>Наблюдалось</th><th>Ожидалось</th></tr>
+    <tr><th>Group</th><th>Observed</th><th>Expected</th></tr>
     {% for name, obs in srm.observed.items() %}
     <tr><td>{{ name }}</td><td>{{ obs }}</td><td>{{ '%.1f' % srm.expected[name] }}</td></tr>
     {% endfor %}
   </table>
   <p>chi2={{ '%.4g' % srm.chi2 }}, p={{ '%.4g' % srm.p_value }}</p>
 
-  <h3>Потери данных по группам</h3>
+  <h3>Data loss by group</h3>
   <table>
-    <tr><th>Группа</th><th>Назначено</th><th>Присутствует</th><th>Потеряно</th><th>Доля потерь</th></tr>
+    <tr><th>Group</th><th>Assigned</th><th>Present</th><th>Missing</th><th>Loss rate</th></tr>
     {% for name, assigned in loss.assigned.items() %}
     <tr>
       <td>{{ name }}</td><td>{{ assigned }}</td><td>{{ loss.present[name] }}</td>
@@ -163,9 +163,9 @@
   </table>
   {{ help_details('srm_table', True) }}
 
-  <h3>n_removed и variance_reduction (designed-цепочки)</h3>
+  <h3>n_removed and variance_reduction (designed chains)</h3>
   <table>
-    <tr><th>Метрика</th><th>Группа</th><th>Метод</th><th>n_removed</th><th>variance_reduction</th></tr>
+    <tr><th>Metric</th><th>Group</th><th>Method</th><th>n_removed</th><th>variance_reduction</th></tr>
     {% for section in metric_sections %}
       {% for r in section.results %}
         {% if r.is_designed_method %}
@@ -181,8 +181,8 @@
 </section>
 
 <section id="section-appendix">
-  <h2>Аппендикс</h2>
-  <p>abkit версия: {{ abkit_version }} · seed: {{ seed }}</p>
+  <h2>Appendix</h2>
+  <p>{{ product_name }} version: {{ abkit_version }} · seed: {{ seed }}</p>
   <pre>{{ config_yaml }}</pre>
 </section>
 

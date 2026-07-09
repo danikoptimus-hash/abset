@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Дизайн эксперимента: {{ experiment_name }}</title>
+<title>Design: {{ experiment_name }} — {{ product_name }}</title>
 <style>
   body { font-family: -apple-system, Segoe UI, Arial, sans-serif; margin: 0; padding: 0 24px 60px; background: #fafafa; color: #1a1a1a; }
   section { margin: 32px 0; padding: 20px; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
@@ -22,26 +22,26 @@
 <body>
 
 <section id="section-availability">
-  <h1>Дизайн: {{ experiment_name }}</h1>
-  <p>Кандидатов всего: {{ n_candidates_total }} · исключено изоляцией: {{ n_excluded_by_isolation }} · доступно: {{ n_available }}</p>
+  <h1>Design: {{ experiment_name }}</h1>
+  <p>Total candidates: {{ n_candidates_total }} · excluded by isolation: {{ n_excluded_by_isolation }} · available: {{ n_available }}</p>
   {% if excluded_by_experiment %}
   <table>
-    <tr><th>Эксперимент</th><th>Пересечение</th></tr>
+    <tr><th>Experiment</th><th>Overlap</th></tr>
     {% for name, n in excluded_by_experiment.items() %}
     <tr><td>{{ name }}</td><td>{{ n }}</td></tr>
     {% endfor %}
   </table>
   {% endif %}
-  <p>Группы: {% for name, size in group_sizes.items() %}{{ name }} ({{ size }}){% if not loop.last %}, {% endif %}{% endfor %}</p>
+  <p>Groups: {% for name, size in group_sizes.items() %}{{ name }} ({{ size }}){% if not loop.last %}, {% endif %}{% endfor %}</p>
 </section>
 
 {% if strata_nan_rows %}
 <section id="section-strata-nan">
-  <h2>Пропуски в стратах</h2>
-  <p>Стратегия обработки пропусков (nan_strategy): <strong>{{ nan_strategy }}</strong>
-    {% if nan_strategy == "drop" %}— {{ n_dropped_for_nan_strata }} юзеров удалено из кандидатов{% endif %}</p>
+  <h2>Missing values in strata</h2>
+  <p>Missing-value handling strategy (nan_strategy): <strong>{{ nan_strategy }}</strong>
+    {% if nan_strategy == "drop" %}— {{ n_dropped_for_nan_strata }} users removed from candidates{% endif %}</p>
   <table>
-    <tr><th>Колонка</th><th>Пропусков</th><th>Доля</th></tr>
+    <tr><th>Column</th><th>Missing</th><th>Share</th></tr>
     {% for row in strata_nan_rows %}
     <tr>
       <td>{{ row.column }}</td>
@@ -54,9 +54,9 @@
 {% endif %}
 
 <section id="section-power">
-  <h2>Мощность и MDE</h2>
+  <h2>Power and MDE</h2>
   <table>
-    <tr><th>Метрика</th><th>MDE (отн.)</th><th>MDE c CUPED</th><th>Размер группы</th><th>ρ</th></tr>
+    <tr><th>Metric</th><th>MDE (rel.)</th><th>MDE with CUPED</th><th>Group size</th><th>ρ</th></tr>
     {% for row in power_rows %}
     <tr>
       <td>{{ row.metric }}</td>
@@ -71,42 +71,42 @@
 </section>
 
 <section id="section-strata-balance">
-  <h2>Баланс страт</h2>
-  <p class="badges"><span class="badge {{ 'ok' if strata_balance.passed else 'fail' }}">{{ 'ок' if strata_balance.passed else 'ДИСБАЛАНС' }} (p={{ '%.4g' % strata_balance.p_value }})</span></p>
+  <h2>Stratum balance</h2>
+  <p class="badges"><span class="badge {{ 'ok' if strata_balance.passed else 'fail' }}">{{ 'ok' if strata_balance.passed else 'IMBALANCE' }} (p={{ '%.4g' % strata_balance.p_value }})</span></p>
 </section>
 
 <section id="section-srm">
   <h2>SRM</h2>
-  <p class="badges"><span class="badge {{ 'ok' if srm.passed else 'fail' }}">{{ 'ок' if srm.passed else 'ПРОВАЛ' }} (p={{ '%.4g' % srm.p_value }})</span></p>
+  <p class="badges"><span class="badge {{ 'ok' if srm.passed else 'fail' }}">{{ 'ok' if srm.passed else 'FAIL' }} (p={{ '%.4g' % srm.p_value }})</span></p>
 </section>
 
 <section id="section-pre-aa">
   <h2>Pre-period A/A</h2>
   {% if pre_period_aa %}
   <table>
-    <tr><th>Метрика</th><th>Группа</th><th>p-value</th><th>Статус</th></tr>
+    <tr><th>Metric</th><th>Group</th><th>p-value</th><th>Status</th></tr>
     {% for aa in pre_period_aa %}
     <tr>
       <td>{{ aa.metric }}</td><td>{{ aa.treatment_group }}</td><td>{{ '%.4g' % aa.p_value }}</td>
-      <td>{{ 'ок' if aa.passed else 'ПРОВАЛ' }}</td>
+      <td>{{ 'ok' if aa.passed else 'FAIL' }}</td>
     </tr>
     {% endfor %}
   </table>
   {% else %}
-  <p>Нет метрик с pre_col для A/A проверки.</p>
+  <p>No metrics with pre_col for an A/A check.</p>
   {% endif %}
 </section>
 
 {% if warnings %}
 <section id="section-warnings">
-  <h2>Предупреждения</h2>
+  <h2>Warnings</h2>
   <div class="warnings"><ul>{% for w in warnings %}<li>{{ w }}</li>{% endfor %}</ul></div>
 </section>
 {% endif %}
 
 <section id="section-appendix">
-  <h2>Аппендикс</h2>
-  <p>abkit версия: {{ abkit_version }} · seed: {{ seed }}</p>
+  <h2>Appendix</h2>
+  <p>{{ product_name }} version: {{ abkit_version }} · seed: {{ seed }}</p>
 </section>
 
 </body>

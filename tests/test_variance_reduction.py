@@ -50,7 +50,7 @@ def test_cuped_imputes_nan_covariate_and_warns():
     ctx = make_ctx(values, group, covariate=covariate)
 
     result_ctx = CUPED().apply(ctx)
-    assert any("пропусков" in w for w in result_ctx.warnings)
+    assert any("missing" in w for w in result_ctx.warnings)
     assert not result_ctx.values.isna().any()
 
 
@@ -61,7 +61,7 @@ def test_cuped_zero_variance_covariate_warns_and_skips():
     ctx = make_ctx(values, group, covariate=covariate)
 
     result_ctx = CUPED().apply(ctx)
-    assert any("дисперсия ковариаты равна нулю" in w for w in result_ctx.warnings)
+    assert any("covariate variance is zero" in w for w in result_ctx.warnings)
     pd.testing.assert_series_equal(result_ctx.values, values)
 
 
@@ -99,7 +99,7 @@ def test_post_stratification_matches_manual_weighted_estimate():
     assert result_ctx.result.method == "Post-stratification"
     # страта "a" пропущена (в ней только 1 наблюдение в treatment) -> считается только страта "b"
     assert result_ctx.result.n == {"control": 3, "treatment": 4}
-    assert any("пропущены" in w for w in result_ctx.warnings)
+    assert any("skipped" in w for w in result_ctx.warnings)
 
 
 def test_post_stratification_requires_stratum():
@@ -114,7 +114,7 @@ def test_post_stratification_skips_small_strata_and_warns():
     stratum = ["a"] * 20 + ["tiny", "tiny"]
     ctx = make_ctx(values, group, stratum=pd.Series(stratum))
     result_ctx = PostStratification().apply(ctx)
-    assert any("пропущены" in w for w in result_ctx.warnings)
+    assert any("skipped" in w for w in result_ctx.warnings)
 
 
 def test_post_stratification_no_effect_gives_high_p_value():

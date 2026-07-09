@@ -136,10 +136,10 @@ def test_split_dispatch_hash_with_strata_warns():
     result = splitter.split(
         data, "unit_id", {"control": 0.5, "treatment": 0.5}, method="hash", stratum=stratum
     )
-    assert any("баланс страт" in w for w in result.warnings)
+    assert any("stratum balance" in w for w in result.warnings)
 
 
 def test_split_dispatch_unknown_method_raises():
     data = pd.DataFrame({"unit_id": [f"u{i}" for i in range(10)]})
-    with pytest.raises(ValueError, match="Неизвестный метод"):
+    with pytest.raises(ValueError, match="Unknown split method"):
         splitter.split(data, "unit_id", {"control": 0.5, "treatment": 0.5}, method="bogus")

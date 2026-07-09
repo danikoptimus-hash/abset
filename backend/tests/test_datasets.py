@@ -8,13 +8,13 @@ from abkit.db.repositories import DatasetRepo, ExperimentRepo, UserRepo
 
 
 def _login(app_client):
-    UserRepo().create(email="editor@co.com", name="E", password_hash=hash_password("pw12345"), role="editor")
+    UserRepo().create(email="editor@co.com", first_name="E", password_hash=hash_password("pw12345"), role="editor")
     app_client.post("/api/v1/auth/login", json={"email": "editor@co.com", "password": "pw12345"})
 
 
 def _make_dataset(tmp_path, n_rows=5):
     owner_id = UserRepo().create(
-        email="owner@co.com", name="Owner", password_hash=hash_password("pw12345"), role="editor"
+        email="owner@co.com", first_name="Owner", password_hash=hash_password("pw12345"), role="editor"
     )
     exp = ExperimentRepo().create(
         name="exp_ds", owner_id=owner_id, status="designed", config={"name": "exp_ds"}
@@ -81,7 +81,7 @@ def test_list_datasets_includes_experiment_and_uploader(app_client, tmp_path):
 
 def test_upload_requires_editor_role(app_client, tmp_path, monkeypatch):
     monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
-    UserRepo().create(email="viewer@co.com", name="V", password_hash=hash_password("pw12345"), role="viewer")
+    UserRepo().create(email="viewer@co.com", first_name="V", password_hash=hash_password("pw12345"), role="viewer")
     app_client.post("/api/v1/auth/login", json={"email": "viewer@co.com", "password": "pw12345"})
     resp = app_client.post(
         "/api/v1/datasets", data={"kind": "pre_design"},
@@ -140,7 +140,7 @@ def test_upload_rejects_file_over_size_limit(app_client, tmp_path, monkeypatch):
 
 def test_demo_design_dataset_requires_editor_role(app_client, tmp_path, monkeypatch):
     monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
-    UserRepo().create(email="viewer2@co.com", name="V", password_hash=hash_password("pw12345"), role="viewer")
+    UserRepo().create(email="viewer2@co.com", first_name="V", password_hash=hash_password("pw12345"), role="viewer")
     app_client.post("/api/v1/auth/login", json={"email": "viewer2@co.com", "password": "pw12345"})
     resp = app_client.post("/api/v1/datasets/demo-design")
     assert resp.status_code == 403
@@ -167,7 +167,7 @@ def test_demo_design_dataset_uses_incrementing_name_when_demo_taken(app_client, 
     monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
     _login(app_client)
     owner_id = UserRepo().create(
-        email="demo_owner@co.com", name="D", password_hash=hash_password("pw12345"), role="editor"
+        email="demo_owner@co.com", first_name="D", password_hash=hash_password("pw12345"), role="editor"
     )
     ExperimentRepo().create(name="demo", owner_id=owner_id, status="designed", config={})
 

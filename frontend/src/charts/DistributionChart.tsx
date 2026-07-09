@@ -35,12 +35,12 @@ function ContinuousDistributionChart({
     xAxis: [
       { type: 'category', data: binLabels(hist.bin_edges), gridIndex: 0, axisLabel: { show: false } },
       {
-        type: 'value', gridIndex: 1, name: 'Значение', scale: true,
+        type: 'value', gridIndex: 1, name: 'Value', scale: true,
         axisLine: { lineStyle: { color: chartColors.axisLine } },
       },
     ],
     yAxis: [
-      { type: 'value', name: 'Плотность', gridIndex: 0, axisLine: { lineStyle: { color: chartColors.axisLine } } },
+      { type: 'value', name: 'Density', gridIndex: 0, axisLine: { lineStyle: { color: chartColors.axisLine } } },
       { type: 'value', name: 'ECDF', gridIndex: 1, min: 0, max: 1, axisLine: { lineStyle: { color: chartColors.axisLine } } },
     ],
     series: [
@@ -71,8 +71,8 @@ function ContinuousDistributionChart({
           value={range}
           onChange={(v) => setRange(v as 'clipped' | 'full_range')}
           options={[
-            { label: 'С обрезкой P99', value: 'clipped' },
-            { label: 'Полный диапазон', value: 'full_range' },
+            { label: 'Clipped at P99', value: 'clipped' },
+            { label: 'Full range', value: 'full_range' },
           ]}
           style={{ marginBottom: 8 }}
         />
@@ -80,8 +80,8 @@ function ContinuousDistributionChart({
       <ReactECharts option={option} style={{ height: 420 }} />
       {range === 'clipped' && distribution.n_above_p99 > 0 && (
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          Для наглядности ось ограничена 99-м перцентилем ({distribution.p99_threshold?.toFixed(4)}).{' '}
-          {distribution.n_above_p99} наблюдений ({distribution.pct_above_p99.toFixed(1)}%) выше порога.
+          For clarity, the axis is clipped at the 99th percentile ({distribution.p99_threshold?.toFixed(4)}).{' '}
+          {distribution.n_above_p99} observations ({distribution.pct_above_p99.toFixed(1)}%) are above the threshold.
         </Typography.Text>
       )}
     </div>
@@ -128,7 +128,7 @@ function BinaryDistributionChart({
   const option = {
     grid: { left: 60, right: 20, top: 20, bottom: 40 },
     xAxis: { type: 'category', data: categories, axisLine: { lineStyle: { color: chartColors.axisLine } } },
-    yAxis: { type: 'value', name: 'Доля, %', axisLine: { lineStyle: { color: chartColors.axisLine } } },
+    yAxis: { type: 'value', name: 'Rate, %', axisLine: { lineStyle: { color: chartColors.axisLine } } },
     series: [
       {
         type: 'bar',

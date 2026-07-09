@@ -50,7 +50,7 @@ def adjust_p_values(p_values: list[float], method: str = "holm") -> list[float]:
     """Применяет поправку на множественность к списку p-value."""
     if method not in _METHODS:
         raise ValueError(
-            f"Неизвестный метод поправки: '{method}'. Доступны: {', '.join(_METHODS)}"
+            f"Unknown correction method: '{method}'. Available: {', '.join(_METHODS)}"
         )
     if not p_values:
         return []

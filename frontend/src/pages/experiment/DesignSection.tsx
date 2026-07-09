@@ -12,7 +12,7 @@ interface Props {
 function CheckBadge({ label, passed, detail }: { label: string; passed: boolean; detail: string }) {
   return (
     <Space direction="vertical" size={0} style={{ marginRight: 24 }}>
-      <Tag color={passed ? 'success' : 'error'}>{label}: {passed ? 'OK' : 'провалена'}</Tag>
+      <Tag color={passed ? 'success' : 'error'}>{label}: {passed ? 'OK' : 'failed'}</Tag>
       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
         {detail}
       </Typography.Text>
@@ -34,14 +34,14 @@ function mdeTable(computed: ComputedDesignSummary) {
   const hasCuped = rows.some((r) => r.rho !== null && r.rho !== undefined)
 
   const columns = [
-    { title: 'Метрика', dataIndex: 'metric' },
+    { title: 'Metric', dataIndex: 'metric' },
     { title: 'Baseline', dataIndex: 'baseline', render: (v: number | null) => (v == null ? '—' : v.toFixed(4)) },
-    { title: 'MDE (отн.)', dataIndex: 'mde_rel', render: (v: number | null) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`) },
-    { title: 'n на группу', dataIndex: 'n_per_group', render: (v: number | null) => v ?? '—' },
+    { title: 'MDE (rel.)', dataIndex: 'mde_rel', render: (v: number | null) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`) },
+    { title: 'n per group', dataIndex: 'n_per_group', render: (v: number | null) => v ?? '—' },
     ...(hasCuped
       ? [
-          { title: 'MDE (отн., CUPED)', dataIndex: 'mde_rel_cuped', render: (v: number | null) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`) },
-          { title: 'n на группу (CUPED)', dataIndex: 'n_per_group_cuped', render: (v: number | null) => v ?? '—' },
+          { title: 'MDE (rel., CUPED)', dataIndex: 'mde_rel_cuped', render: (v: number | null) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`) },
+          { title: 'n per group (CUPED)', dataIndex: 'n_per_group_cuped', render: (v: number | null) => v ?? '—' },
         ]
       : []),
   ]
@@ -54,20 +54,20 @@ export function DesignSection({ name, config, availableReports }: Props) {
 
   return (
     <div>
-      <Typography.Title level={4}>Дизайн</Typography.Title>
+      <Typography.Title level={4}>Design</Typography.Title>
 
-      <Typography.Title level={5}>Конфигурация</Typography.Title>
+      <Typography.Title level={5}>Configuration</Typography.Title>
       <pre style={{ background: '#F7F7F7', padding: 12, borderRadius: 4, overflow: 'auto', fontSize: 12, marginBottom: 24 }}>
         {JSON.stringify(config, (k, v) => (k === 'computed' ? undefined : v), 2)}
       </pre>
 
       {computed ? (
         <>
-          <Typography.Title level={5}>MDE-таблица</Typography.Title>
+          <Typography.Title level={5}>MDE Table</Typography.Title>
           {mdeTable(computed)}
 
           <Typography.Title level={5} style={{ marginTop: 24 }}>
-            Проверки честности сплита
+            Split Sanity Checks
           </Typography.Title>
           <Space wrap style={{ marginBottom: 16 }}>
             <CheckBadge
@@ -76,7 +76,7 @@ export function DesignSection({ name, config, availableReports }: Props) {
               detail={`p-value=${computed.srm.p_value.toExponential(2)}`}
             />
             <CheckBadge
-              label="Баланс страт"
+              label="Strata balance"
               passed={computed.strata_balance.passed}
               detail={`p-value=${computed.strata_balance.p_value.toFixed(4)}`}
             />
@@ -102,12 +102,12 @@ export function DesignSection({ name, config, availableReports }: Props) {
           )}
         </>
       ) : (
-        <Alert type="info" showIcon message="Сводка дизайна недоступна для этого эксперимента." style={{ marginBottom: 16 }} />
+        <Alert type="info" showIcon message="Design summary is not available for this experiment." style={{ marginBottom: 16 }} />
       )}
 
       <Space>
         <Button icon={<DownloadOutlined />} href={`/api/v1/experiments/${name}/samples.zip`}>
-          Скачать выборки (ZIP)
+          Download Samples (ZIP)
         </Button>
         {availableReports.includes('design_report.html') && (
           <Button icon={<DownloadOutlined />} href={`/api/v1/experiments/${name}/reports/design_report.html`} target="_blank">

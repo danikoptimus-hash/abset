@@ -33,7 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: { email, password },
     })
     if (error) {
-      throw new Error(errorMessage(error, 'Неверный email или пароль'))
+      throw new Error(errorMessage(error, 'Invalid email or password'))
     }
     setUser(data)
   }, [])
@@ -53,7 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext)
   if (!ctx) {
-    throw new Error('useAuth должен использоваться внутри AuthProvider')
+    throw new Error('useAuth must be used within AuthProvider')
   }
   return ctx
 }

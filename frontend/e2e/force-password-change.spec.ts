@@ -10,29 +10,29 @@ test('user with temp password is forced to change it before accessing the app', 
 
   await page.goto('/login')
   await page.getByLabel('Email').fill(email)
-  await page.getByLabel('Пароль').fill(tempPassword)
-  await page.getByRole('button', { name: 'Войти' }).click()
+  await page.getByLabel('Password').fill(tempPassword)
+  await page.getByRole('button', { name: 'Sign In' }).click()
 
-  // Любой переход (не только прямой заход) заворачивает на /profile.
+  // Any navigation (not just a direct visit) redirects to /profile.
   await expect(page).toHaveURL(/\/profile$/)
-  await expect(page.getByText('Смена пароля')).toBeVisible()
+  await expect(page.getByText('Change Password')).toBeVisible()
 
   await page.goto('/experiments')
   await expect(page).toHaveURL(/\/profile$/)
 
-  await page.getByLabel('Текущий пароль').fill(tempPassword)
-  await page.getByLabel('Новый пароль').fill('newpassword456')
-  await page.getByRole('button', { name: 'Сменить пароль' }).click()
+  await page.getByLabel('Current Password').fill(tempPassword)
+  await page.getByLabel('New Password').fill('newpassword456')
+  await page.getByRole('button', { name: 'Change Password' }).click()
 
   await expect(page).toHaveURL(/\/experiments$/)
 
-  // После смены доступ открыт, повторный логин со старым паролем не проходит.
+  // After the change, access is open; a repeat login with the old password fails.
   await page.getByTestId('user-menu-trigger').click()
-  await page.getByText('Выйти').click()
+  await page.getByText('Logout').click()
   await expect(page).toHaveURL(/\/login$/)
 
   await page.getByLabel('Email').fill(email)
-  await page.getByLabel('Пароль').fill('newpassword456')
-  await page.getByRole('button', { name: 'Войти' }).click()
+  await page.getByLabel('Password').fill('newpassword456')
+  await page.getByRole('button', { name: 'Sign In' }).click()
   await expect(page).toHaveURL(/\/experiments$/)
 })

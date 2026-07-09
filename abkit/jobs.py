@@ -22,8 +22,9 @@ from typing import Any
 
 import pandas as pd
 
+from abkit.access import require_experiment_edit_access
 from abkit.analysis.results import AnalysisResults
-from abkit.auth.guards import CurrentUser, require_owner_or_admin, require_role
+from abkit.auth.guards import CurrentUser, require_role
 from abkit.config import DesignConfig
 from abkit.experiment import Experiment
 from abkit.logging_config import get_logger
@@ -37,7 +38,7 @@ def _get_experiment_row(name: str):
 
     exp_row = ExperimentRepo().get_by_name(name)
     if exp_row is None:
-        raise storage.StorageError(f"Эксперимент '{name}' не найден")
+        raise storage.StorageError(f"Experiment '{name}' not found")
     return exp_row
 
 
@@ -138,11 +139,12 @@ def run_validate_ab(
 
 
 def run_update_status(current_user: CurrentUser, name: str, new_status: str) -> None:
-    """Менять статус СВОИХ экспериментов может Editor, ЛЮБЫХ — Admin (DOCKER.md §4.1)."""
+    """Менять статус может owner, editor из experiment_access или Admin —
+    CLAUDE.md "Permissions model"."""
     from abkit.db.repositories import ExperimentRepo
 
     exp_row = _get_experiment_row(name)
-    require_owner_or_admin(current_user, str(exp_row.owner_id))
+    require_experiment_edit_access(current_user, exp_row)
     old_status = exp_row.status
     with _timed("update_status", user=current_user.email, experiment=name, new_status=new_status):
         ExperimentRepo().update_status(name, new_status)
@@ -155,12 +157,12 @@ def run_update_status(current_user: CurrentUser, name: str, new_status: str) -> 
 
 def run_set_publication_status(current_user: CurrentUser, name: str, publication_status: str) -> None:
     """draft<->published — то же право, что смена операционного статуса
-    (владелец или admin), обе стороны переключения аудируются (FRONTEND.md
-    §3.3: "оба направления в audit_log")."""
+    (owner/access-editor/admin), обе стороны переключения аудируются
+    (FRONTEND.md §3.3: "оба направления в audit_log")."""
     from abkit.db.repositories import ExperimentRepo
 
     exp_row = _get_experiment_row(name)
-    require_owner_or_admin(current_user, str(exp_row.owner_id))
+    require_experiment_edit_access(current_user, exp_row)
     old_status = exp_row.publication_status
     with _timed(
         "set_publication_status", user=current_user.email, experiment=name,
@@ -175,8 +177,8 @@ def run_set_publication_status(current_user: CurrentUser, name: str, publication
 
 
 def run_rename_experiment(current_user: CurrentUser, name: str, new_name: str) -> None:
-    """Переименование — владелец или admin (та же политика, что у смены
-    статуса); артефактная директория переименовывается вместе со строкой БД,
+    """Переименование — та же политика, что у смены статуса (owner/access-editor/
+    admin); артефактная директория переименовывается вместе со строкой БД,
     чтобы experiment.path продолжал резолвиться по новому имени."""
     import shutil
 
@@ -184,7 +186,7 @@ def run_rename_experiment(current_user: CurrentUser, name: str, new_name: str) -
     from abkit.db.store import DbExperimentStore
 
     exp_row = _get_experiment_row(name)
-    require_owner_or_admin(current_user, str(exp_row.owner_id))
+    require_experiment_edit_access(current_user, exp_row)
     with _timed("rename_experiment", user=current_user.email, experiment=name, new_name=new_name):
         ExperimentRepo().rename(name, new_name)
         store = DbExperimentStore()
@@ -199,14 +201,14 @@ def run_rename_experiment(current_user: CurrentUser, name: str, new_name: str) -
 
 
 def get_experiment_deletion_summary(current_user: CurrentUser, name: str) -> dict[str, int]:
-    """Только для UI-подтверждения удаления (app.py) — сколько строк реально
-    удалится каскадом, без самого удаления. Тот же guard, что и у самого
-    удаления (require_owner_or_admin) — точные числа по чужому эксперименту
+    """Только для UI-подтверждения удаления — сколько строк реально удалится
+    каскадом, без самого удаления. Тот же guard, что и у самого удаления
+    (require_experiment_edit_access) — точные числа по чужому эксперименту
     тоже не должен видеть посторонний Editor/Viewer."""
     from abkit.db.repositories import AssignmentRepo, DatasetRepo, ResultRepo
 
     exp_row = _get_experiment_row(name)
-    require_owner_or_admin(current_user, str(exp_row.owner_id))
+    require_experiment_edit_access(current_user, exp_row)
     return {
         "assignments": AssignmentRepo().count_for_experiment(exp_row.id),
         "datasets": DatasetRepo().count_for_experiment(exp_row.id),
@@ -215,12 +217,13 @@ def get_experiment_deletion_summary(current_user: CurrentUser, name: str) -> dic
 
 
 def run_delete_experiment(current_user: CurrentUser, name: str) -> None:
-    """Удалять эксперимент может владелец ИЛИ Admin (require_owner_or_admin —
-    та же политика, что у смены статуса). Раньше было Admin-only без
-    исключений; изменено по явному запросу пользователя (UX-правка, чтобы
-    Editor мог убирать за собой свои же эксперименты)."""
+    """Удалять эксперимент может owner, editor из experiment_access, или Admin
+    (require_experiment_edit_access — та же политика, что у смены статуса).
+    Раньше было Admin-only без исключений; изменено по явному запросу
+    пользователя (UX-правка, чтобы Editor мог убирать за собой свои же
+    эксперименты), затем расширено на experiment_access (UX-пакет)."""
     exp_row = _get_experiment_row(name)
-    require_owner_or_admin(current_user, str(exp_row.owner_id))
+    require_experiment_edit_access(current_user, exp_row)
 
     import shutil
 
@@ -242,4 +245,59 @@ def run_delete_experiment(current_user: CurrentUser, name: str) -> None:
     _audit(
         current_user, "experiment.delete", object_type="experiment", object_id=exp_id, object_name=name,
         details=deletion_summary,
+    )
+
+
+def run_update_experiment_properties(
+    current_user: CurrentUser,
+    name: str,
+    *,
+    new_name: str,
+    owner_ids: list[str],
+    editor_ids: list[str],
+    visible_roles: list[str] | None,
+) -> None:
+    """Edit Properties modal (UX package, like Superset's dashboard Properties):
+    name, additional owners/editors (experiment_access), visible_roles. Same
+    edit-access gate as other owner-gated actions — see CLAUDE.md 'Permissions
+    model'. owner_ids/editor_ids always carry the FULL desired list (the modal
+    replaces, not appends); the original owner_id is implicit and never stored
+    in experiment_access even if present in owner_ids."""
+    from abkit.db.repositories import ExperimentAccessRepo, ExperimentRepo
+
+    exp_row = _get_experiment_row(name)
+    require_experiment_edit_access(current_user, exp_row)
+
+    current_name = name
+    if new_name != name:
+        run_rename_experiment(current_user, name, new_name)
+        exp_row = _get_experiment_row(new_name)
+        current_name = new_name
+
+    grants: list[tuple[uuid_mod.UUID, str]] = []
+    owner_uuids: set[uuid_mod.UUID] = set()
+    for uid in owner_ids:
+        parsed = uuid_mod.UUID(uid)
+        if parsed == exp_row.owner_id:
+            continue
+        owner_uuids.add(parsed)
+        grants.append((parsed, "owner"))
+    for uid in editor_ids:
+        parsed = uuid_mod.UUID(uid)
+        if parsed == exp_row.owner_id or parsed in owner_uuids:
+            continue
+        grants.append((parsed, "editor"))
+
+    with _timed("update_experiment_properties", user=current_user.email, experiment=current_name):
+        ExperimentAccessRepo().set_for_experiment(exp_row.id, grants)
+        ExperimentRepo().update_visible_roles(current_name, visible_roles)
+
+    _audit(
+        current_user, "experiment.properties_change",
+        object_type="experiment", object_id=str(exp_row.id), object_name=current_name,
+        details={
+            "owners": [str(u) for u in owner_uuids],
+            "editors": [str(u) for u, access in grants if access == "editor"],
+            "visible_roles": visible_roles,
+        },
     )

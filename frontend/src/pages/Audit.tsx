@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Table, Input, Typography, Space } from 'antd'
 import { apiClient, errorMessage } from '../api/client'
+import { RelativeTime } from '../components/RelativeTime'
 
 export function AuditPage() {
   const [user, setUser] = useState('')
@@ -22,10 +23,10 @@ export function AuditPage() {
 
   return (
     <div>
-      <Typography.Title level={4}>Аудит</Typography.Title>
+      <Typography.Title level={4}>Action Log</Typography.Title>
       <Space style={{ marginBottom: 16 }}>
         <Input
-          placeholder="Пользователь (email)"
+          placeholder="User (email)"
           allowClear
           style={{ width: 220 }}
           onChange={(e) => {
@@ -34,7 +35,7 @@ export function AuditPage() {
           }}
         />
         <Input
-          placeholder="Действие"
+          placeholder="Action"
           allowClear
           style={{ width: 220 }}
           onChange={(e) => {
@@ -49,10 +50,10 @@ export function AuditPage() {
         dataSource={data?.items ?? []}
         pagination={{ current: page, pageSize, total: data?.total ?? 0, onChange: setPage, showSizeChanger: false }}
         columns={[
-          { title: 'Когда', dataIndex: 'ts' },
-          { title: 'Пользователь', dataIndex: 'user_email' },
-          { title: 'Действие', dataIndex: 'action' },
-          { title: 'Объект', dataIndex: 'object_name' },
+          { title: 'When', dataIndex: 'ts', render: (ts: string) => <RelativeTime iso={ts} /> },
+          { title: 'User', dataIndex: 'user_email' },
+          { title: 'Action', dataIndex: 'action' },
+          { title: 'Object', dataIndex: 'object_name' },
         ]}
       />
     </div>

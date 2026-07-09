@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Table, Drawer, Table as PreviewTable, Typography } from 'antd'
 import { Link } from 'react-router-dom'
 import { apiClient, errorMessage } from '../api/client'
+import { RelativeTime } from '../components/RelativeTime'
 
 export function DatasetsPage() {
   const [page, setPage] = useState(1)
@@ -34,7 +35,7 @@ export function DatasetsPage() {
 
   return (
     <div>
-      <Typography.Title level={4}>Датасеты</Typography.Title>
+      <Typography.Title level={4}>Datasets</Typography.Title>
       <Table
         rowKey="id"
         loading={isLoading}
@@ -42,21 +43,21 @@ export function DatasetsPage() {
         pagination={{ current: page, pageSize, total: data?.total ?? 0, onChange: setPage, showSizeChanger: false }}
         onRow={(record) => ({ onClick: () => setPreviewId(record.id), style: { cursor: 'pointer' } })}
         columns={[
-          { title: 'Файл', dataIndex: 'filename' },
+          { title: 'File', dataIndex: 'filename' },
           { title: 'Kind', dataIndex: 'kind' },
           {
-            title: 'Эксперимент',
+            title: 'Experiment',
             dataIndex: 'experiment_name',
             render: (name: string | null) => (name ? <Link to={`/experiments/${name}`}>{name}</Link> : '—'),
           },
-          { title: 'Строк', dataIndex: 'n_rows' },
-          { title: 'Загрузил', dataIndex: 'uploaded_by_email' },
-          { title: 'Когда', dataIndex: 'uploaded_at' },
+          { title: 'Rows', dataIndex: 'n_rows' },
+          { title: 'Uploaded By', dataIndex: 'uploaded_by_email' },
+          { title: 'When', dataIndex: 'uploaded_at', render: (ts: string) => <RelativeTime iso={ts} /> },
         ]}
       />
 
       <Drawer
-        title={preview?.filename ?? 'Предпросмотр'}
+        title={preview?.filename ?? 'Preview'}
         open={previewId !== null}
         onClose={() => setPreviewId(null)}
         width={720}

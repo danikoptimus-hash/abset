@@ -82,7 +82,7 @@ def test_design_command_missing_data_file_errors(tmp_path, monkeypatch):
     # rich переносит длинные строки по ширине терминала (в CI это уже иначе, чем
     # локально, — узкий/безtty вывод) и может перенести "не найден" через перевод
     # строки прямо между словами; схлопываем пробелы/переносы перед сравнением.
-    assert "не найден" in " ".join(result.output.split())
+    assert "not found" in " ".join(result.output.split())
 
 
 def test_design_command_invalid_config_errors(tmp_path, monkeypatch):
@@ -94,7 +94,7 @@ def test_design_command_invalid_config_errors(tmp_path, monkeypatch):
 
     result = runner.invoke(app, ["design", "--config", str(config_path), "--data", str(data_path)])
     assert result.exit_code == 1
-    assert "Ошибка в конфиге" in result.output
+    assert "Error in config" in result.output
 
 
 def _design_via_cli(tmp_path, monkeypatch, name="cli_exp"):
@@ -136,7 +136,7 @@ def test_analyze_command_missing_experiment_errors(tmp_path, monkeypatch):
 
     result = runner.invoke(app, ["analyze", "ghost_exp", "--data", str(data_path)])
     assert result.exit_code == 1
-    assert "Ошибка" in result.output
+    assert "Error" in result.output
 
 
 def test_validate_command_runs_aa_simulation(tmp_path, monkeypatch):
@@ -166,7 +166,7 @@ def test_validate_command_with_effect_runs_ab_simulation(tmp_path, monkeypatch):
         ],
     )
     assert result.exit_code == 0, result.output
-    assert "мощность" in result.output.lower()
+    assert "power" in result.output.lower()
 
 
 def test_e2e_synthetic_design_analyze_detects_injected_effect(tmp_path, monkeypatch):

@@ -8,9 +8,9 @@ import type { AnalysisResultsOut, TestResultOut } from './analyzeTypes'
 import { resultsByMetric, verdict } from './analyzeTypes'
 
 const VERDICT_LABELS: Record<string, string> = {
-  significant_positive: 'значимо позитивный',
-  significant_negative: 'значимо негативный',
-  no_effect_detected: 'эффект не обнаружен',
+  significant_positive: 'significant positive',
+  significant_negative: 'significant negative',
+  no_effect_detected: 'no effect detected',
 }
 const VERDICT_COLORS: Record<string, string> = {
   significant_positive: 'success',
@@ -64,16 +64,16 @@ export function AnalyzeResults({ data, experimentName }: { data: AnalysisResults
 
       <VerdictCards results={data.results} />
 
-      <Typography.Title level={5}>Проверки честности (на пост-данных)</Typography.Title>
+      <Typography.Title level={5}>Sanity checks (on post-period data)</Typography.Title>
       <Space wrap style={{ marginBottom: 8 }}>
         {checks.srm && (
           <Tag color={checks.srm.passed ? 'success' : 'error'}>
-            SRM: {checks.srm.passed ? 'OK' : 'провалена'} (p={checks.srm.p_value.toExponential(2)})
+            SRM: {checks.srm.passed ? 'OK' : 'failed'} (p={checks.srm.p_value.toExponential(2)})
           </Tag>
         )}
         {checks.loss && (
           <Tag color={checks.loss.symmetric ? 'success' : 'error'}>
-            Потери данных: {checks.loss.symmetric ? 'симметричны' : 'асимметричны'}
+            Data loss: {checks.loss.symmetric ? 'symmetric' : 'asymmetric'}
           </Tag>
         )}
       </Space>
@@ -101,7 +101,7 @@ export function AnalyzeResults({ data, experimentName }: { data: AnalysisResults
               Object.entries(metricChart.distributions).map(([treatName, dist]) => (
                 <div key={treatName}>
                   <Typography.Title level={5}>
-                    Распределение: {metricChart.control_name} vs {treatName}
+                    Distribution: {metricChart.control_name} vs {treatName}
                   </Typography.Title>
                   <DistributionChart distribution={dist} controlName={metricChart.control_name} treatName={treatName} />
                   <HelpCollapse chartType={dist.kind === 'binary' ? 'distribution_binary' : 'distribution_continuous'} />
@@ -112,7 +112,7 @@ export function AnalyzeResults({ data, experimentName }: { data: AnalysisResults
               Object.entries(metricChart.daily).map(([treatName, points]) => (
                 <div key={treatName}>
                   <Typography.Title level={5}>
-                    Кумулятивный лифт: {metricChart.control_name} vs {treatName}
+                    Cumulative lift: {metricChart.control_name} vs {treatName}
                   </Typography.Title>
                   <CumulativeLiftChart points={points} />
                   <HelpCollapse chartType="cumulative_lift" />
@@ -123,7 +123,7 @@ export function AnalyzeResults({ data, experimentName }: { data: AnalysisResults
               Object.entries(metricChart.segments).map(([treatName, segs]) => (
                 <div key={treatName}>
                   <Typography.Title level={5}>
-                    По сегментам: {metricChart.control_name} vs {treatName}{' '}
+                    By segment: {metricChart.control_name} vs {treatName}{' '}
                     <Tag>exploratory</Tag>
                   </Typography.Title>
                   <ForestPlotChart
@@ -143,7 +143,7 @@ export function AnalyzeResults({ data, experimentName }: { data: AnalysisResults
       })}
 
       <Typography.Title level={4} style={{ marginTop: 32 }}>
-        Детальная таблица результатов
+        Detailed Results Table
       </Typography.Title>
       <DetailedResultsTable
         results={data.results}

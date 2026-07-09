@@ -69,7 +69,7 @@ export function ValidationPage() {
         setDatasetId(data.id)
         options.onSuccess?.(data)
       } catch (e) {
-        setUploadError(e instanceof Error ? e.message : 'Не удалось загрузить файл')
+        setUploadError(e instanceof Error ? e.message : 'Failed to upload file')
         options.onError?.(e as Error)
       } finally {
         setUploading(false)
@@ -95,11 +95,11 @@ export function ValidationPage() {
 
   return (
     <div>
-      <Typography.Title level={4}>Валидация (A/A, A/B)</Typography.Title>
+      <Typography.Title level={4}>Validation (A/A, A/B)</Typography.Title>
 
       <Space direction="vertical" size={16} style={{ width: '100%', maxWidth: 480, marginBottom: 24 }}>
         <Select
-          placeholder="Эксперимент (конфиг дизайна)"
+          placeholder="Experiment (design config)"
           style={{ width: '100%' }}
           value={experimentName}
           onChange={setExperimentName}
@@ -111,15 +111,15 @@ export function ValidationPage() {
           <p className="ant-upload-drag-icon">
             <InboxOutlined />
           </p>
-          <p>Данные для симуляции (CSV)</p>
+          <p>Simulation data (CSV)</p>
         </Dragger>
         <InputNumber addonBefore="n_sims" min={100} step={100} value={nSims} onChange={(v) => setNSims(v ?? 2000)} style={{ width: '100%' }} />
-        <InputNumber addonBefore="Эффект (A/B)" min={0} step={0.01} value={effect} onChange={(v) => setEffect(v ?? 0.05)} style={{ width: '100%' }} />
+        <InputNumber addonBefore="Effect (A/B)" min={0} step={0.01} value={effect} onChange={(v) => setEffect(v ?? 0.05)} style={{ width: '100%' }} />
         <Checkbox checked={compareMethods} onChange={(e) => setCompareMethods(e.target.checked)}>
-          Сравнить альтернативные методы
+          Compare alternative methods
         </Checkbox>
         <Button type="primary" disabled={!canSubmit} onClick={runValidate}>
-          Запустить валидацию
+          Run Validation
         </Button>
       </Space>
 
@@ -128,7 +128,7 @@ export function ValidationPage() {
       {phase === 'running' && (
         <div style={{ marginBottom: 24 }}>
           <Progress percent={undefined} status="active" showInfo={false} />
-          <Typography.Text>{stage ?? 'Запускаем валидацию...'}</Typography.Text>
+          <Typography.Text>{stage ?? 'Running validation...'}</Typography.Text>
         </div>
       )}
       {phase === 'failed' && error && <Alert type="error" showIcon message={error} style={{ marginBottom: 24 }} />}
@@ -141,31 +141,31 @@ export function ValidationPage() {
 function ValidationResults({ result }: { result: ValidateResult }) {
   return (
     <div>
-      <Typography.Title level={5}>A/A: эмпирический FPR (частота ложных срабатываний)</Typography.Title>
+      <Typography.Title level={5}>A/A: empirical FPR (false-positive rate)</Typography.Title>
       <Table
         size="small"
         rowKey={(r: MethodFPR) => `${r.metric}_${r.method}_${r.treatment_group}`}
         dataSource={result.aa.methods}
         pagination={false}
         columns={[
-          { title: 'Метрика', dataIndex: 'metric' },
-          { title: 'Группа', dataIndex: 'treatment_group' },
-          { title: 'Метод', dataIndex: 'method' },
+          { title: 'Metric', dataIndex: 'metric' },
+          { title: 'Group', dataIndex: 'treatment_group' },
+          { title: 'Method', dataIndex: 'method' },
           { title: 'n_sims', dataIndex: 'n_sims' },
           { title: 'FPR', dataIndex: 'fpr', render: (v: number) => `${(v * 100).toFixed(2)}%` },
           {
-            title: '95% ДИ', key: 'ci',
+            title: '95% CI', key: 'ci',
             render: (_: unknown, r: MethodFPR) => `[${(r.ci_low * 100).toFixed(2)}%, ${(r.ci_high * 100).toFixed(2)}%]`,
           },
           {
-            title: 'Вердикт', dataIndex: 'passed',
-            render: (v: boolean) => <Tag color={v ? 'success' : 'error'}>{v ? 'честный' : 'врет'}</Tag>,
+            title: 'Verdict', dataIndex: 'passed',
+            render: (v: boolean) => <Tag color={v ? 'success' : 'error'}>{v ? 'honest' : 'lying'}</Tag>,
           },
         ]}
       />
 
       <Typography.Title level={5} style={{ marginTop: 24 }}>
-        A/B: мощность эмпирическая vs аналитическая
+        A/B: empirical vs analytical power
       </Typography.Title>
       <Table
         size="small"
@@ -173,17 +173,17 @@ function ValidationResults({ result }: { result: ValidateResult }) {
         dataSource={result.ab.methods}
         pagination={false}
         columns={[
-          { title: 'Метрика', dataIndex: 'metric' },
-          { title: 'Группа', dataIndex: 'treatment_group' },
-          { title: 'Метод', dataIndex: 'method' },
+          { title: 'Metric', dataIndex: 'metric' },
+          { title: 'Group', dataIndex: 'treatment_group' },
+          { title: 'Method', dataIndex: 'method' },
           { title: 'n_sims', dataIndex: 'n_sims' },
-          { title: 'Мощность (эмп.)', dataIndex: 'empirical_power', render: (v: number) => `${(v * 100).toFixed(1)}%` },
+          { title: 'Power (empirical)', dataIndex: 'empirical_power', render: (v: number) => `${(v * 100).toFixed(1)}%` },
           {
-            title: 'Мощность (аналит.)', dataIndex: 'analytical_power',
+            title: 'Power (analytical)', dataIndex: 'analytical_power',
             render: (v: number | null) => (v === null ? '—' : `${(v * 100).toFixed(1)}%`),
           },
           {
-            title: 'Расхождение', dataIndex: 'discrepancy_warning',
+            title: 'Discrepancy', dataIndex: 'discrepancy_warning',
             render: (v: string | null) => (v ? <Tag color="warning">{v}</Tag> : '—'),
           },
         ]}

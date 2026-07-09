@@ -13,22 +13,22 @@ export function CumulativeLiftChart({ points }: { points: DailyLiftPoint[] }) {
     grid: { left: 60, right: 20, top: 20, bottom: 40 },
     xAxis: { type: 'category', data: dates, axisLine: { lineStyle: { color: chartColors.axisLine } } },
     yAxis: {
-      type: 'value', name: 'Лифт, %',
+      type: 'value', name: 'Lift, %',
       axisLine: { lineStyle: { color: chartColors.axisLine } },
       splitLine: { lineStyle: { color: chartColors.grid } },
     },
     series: [
       {
-        name: 'ДИ (нижняя граница)', type: 'line', data: ciLower, showSymbol: false,
+        name: 'CI (lower bound)', type: 'line', data: ciLower, showSymbol: false,
         lineStyle: { opacity: 0 }, stack: 'ci', silent: true,
       },
       {
-        name: 'ДИ', type: 'line', data: band, showSymbol: false,
+        name: 'CI', type: 'line', data: band, showSymbol: false,
         lineStyle: { opacity: 0 }, areaStyle: { color: chartColors.significantPositive, opacity: 0.15 },
         stack: 'ci', silent: true,
       },
       {
-        name: 'Кумулятивный лифт, %', type: 'line', data: lift, showSymbol: true,
+        name: 'Cumulative lift, %', type: 'line', data: lift, showSymbol: true,
         lineStyle: { color: chartColors.significantPositive }, itemStyle: { color: chartColors.significantPositive },
         markLine: {
           silent: true, symbol: 'none',

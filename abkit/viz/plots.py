@@ -45,12 +45,12 @@ def forest_plot(results: list[TestResult], value: str = "rel", title: str = "") 
         effects = [r.effect_rel * 100 for r in results]
         lo = [r.ci_rel[0] * 100 for r in results]
         hi = [r.ci_rel[1] * 100 for r in results]
-        x_title = "Эффект, %"
+        x_title = "Effect, %"
     else:
         effects = [r.effect_abs for r in results]
         lo = [r.ci_abs[0] for r in results]
         hi = [r.ci_abs[1] for r in results]
-        x_title = "Эффект (абс.)"
+        x_title = "Effect (abs.)"
 
     designed = [r.is_designed_method for r in results]
     fig = go.Figure()
@@ -79,7 +79,7 @@ def segment_forest_plot(segment_results: list[tuple[str, TestResult]], title: st
     fig.add_vline(x=0, line_dash="dash", line_color="gray")
     fig.update_layout(
         title=title,
-        xaxis_title="Эффект, %",
+        xaxis_title="Effect, %",
         height=max(250, 70 * len(results) + 100),
         margin=dict(l=200),
     )
@@ -117,8 +117,8 @@ def _wilson_proportion_plot(
         )
     )
     fig.update_layout(
-        title=f"Доля {metric_name} (binary): {control_name} vs {treat_name}" if metric_name else "Доля (binary)",
-        yaxis_title="Доля, %",
+        title=f"Rate of {metric_name} (binary): {control_name} vs {treat_name}" if metric_name else "Rate (binary)",
+        yaxis_title="Rate, %",
         showlegend=False,
         height=450,
     )
@@ -182,7 +182,7 @@ def distribution_plot(
         treatment_clean.clip(upper=p99_threshold) if p99_threshold is not None else treatment_clean
     )
 
-    fig = make_subplots(rows=2, cols=1, subplot_titles=["Распределение", "ECDF"])
+    fig = make_subplots(rows=2, cols=1, subplot_titles=["Distribution", "ECDF"])
 
     fig.add_trace(
         go.Histogram(
@@ -213,9 +213,9 @@ def distribution_plot(
     if trim_threshold is not None:
         fig.add_vline(x=trim_threshold, line_dash="dot", line_color="red", row=1, col=1)
 
-    title = f"Распределение {metric_name} ({metric_type})" if metric_name else "Распределение"
+    title = f"Distribution of {metric_name} ({metric_type})" if metric_name else "Distribution"
     if metric_type == "ratio" and n_excluded > 0:
-        title += f" — {n_excluded} юзеров исключены (нулевой знаменатель)"
+        title += f" — {n_excluded} users excluded (zero denominator)"
 
     skew = float(all_values.skew()) if len(all_values) > 2 else 0.0
     if skew > 3 and len(all_values) and all_values.min() > 0:
@@ -226,8 +226,8 @@ def distribution_plot(
                     direction="right",
                     x=1.0, y=1.15, xanchor="right",
                     buttons=[
-                        dict(label="Линейная шкала X", method="relayout", args=[{"xaxis.type": "linear"}]),
-                        dict(label="Лог-шкала X (перекошено)", method="relayout", args=[{"xaxis.type": "log"}]),
+                        dict(label="Linear X scale", method="relayout", args=[{"xaxis.type": "linear"}]),
+                        dict(label="Log X scale (skewed)", method="relayout", args=[{"xaxis.type": "log"}]),
                     ],
                 )
             ]
@@ -248,13 +248,13 @@ def cumulative_lift_plot(daily: pd.DataFrame, title: str = "") -> go.Figure:
             fill="toself",
             fillcolor="rgba(46,125,50,0.15)",
             line=dict(color="rgba(255,255,255,0)"),
-            name="ДИ",
+            name="CI",
             showlegend=False,
         )
     )
     fig.add_trace(
-        go.Scatter(x=dates, y=list(daily["effect_rel"]), mode="lines+markers", name="Кумулятивный лифт, %")
+        go.Scatter(x=dates, y=list(daily["effect_rel"]), mode="lines+markers", name="Cumulative lift, %")
     )
     fig.add_hline(y=0, line_dash="dash", line_color="gray")
-    fig.update_layout(title=title, xaxis_title="Дата", yaxis_title="Лифт, %")
+    fig.update_layout(title=title, xaxis_title="Date", yaxis_title="Lift, %")
     return fig

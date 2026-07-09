@@ -106,7 +106,7 @@ def test_ratio_metric_excludes_zero_denominator_users_and_notes_it():
         control_name="control", treat_name="treatment",
     )
 
-    assert "юзеров исключены" in fig.layout.title.text
+    assert "users excluded" in fig.layout.title.text
     assert "50" in fig.layout.title.text
 
 
@@ -118,7 +118,7 @@ def test_ratio_metric_no_footnote_when_no_zero_denominator():
     fig = distribution_plot(
         control, treatment, metric_name="revenue_per_session", metric_type="ratio",
     )
-    assert "исключены" not in fig.layout.title.text
+    assert "excluded" not in fig.layout.title.text
 
 
 def test_p99_clip_stats_computes_threshold_and_share_above():

@@ -16,7 +16,7 @@ export function HelpCollapse({ chartType, table = false }: { chartType: string; 
         items={[
           {
             key: 'help',
-            label: table ? '❓ Как читать эту таблицу?' : '❓ Как читать этот график?',
+            label: table ? '❓ How do I read this table?' : '❓ How do I read this chart?',
             children: <ReactMarkdown>{text}</ReactMarkdown>,
           },
         ]}

@@ -28,7 +28,7 @@ class CurrentUser:
 
 def require_login(current_user: CurrentUser | None) -> CurrentUser:
     if current_user is None:
-        raise AuthError("Требуется вход в систему")
+        raise AuthError("Login required")
     return current_user
 
 
@@ -38,20 +38,8 @@ def require_role(current_user: CurrentUser | None, min_role: str) -> CurrentUser
     require_login(current_user)
     if _ROLE_ORDER[current_user.role] < _ROLE_ORDER[min_role]:
         raise AuthError(
-            f"Недостаточно прав: требуется роль '{min_role}' или выше, у вас '{current_user.role}'"
+            f"Insufficient permissions: role '{min_role}' or higher required, you have '{current_user.role}'"
         )
-    return current_user
-
-
-def require_owner_or_admin(current_user: CurrentUser | None, owner_id: str) -> CurrentUser:
-    """Менять/архивировать СВОИ эксперименты может Editor+ (только свои) или
-    Admin (любые) — DOCKER.md §4.1, строка 'Менять статус / редактировать /
-    архивировать СВОИ экспериментов'."""
-    require_role(current_user, "editor")
-    if current_user.role == "admin":
-        return current_user
-    if str(current_user.id) != str(owner_id):
-        raise AuthError("Изменять можно только свои эксперименты (или обратитесь к Admin)")
     return current_user
 
 

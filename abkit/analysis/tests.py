@@ -31,7 +31,7 @@ class WelchTTest(Step):
         treat_vals = ctx.values[ctx.group == ctx.treatment_name].dropna()
         n_control, n_treat = len(control_vals), len(treat_vals)
         if n_control < 2 or n_treat < 2:
-            raise ValueError("Недостаточно наблюдений для Welch t-test (нужно минимум 2 на группу)")
+            raise ValueError("Not enough observations for Welch t-test (need at least 2 per group)")
 
         mean_control, mean_treat = float(control_vals.mean()), float(treat_vals.mean())
         var_control, var_treat = float(control_vals.var(ddof=1)), float(treat_vals.var(ddof=1))
@@ -110,7 +110,7 @@ class MannWhitney(Step):
         treat_vals = ctx.values[ctx.group == ctx.treatment_name].dropna().to_numpy()
         n_control, n_treat = len(control_vals), len(treat_vals)
         if n_control < 1 or n_treat < 1:
-            raise ValueError("Недостаточно наблюдений для Mann-Whitney")
+            raise ValueError("Not enough observations for Mann-Whitney")
 
         _stat, p_value = sp_stats.mannwhitneyu(treat_vals, control_vals, alternative="two-sided")
         hl_estimate, ci_abs = _hodges_lehmann_shift(control_vals, treat_vals, ctx.alpha)
@@ -125,7 +125,7 @@ class MannWhitney(Step):
 
         ctx.result = TestResult(
             metric=ctx.metric_name,
-            method=method_display_name(ctx, "Mann-Whitney (Ходжес-Леман)"),
+            method=method_display_name(ctx, "Mann-Whitney (Hodges-Lehmann)"),
             effect_abs=float(hl_estimate),
             effect_rel=float(effect_rel),
             ci_abs=(float(ci_abs[0]), float(ci_abs[1])),
@@ -136,7 +136,7 @@ class MannWhitney(Step):
             n_removed=dict(ctx.n_removed),
             variance_reduction=ctx.variance_reduction,
             warnings=list(ctx.warnings)
-            + ["Оценка эффекта — медианный сдвиг Ходжеса-Лемана, это не разность средних"],
+            + ["Effect estimate is the Hodges-Lehmann median shift, not a difference of means"],
             is_designed_method=ctx.is_designed_method,
             treatment_group=ctx.treatment_name,
             role=ctx.role,
@@ -204,7 +204,7 @@ class Bootstrap(Step):
         seed: int | None = None,
     ):
         if method not in ("bca", "percentile"):
-            raise ValueError("method должен быть 'bca' или 'percentile'")
+            raise ValueError("method must be 'bca' or 'percentile'")
         self.n_boot = n_boot
         self.method = method
         self.seed = seed
@@ -214,7 +214,7 @@ class Bootstrap(Step):
         treat_vals = ctx.values[ctx.group == ctx.treatment_name].dropna().to_numpy()
         n_control, n_treat = len(control_vals), len(treat_vals)
         if n_control < 2 or n_treat < 2:
-            raise ValueError("Недостаточно наблюдений для Bootstrap")
+            raise ValueError("Not enough observations for Bootstrap")
 
         rng = np.random.default_rng(self.seed)
         mean_control = float(control_vals.mean())
@@ -265,7 +265,7 @@ class DeltaMethodTTest(Step):
 
     def apply(self, ctx: MetricContext) -> MetricContext:
         if ctx.num is None or ctx.den is None:
-            raise ValueError("DeltaMethodTTest требует ctx.num и ctx.den (ratio-метрика)")
+            raise ValueError("DeltaMethodTTest requires ctx.num and ctx.den (ratio metric)")
 
         control_mask = ctx.group == ctx.control_name
         treat_mask = ctx.group == ctx.treatment_name
@@ -273,7 +273,7 @@ class DeltaMethodTTest(Step):
         num_t, den_t = ctx.num[treat_mask], ctx.den[treat_mask]
         n_control, n_treat = len(num_c), len(num_t)
         if n_control < 2 or n_treat < 2:
-            raise ValueError("Недостаточно наблюдений для DeltaMethodTTest")
+            raise ValueError("Not enough observations for DeltaMethodTTest")
 
         ratio_c, var_unit_c = delta_method_variance(num_c, den_c)
         ratio_t, var_unit_t = delta_method_variance(num_t, den_t)
@@ -302,7 +302,7 @@ class DeltaMethodTTest(Step):
 
         ctx.result = TestResult(
             metric=ctx.metric_name,
-            method=method_display_name(ctx, "Дельта-метод (ratio)"),
+            method=method_display_name(ctx, "Delta method (ratio)"),
             effect_abs=float(effect_abs),
             effect_rel=float(effect_rel),
             ci_abs=(float(ci_abs[0]), float(ci_abs[1])),
@@ -330,7 +330,7 @@ class ZTestProportions(Step):
         treat_vals = ctx.values[ctx.group == ctx.treatment_name].dropna()
         n_control, n_treat = len(control_vals), len(treat_vals)
         if n_control < 1 or n_treat < 1:
-            raise ValueError("Недостаточно наблюдений для Z-теста пропорций")
+            raise ValueError("Not enough observations for Z-test of proportions")
 
         x_control, x_treat = float(control_vals.sum()), float(treat_vals.sum())
         p_control, p_treat = x_control / n_control, x_treat / n_treat
@@ -348,7 +348,7 @@ class ZTestProportions(Step):
 
         ctx.result = TestResult(
             metric=ctx.metric_name,
-            method=method_display_name(ctx, "Z-тест пропорций"),
+            method=method_display_name(ctx, "Z-test of proportions"),
             effect_abs=float(effect_abs),
             effect_rel=float(effect_rel),
             ci_abs=(float(ci_abs[0]), float(ci_abs[1])),

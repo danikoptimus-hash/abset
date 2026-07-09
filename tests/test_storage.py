@@ -26,7 +26,7 @@ def test_create_experiment_dir_creates_structure(tmp_path):
 
 def test_create_experiment_dir_collision_raises(tmp_path):
     storage.create_experiment_dir(tmp_path, "exp1")
-    with pytest.raises(storage.StorageError, match="уже существует"):
+    with pytest.raises(storage.StorageError, match="already exists"):
         storage.create_experiment_dir(tmp_path, "exp1")
 
 
@@ -43,7 +43,7 @@ def test_save_and_load_config_roundtrip(tmp_path):
 def test_load_config_missing_raises(tmp_path):
     path = tmp_path / "no_config"
     path.mkdir()
-    with pytest.raises(storage.StorageError, match="config.yaml не найден"):
+    with pytest.raises(storage.StorageError, match="config.yaml not found"):
         storage.load_config(path)
 
 
@@ -65,7 +65,7 @@ def test_save_and_load_assignments_roundtrip(tmp_path):
 def test_load_assignments_missing_raises(tmp_path):
     path = tmp_path / "no_assignments"
     path.mkdir()
-    with pytest.raises(storage.StorageError, match="assignments.parquet не найден"):
+    with pytest.raises(storage.StorageError, match="assignments.parquet not found"):
         storage.load_assignments(path)
 
 
@@ -82,7 +82,7 @@ def test_register_experiment_and_read_registry(tmp_path):
 def test_register_experiment_duplicate_name_raises(tmp_path):
     path = storage.experiment_path(tmp_path, "exp1")
     storage.register_experiment(tmp_path, "exp1", path)
-    with pytest.raises(storage.StorageError, match="уже зарегистрирован"):
+    with pytest.raises(storage.StorageError, match="already registered"):
         storage.register_experiment(tmp_path, "exp1", path)
 
 
@@ -108,19 +108,19 @@ def test_update_status_valid_transitions(tmp_path):
 def test_update_status_invalid_transition_raises(tmp_path):
     path = storage.experiment_path(tmp_path, "exp1")
     storage.register_experiment(tmp_path, "exp1", path)
-    with pytest.raises(storage.StorageError, match="Недопустимый переход"):
+    with pytest.raises(storage.StorageError, match="Invalid status transition"):
         storage.update_status(tmp_path, "exp1", "completed")
 
 
 def test_update_status_unknown_status_raises(tmp_path):
     path = storage.experiment_path(tmp_path, "exp1")
     storage.register_experiment(tmp_path, "exp1", path)
-    with pytest.raises(storage.StorageError, match="Неизвестный статус"):
+    with pytest.raises(storage.StorageError, match="Unknown status"):
         storage.update_status(tmp_path, "exp1", "bogus")
 
 
 def test_update_status_missing_experiment_raises(tmp_path):
-    with pytest.raises(storage.StorageError, match="не найден"):
+    with pytest.raises(storage.StorageError, match="not found"):
         storage.update_status(tmp_path, "ghost", "running")
 
 

@@ -49,7 +49,7 @@ def test_adjust_p_values_empty_list():
 
 
 def test_adjust_p_values_unknown_method_raises():
-    with pytest.raises(ValueError, match="Неизвестный метод"):
+    with pytest.raises(ValueError, match="Unknown correction method"):
         mt.adjust_p_values([0.05], method="bogus")
 
 

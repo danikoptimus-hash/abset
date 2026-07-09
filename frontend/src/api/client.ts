@@ -19,7 +19,7 @@ export interface ApiErrorBody {
   error: { code: string; message: string; details?: Record<string, unknown> }
 }
 
-export function errorMessage(error: unknown, fallback = 'Произошла ошибка'): string {
+export function errorMessage(error: unknown, fallback = 'An error occurred'): string {
   if (error && typeof error === 'object' && 'error' in error) {
     const body = error as ApiErrorBody
     return body.error?.message ?? fallback

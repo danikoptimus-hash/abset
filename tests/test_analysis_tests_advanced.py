@@ -32,8 +32,8 @@ def test_mann_whitney_p_value_matches_scipy():
     _stat, expected_p = sp_stats.mannwhitneyu(treatment, control, alternative="two-sided")
 
     assert ctx.result.p_value == pytest.approx(expected_p)
-    assert ctx.result.method == "Mann-Whitney (Ходжес-Леман)"
-    assert any("Ходжеса-Лемана" in w for w in ctx.result.warnings)
+    assert ctx.result.method == "Mann-Whitney (Hodges-Lehmann)"
+    assert any("Hodges-Lehmann" in w for w in ctx.result.warnings)
 
 
 def test_mann_whitney_hl_estimate_close_to_true_shift():

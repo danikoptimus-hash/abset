@@ -20,6 +20,7 @@ from backend.routers import datasets as datasets_router
 from backend.routers import design as design_router
 from backend.routers import experiments as experiments_router
 from backend.routers import jobs as jobs_router
+from backend.routers import users as users_router
 
 
 @asynccontextmanager
@@ -50,9 +51,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app() -> FastAPI:
+    from abkit import PRODUCT_NAME, __version__
+
     app = FastAPI(
-        title="abkit API",
-        version="0.1.0",
+        title=f"{PRODUCT_NAME} API",
+        version=__version__,
         openapi_url="/api/openapi.json",
         docs_url="/api/docs",
         lifespan=_lifespan,
@@ -80,10 +83,17 @@ def create_app() -> FastAPI:
     app.include_router(audit_router.router, prefix="/api/v1")
     app.include_router(design_router.router, prefix="/api/v1")
     app.include_router(jobs_router.router, prefix="/api/v1")
+    app.include_router(users_router.router, prefix="/api/v1")
 
     @app.get("/api/health")
     def health() -> dict[str, bool]:
         return {"ok": True}
+
+    @app.get("/api/v1/version")
+    def version_info() -> dict[str, str]:
+        """Settings > About (UX package) — the only public (no-auth) way for
+        the frontend to know what to display; not sensitive information."""
+        return {"product_name": PRODUCT_NAME, "version": __version__}
 
     return app
 

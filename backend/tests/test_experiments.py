@@ -14,14 +14,14 @@ def _login(app_client, email="editor@co.com", role="admin"):
     видят только владелец и admin) — эксперименты в _make_experiment создаются
     с чужим owner_id, иначе не-владелец/не-admin их бы не увидел. Видимость
     draft для чужого editor/viewer проверяется отдельным тестом ниже."""
-    UserRepo().create(email=email, name="E", password_hash=hash_password("pw12345"), role=role)
+    UserRepo().create(email=email, first_name="E", password_hash=hash_password("pw12345"), role=role)
     app_client.post("/api/v1/auth/login", json={"email": email, "password": "pw12345"})
 
 
 def _make_experiment(name="exp_a", status="designed", owner_id=None):
     if owner_id is None:
         owner_id = UserRepo().create(
-            email=f"owner_{name}@co.com", name="Owner", password_hash=hash_password("pw12345"), role="editor"
+            email=f"owner_{name}@co.com", first_name="Owner", password_hash=hash_password("pw12345"), role="editor"
         )
     return ExperimentRepo().create(
         name=name, owner_id=owner_id, status=status,
@@ -58,10 +58,10 @@ def test_list_experiments_pagination_and_filters(app_client):
 def test_list_experiments_filters_by_owner(app_client):
     _login(app_client)
     owner_a = UserRepo().create(
-        email="owner_a@co.com", name="A", password_hash=hash_password("pw12345"), role="editor"
+        email="owner_a@co.com", first_name="A", password_hash=hash_password("pw12345"), role="editor"
     )
     owner_b = UserRepo().create(
-        email="owner_b@co.com", name="B", password_hash=hash_password("pw12345"), role="editor"
+        email="owner_b@co.com", first_name="B", password_hash=hash_password("pw12345"), role="editor"
     )
     _make_experiment("exp_owner_a", owner_id=owner_a)
     _make_experiment("exp_owner_b", owner_id=owner_b)
@@ -75,7 +75,7 @@ def test_list_experiments_filters_by_owner(app_client):
 
 def test_draft_experiment_hidden_from_non_owner_non_admin(app_client):
     other_owner = UserRepo().create(
-        email="draft_owner@co.com", name="O", password_hash=hash_password("pw12345"), role="editor"
+        email="draft_owner@co.com", first_name="O", password_hash=hash_password("pw12345"), role="editor"
     )
     _make_experiment("draft_exp", owner_id=other_owner)  # publication_status="draft" по умолчанию
 
@@ -89,7 +89,7 @@ def test_draft_experiment_hidden_from_non_owner_non_admin(app_client):
 
 def test_draft_experiment_visible_to_owner_and_admin(app_client):
     owner_id = UserRepo().create(
-        email="draft_owner2@co.com", name="O2", password_hash=hash_password("pw12345"), role="editor"
+        email="draft_owner2@co.com", first_name="O2", password_hash=hash_password("pw12345"), role="editor"
     )
     _make_experiment("draft_exp2", owner_id=owner_id)
 
@@ -103,7 +103,7 @@ def test_published_experiment_visible_to_anyone(app_client):
     from abkit.db.repositories import ExperimentRepo
 
     other_owner = UserRepo().create(
-        email="pub_owner@co.com", name="P", password_hash=hash_password("pw12345"), role="editor"
+        email="pub_owner@co.com", first_name="P", password_hash=hash_password("pw12345"), role="editor"
     )
     _make_experiment("pub_exp", owner_id=other_owner)
     ExperimentRepo().update_publication_status("pub_exp", "published")

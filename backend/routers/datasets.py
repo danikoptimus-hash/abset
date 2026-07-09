@@ -84,7 +84,7 @@ def _stream_upload_to_disk(upload: UploadFile, dest: Path) -> None:
                 out.close()
                 dest.unlink(missing_ok=True)
                 max_mb = max_bytes // (1024 * 1024)
-                raise APIError(413, "payload_too_large", f"Файл превышает лимит {max_mb} МБ")
+                raise APIError(413, "payload_too_large", f"File exceeds the {max_mb} MB limit")
             out.write(chunk)
 
 
@@ -96,13 +96,13 @@ def upload_dataset(
     user: CurrentUser = Depends(require_min_role("editor")),
 ) -> DatasetOut:
     if kind not in _VALID_KINDS:
-        raise APIError(422, "validation_error", f"kind должен быть одним из {_VALID_KINDS}")
+        raise APIError(422, "validation_error", f"kind must be one of {_VALID_KINDS}")
 
     experiment_id = None
     if experiment_name:
         exp = ExperimentRepo().get_by_name(experiment_name)
         if exp is None:
-            raise APIError(404, "not_found", f"Эксперимент '{experiment_name}' не найден")
+            raise APIError(404, "not_found", f"Experiment '{experiment_name}' not found")
         experiment_id = exp.id
 
     store = DbExperimentStore()
@@ -116,7 +116,7 @@ def upload_dataset(
         data = pd.read_csv(dest_path)
     except Exception as e:
         dest_path.unlink(missing_ok=True)
-        raise APIError(422, "validation_error", f"Не удалось прочитать CSV: {e}") from e
+        raise APIError(422, "validation_error", f"Failed to read CSV: {e}") from e
 
     dataset_id = DatasetRepo().create(
         kind=kind, filename=file.filename, n_rows=len(data), columns=list(data.columns),
@@ -144,15 +144,15 @@ def preview_dataset(
     try:
         parsed_id = uuid_mod.UUID(dataset_id)
     except ValueError as e:
-        raise APIError(422, "validation_error", "Некорректный идентификатор датасета") from e
+        raise APIError(422, "validation_error", "Invalid dataset id") from e
 
     ds = DatasetRepo().get_by_id(parsed_id)
     if ds is None:
-        raise APIError(404, "not_found", f"Датасет '{dataset_id}' не найден")
+        raise APIError(404, "not_found", f"Dataset '{dataset_id}' not found")
     try:
         preview_df = pd.read_csv(ds.storage_path, nrows=rows)
     except OSError as e:
-        raise APIError(404, "not_found", "Файл датасета недоступен на диске") from e
+        raise APIError(404, "not_found", "Dataset file is not available on disk") from e
 
     # NaN не валиден в JSON (json.dumps с allow_nan=True пишет литерал NaN,
     # который не парсится стандартными JS/JSON-клиентами) — заменяем на None.
@@ -221,10 +221,10 @@ def get_metric_baseline(
     try:
         parsed_id = uuid_mod.UUID(dataset_id)
     except ValueError as e:
-        raise APIError(422, "validation_error", "Некорректный идентификатор датасета") from e
+        raise APIError(422, "validation_error", "Invalid dataset id") from e
     ds = DatasetRepo().get_by_id(parsed_id)
     if ds is None:
-        raise APIError(404, "not_found", f"Датасет '{dataset_id}' не найден")
+        raise APIError(404, "not_found", f"Dataset '{dataset_id}' not found")
 
     data = pd.read_csv(ds.storage_path)
     metric = MetricConfig(name=body.name, type=body.type, pre_col=body.pre_col, num=body.num, den=body.den)

@@ -59,7 +59,7 @@ def login(email: str, password: str) -> str:
     user = repo.get_by_email(email)
     if user is None:
         _audit(action="auth.login_failed", user_email=email, details={"reason": "unknown_email"})
-        raise AuthError("Неверный email или пароль")
+        raise AuthError("Invalid email or password")
 
     if user.locked_until is not None and user.locked_until > datetime.now(timezone.utc):
         _audit(
@@ -67,7 +67,7 @@ def login(email: str, password: str) -> str:
             details={"reason": "locked_out"},
         )
         raise AuthError(
-            f"Слишком много неудачных попыток входа. Повторите после "
+            f"Too many failed login attempts. Try again after "
             f"{user.locked_until.strftime('%H:%M UTC')}"
         )
 
@@ -76,7 +76,7 @@ def login(email: str, password: str) -> str:
             action="auth.login_failed", user_id=user.id, user_email=email,
             details={"reason": "inactive"},
         )
-        raise AuthError("Учетная запись заблокирована администратором")
+        raise AuthError("This account has been deactivated by an administrator")
 
     if not verify_password(password, user.password_hash):
         repo.record_login_failure(email, max_attempts=_MAX_LOGIN_ATTEMPTS, lockout_minutes=_LOCKOUT_MINUTES)
@@ -84,7 +84,7 @@ def login(email: str, password: str) -> str:
             action="auth.login_failed", user_id=user.id, user_email=email,
             details={"reason": "wrong_password"},
         )
-        raise AuthError("Неверный email или пароль")
+        raise AuthError("Invalid email or password")
 
     repo.record_login_success(user.id)
     _audit(action="auth.login", user_id=user.id, user_email=user.email)
@@ -115,7 +115,7 @@ def current_user_from_token(token: str | None) -> CurrentUser | None:
     return CurrentUser(
         id=str(user.id),
         email=user.email,
-        name=user.name,
+        name=user.full_name,
         role=user.role,
         must_change_password=user.must_change_password,
     )
@@ -125,7 +125,7 @@ def change_own_password(current_user: CurrentUser, old_password: str, new_passwo
     repo = UserRepo()
     user = repo.get_by_id(uuid_mod.UUID(current_user.id))
     if user is None or not verify_password(old_password, user.password_hash):
-        raise AuthError("Текущий пароль неверен")
+        raise AuthError("Current password is incorrect")
     repo.set_password_hash(user.id, hash_password(new_password), must_change_password=False)
     _audit(
         action="auth.password_changed", user_id=user.id, user_email=user.email,
@@ -141,7 +141,8 @@ def admin_create_user(
     acting_user: CurrentUser | None,
     *,
     email: str,
-    name: str,
+    first_name: str,
+    last_name: str = "",
     role: str,
     password: str | None = None,
 ) -> tuple[str, str]:
@@ -154,7 +155,8 @@ def admin_create_user(
     generated = password or _generate_temp_password()
     user_id = UserRepo().create(
         email=email,
-        name=name,
+        first_name=first_name,
+        last_name=last_name,
         password_hash=hash_password(generated),
         role=role,
         must_change_password=password is None,
@@ -176,7 +178,7 @@ def admin_reset_password(
         require_admin(acting_user)
     user = UserRepo().get_by_email(target_email)
     if user is None:
-        raise AuthError(f"Пользователь '{target_email}' не найден")
+        raise AuthError(f"User '{target_email}' not found")
     generated = new_password or _generate_temp_password()
     UserRepo().set_password_hash(user.id, hash_password(generated), must_change_password=True)
     _audit(
@@ -192,7 +194,7 @@ def admin_set_role(acting_user: CurrentUser, *, target_email: str, role: str) ->
     require_admin(acting_user)
     user = UserRepo().get_by_email(target_email)
     if user is None:
-        raise AuthError(f"Пользователь '{target_email}' не найден")
+        raise AuthError(f"User '{target_email}' not found")
     old_role = user.role
     UserRepo().update_role(user.id, role)
     _audit(
@@ -206,7 +208,7 @@ def admin_set_active(acting_user: CurrentUser, *, target_email: str, is_active: 
     require_admin(acting_user)
     user = UserRepo().get_by_email(target_email)
     if user is None:
-        raise AuthError(f"Пользователь '{target_email}' не найден")
+        raise AuthError(f"User '{target_email}' not found")
     UserRepo().set_active(user.id, is_active)
     _audit(
         action="user.active_change", user_id=uuid_mod.UUID(acting_user.id), user_email=acting_user.email,
@@ -215,30 +217,38 @@ def admin_set_active(acting_user: CurrentUser, *, target_email: str, is_active: 
     )
 
 
-def admin_update_name(acting_user: CurrentUser, *, target_email: str, name: str) -> None:
+def admin_update_name(
+    acting_user: CurrentUser, *, target_email: str, first_name: str, last_name: str
+) -> None:
     """Email намеренно не редактируется здесь — это логин пользователя, смена
     требует отдельной проверки уникальности и переизобретения токена сессии,
     что выходит за рамки формы редактирования (UI показывает email как
-    read-only, см. app.py)."""
+    read-only)."""
     require_admin(acting_user)
     user = UserRepo().get_by_email(target_email)
     if user is None:
-        raise AuthError(f"Пользователь '{target_email}' не найден")
-    old_name = user.name
-    UserRepo().update_name(user.id, name)
+        raise AuthError(f"User '{target_email}' not found")
+    old_first_name, old_last_name = user.first_name, user.last_name
+    UserRepo().update_name(user.id, first_name, last_name)
     _audit(
         action="user.name_change", user_id=uuid_mod.UUID(acting_user.id), user_email=acting_user.email,
         object_type="user", object_id=str(user.id), object_name=target_email,
-        details={"from": old_name, "to": name},
+        details={
+            "from": f"{old_first_name} {old_last_name}".strip(),
+            "to": f"{first_name} {last_name}".strip(),
+        },
     )
 
 
-def self_register(*, email: str, name: str, password: str) -> str:
+def self_register(*, email: str, first_name: str, last_name: str = "", password: str) -> str:
     """DOCKER.md §4.2: ABKIT_ALLOW_SELF_REGISTRATION=true включает страницу
     самостоятельной регистрации, новый пользователь получает роль Viewer."""
     if os.environ.get("ABKIT_ALLOW_SELF_REGISTRATION", "false").lower() != "true":
-        raise AuthError("Самостоятельная регистрация отключена")
-    user_id = UserRepo().create(email=email, name=name, password_hash=hash_password(password), role="viewer")
+        raise AuthError("Self-registration is disabled")
+    user_id = UserRepo().create(
+        email=email, first_name=first_name, last_name=last_name,
+        password_hash=hash_password(password), role="viewer",
+    )
     _audit(
         action="user.create", user_id=user_id, user_email=email,
         object_type="user", object_id=str(user_id), object_name=email,

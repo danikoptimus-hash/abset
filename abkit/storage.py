@@ -121,8 +121,8 @@ def register_experiment(
         registry = _read_registry_unlocked(experiments_dir)
         if name in registry:
             raise StorageError(
-                f"Эксперимент с именем '{name}' уже зарегистрирован. "
-                "Выберите другое имя."
+                f"An experiment named '{name}' is already registered. "
+                "Choose a different name."
             )
         registry[name] = {
             "status": status,
@@ -138,19 +138,19 @@ def update_status(experiments_dir: Path, name: str, new_status: str) -> None:
     """Переводит эксперимент в новый статус с проверкой допустимости перехода."""
     if new_status not in STATUSES:
         raise StorageError(
-            f"Неизвестный статус '{new_status}'. Допустимые: {', '.join(STATUSES)}"
+            f"Unknown status '{new_status}'. Allowed: {', '.join(STATUSES)}"
         )
     now = datetime.now(timezone.utc).isoformat()
     with _registry_lock(experiments_dir):
         registry = _read_registry_unlocked(experiments_dir)
         if name not in registry:
-            raise StorageError(f"Эксперимент '{name}' не найден в реестре")
+            raise StorageError(f"Experiment '{name}' not found in the registry")
         current = registry[name]["status"]
         allowed = _STATUS_TRANSITIONS.get(current, ())
         if new_status not in allowed:
             raise StorageError(
-                f"Недопустимый переход статуса '{current}' -> '{new_status}'. "
-                f"Разрешено: {', '.join(allowed) if allowed else 'нет переходов'}"
+                f"Invalid status transition '{current}' -> '{new_status}'. "
+                f"Allowed: {', '.join(allowed) if allowed else 'no transitions'}"
             )
         registry[name]["status"] = new_status
         if new_status == "running":
@@ -183,7 +183,7 @@ def create_experiment_dir(experiments_dir: Path, name: str) -> Path:
     path = experiment_path(experiments_dir, name)
     if path.exists():
         raise StorageError(
-            f"Папка эксперимента '{name}' уже существует по пути {path}"
+            f"Experiment folder '{name}' already exists at path {path}"
         )
     (path / "logs").mkdir(parents=True)
     return path
@@ -201,7 +201,7 @@ def load_config(path: Path) -> DesignConfig:
     """Загружает DesignConfig из config.yaml папки эксперимента."""
     config_path = path / "config.yaml"
     if not config_path.exists():
-        raise StorageError(f"config.yaml не найден в {path}")
+        raise StorageError(f"config.yaml not found in {path}")
     with config_path.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
     return DesignConfig.model_validate(data)
@@ -216,7 +216,7 @@ def load_assignments(path: Path) -> pd.DataFrame:
     """Загружает назначения групп из assignments.parquet."""
     assignments_path = path / "assignments.parquet"
     if not assignments_path.exists():
-        raise StorageError(f"assignments.parquet не найден в {path}")
+        raise StorageError(f"assignments.parquet not found in {path}")
     return pd.read_parquet(assignments_path)
 
 

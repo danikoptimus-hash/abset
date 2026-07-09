@@ -10,10 +10,11 @@ test('delete button is disabled until exact "DELETE" is typed, then removes the 
   await loginViaUi(page)
 
   const row = page.getByRole('row', { name: new RegExp(name) })
-  await row.getByRole('button', { name: 'Удалить' }).click()
+  await row.hover()
+  await row.getByRole('button', { name: 'Delete' }).click()
 
   const modal = page.getByRole('dialog')
-  const okButton = modal.getByRole('button', { name: 'Удалить' })
+  const okButton = modal.getByRole('button', { name: 'Delete' })
   await expect(okButton).toBeDisabled()
 
   await modal.getByRole('textbox').fill('delete')

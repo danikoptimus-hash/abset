@@ -9,7 +9,7 @@ def test_list_command_runs_on_empty_registry(tmp_path, monkeypatch):
     monkeypatch.setenv("ABKIT_EXPERIMENTS_DIR", str(tmp_path))
     result = runner.invoke(app, ["list"])
     assert result.exit_code == 0
-    assert "Эксперименты abkit" in result.stdout
+    assert "ABKit experiments" in result.stdout
 
 
 def test_design_command_is_stub():

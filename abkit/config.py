@@ -22,7 +22,7 @@ class MetricConfig(BaseModel):
     def _check_ratio_columns(self) -> "MetricConfig":
         if self.type == "ratio" and (self.num is None or self.den is None):
             raise ValueError(
-                f"Метрика '{self.name}' типа 'ratio' должна задавать num и den"
+                f"Metric '{self.name}' of type 'ratio' must set num and den"
             )
         return self
 
@@ -68,10 +68,10 @@ class DesignConfig(BaseModel):
     @model_validator(mode="after")
     def _check_groups_sum_to_one(self) -> "DesignConfig":
         if not self.groups:
-            raise ValueError("groups не может быть пустым")
+            raise ValueError("groups cannot be empty")
         total = sum(self.groups.values())
         if abs(total - 1.0) > 1e-6:
-            raise ValueError(f"Сумма долей groups должна быть равна 1, получено {total}")
+            raise ValueError(f"The sum of groups proportions must equal 1, got {total}")
         return self
 
     @model_validator(mode="after")
@@ -79,8 +79,8 @@ class DesignConfig(BaseModel):
         specified = [v is not None for v in (self.mde, self.sample_size)]
         if sum(specified) > 1:
             raise ValueError(
-                "Нужно задать ровно одно из mde / sample_size (или ни одного — тогда "
-                "используются все доступные данные)"
+                "Set exactly one of mde / sample_size (or neither — then "
+                "all available data is used)"
             )
         return self
 
@@ -88,5 +88,5 @@ class DesignConfig(BaseModel):
     def _check_metric_names_unique(self) -> "DesignConfig":
         names = [m.name for m in self.metrics]
         if len(names) != len(set(names)):
-            raise ValueError("Имена метрик должны быть уникальны")
+            raise ValueError("Metric names must be unique")
         return self

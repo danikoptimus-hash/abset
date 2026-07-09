@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Typography, Tag, Select, Button, Space, Spin, Result, message, Input } from 'antd'
-import { EditOutlined, SaveOutlined, CloseOutlined, DownloadOutlined } from '@ant-design/icons'
+import { Typography, Tag, Select, Button, Space, Spin, Result, message, Input, Dropdown } from 'antd'
+import { EditOutlined, SaveOutlined, CloseOutlined, DownloadOutlined, MoreOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons'
 import { apiClient, errorMessage } from '../../api/client'
-import { useAuth, hasMinRole } from '../../auth/AuthContext'
 import { DeleteExperimentModal } from '../../components/DeleteExperimentModal'
+import { ExperimentPropertiesModal } from '../../components/ExperimentPropertiesModal'
 import { DesignSection } from './DesignSection'
 import { AnalyzeSection } from './AnalyzeSection'
 import { HistorySection } from './HistorySection'
@@ -16,7 +16,6 @@ const STATUS_OPTIONS = ['designed', 'running', 'completed', 'archived']
 
 export function ExperimentPage() {
   const { name } = useParams<{ name: string }>()
-  const { user } = useAuth()
   const queryClient = useQueryClient()
 
   const [editing, setEditing] = useState(false)
@@ -24,6 +23,7 @@ export function ExperimentPage() {
   const [draftName, setDraftName] = useState('')
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const [propertiesTarget, setPropertiesTarget] = useState<string | null>(null)
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['experiment', name],
@@ -79,7 +79,7 @@ export function ExperimentPage() {
         })),
       })
       if (blocksError) throw new Error(errorMessage(blocksError))
-      message.success('Сохранено')
+      message.success('Saved')
       setEditing(false)
       const finalName = draftName !== name ? draftName : name
       queryClient.invalidateQueries({ queryKey: ['experiment', finalName] })
@@ -89,7 +89,7 @@ export function ExperimentPage() {
         window.location.href = `/experiments/${finalName}`
       }
     } catch (e) {
-      message.error(e instanceof Error ? e.message : 'Не удалось сохранить')
+      message.error(e instanceof Error ? e.message : 'Failed to save')
     } finally {
       setSaving(false)
     }
@@ -123,9 +123,9 @@ export function ExperimentPage() {
   }
 
   if (isLoading) return <Spin size="large" />
-  if (error || !data || !name) return <Result status="404" title="Эксперимент не найден" />
+  if (error || !data || !name) return <Result status="404" title="Experiment not found" />
 
-  const canEdit = hasMinRole(user, 'admin') || user?.email === data.owner_email
+  const canEdit = data.can_edit
 
   const displayBlocks = editing ? draftBlocks : (blocks ?? []).map((b) => ({ ...b }))
   const hypothesisBlock = displayBlocks.find((b) => b.kind === 'hypothesis')
@@ -147,8 +147,21 @@ export function ExperimentPage() {
         )}
         <Tag color={data.publication_status === 'published' ? 'success' : 'default'}>{data.publication_status}</Tag>
         <Tag>{data.status}</Tag>
+        {canEdit && !editing && (
+          <Dropdown
+            menu={{
+              items: [
+                { key: 'properties', icon: <SettingOutlined />, label: 'Edit Properties', onClick: () => setPropertiesTarget(name) },
+                { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true, onClick: () => setDeleteTarget(name) },
+              ],
+            }}
+            trigger={['click']}
+          >
+            <Button icon={<MoreOutlined />} aria-label="More actions" />
+          </Dropdown>
+        )}
       </Space>
-      <Typography.Paragraph type="secondary">Владелец: {data.owner_email}</Typography.Paragraph>
+      <Typography.Paragraph type="secondary">Owner: {data.owner_email}</Typography.Paragraph>
 
       <Space style={{ marginBottom: 24 }} wrap>
         {canEdit && !editing && (
@@ -175,13 +188,8 @@ export function ExperimentPage() {
           <Select value={data.status} style={{ width: 160 }} onChange={handleStatusChange} options={STATUS_OPTIONS.map((s) => ({ value: s, label: s }))} />
         )}
         <Button icon={<DownloadOutlined />} href={`/api/v1/experiments/${name}/samples.zip`}>
-          Скачать выборки
+          Download Samples
         </Button>
-        {canEdit && !editing && (
-          <Button danger onClick={() => setDeleteTarget(name)}>
-            Удалить
-          </Button>
-        )}
       </Space>
 
       {hypothesisBlock && (
@@ -199,7 +207,7 @@ export function ExperimentPage() {
       </div>
 
       <Typography.Title level={4} style={{ marginTop: 32 }}>
-        Выводы и решение
+        Conclusions and Decision
       </Typography.Title>
       {otherBlocks.map((b) => (
         <MarkdownBlockView
@@ -224,7 +232,7 @@ export function ExperimentPage() {
           }
           style={{ marginBottom: 24 }}
         >
-          + Добавить блок
+          + Add Block
         </Button>
       )}
 
@@ -234,8 +242,21 @@ export function ExperimentPage() {
         name={deleteTarget}
         onCancel={() => setDeleteTarget(null)}
         onDeleted={() => {
-          message.success(`Эксперимент «${deleteTarget}» удален`)
+          message.success(`Experiment "${deleteTarget}" deleted`)
           window.location.href = '/experiments'
+        }}
+      />
+
+      <ExperimentPropertiesModal
+        name={propertiesTarget}
+        onCancel={() => setPropertiesTarget(null)}
+        onSaved={(newName) => {
+          setPropertiesTarget(null)
+          queryClient.invalidateQueries({ queryKey: ['experiments'] })
+          queryClient.invalidateQueries({ queryKey: ['experiment', name] })
+          if (newName !== name) {
+            window.location.href = `/experiments/${newName}`
+          }
         }}
       />
     </div>

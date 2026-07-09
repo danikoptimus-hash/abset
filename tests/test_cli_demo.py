@@ -11,8 +11,8 @@ def test_demo_runs_end_to_end(tmp_path, monkeypatch):
     result = runner.invoke(app, ["demo", "--n", "1000"])
 
     assert result.exit_code == 0, result.output
-    assert "Готово!" in result.output
-    assert "Вердикт по revenue" in result.output
+    assert "Done!" in result.output
+    assert "Verdict for revenue" in result.output
 
     registry = storage.read_registry(tmp_path)
     assert "demo" in registry

@@ -61,11 +61,11 @@ def start_design(
     try:
         dataset_uuid = uuid_mod.UUID(body.dataset_id)
     except ValueError as e:
-        raise APIError(422, "validation_error", "Некорректный идентификатор датасета") from e
+        raise APIError(422, "validation_error", "Invalid dataset id") from e
 
     dataset = DatasetRepo().get_by_id(dataset_uuid)
     if dataset is None:
-        raise APIError(404, "not_found", f"Датасет '{body.dataset_id}' не найден")
+        raise APIError(404, "not_found", f"Dataset '{body.dataset_id}' not found")
     data = pd.read_csv(dataset.storage_path)
 
     config = body.config

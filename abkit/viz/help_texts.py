@@ -11,115 +11,115 @@ import re
 
 _HELP_TEXTS: dict[str, str] = {
     "forest": """\
-**Что показано**
+**What is shown**
 
-На горизонтальной оси — оценка эффекта (относительный лифт в процентах). Каждая строка — отдельный статистический критерий или их комбинация (Welch t-test, Welch+CUPED, Bootstrap BCa и т.д.). Точка — точечная оценка эффекта, горизонтальная линия — 95% доверительный интервал (ДИ, диапазон значений эффекта, которые согласуются с данными). Жирная (выделенная цветом) строка — метод, заявленный в дизайне эксперимента: именно по нему принимается решение. Пунктирная вертикальная линия на нуле — граница «нет эффекта».
+The horizontal axis is the effect estimate (relative lift, in percent). Each row is a separate statistical test or combination of tests (Welch t-test, Welch+CUPED, Bootstrap BCa, etc). The dot is the point estimate of the effect, the horizontal line is the 95% confidence interval (CI — the range of effect values consistent with the data). The bold (colored) row is the method declared in the experiment design: this is the one the decision is based on. The dashed vertical line at zero is the "no effect" boundary.
 
-**Как читать**
+**How to read it**
 
-Если весь ДИ (усы) находится справа от нуля — эффект значимо положительный. Если весь ДИ слева от нуля — значимо отрицательный. Если ДИ пересекает ноль — эффект не значим: нельзя отличить от случайного колебания. Чем уже усы — тем точнее оценка (обычно уже у методов со снижением дисперсии типа CUPED). Если все методы дают согласованный результат (все справа или все слева от нуля) — выводы устойчивы. Если методы расходятся — эффект чувствителен к выбору критерия, к нему стоит относиться осторожно.
+If the whole CI (whiskers) is to the right of zero, the effect is significantly positive. If the whole CI is to the left of zero, it's significantly negative. If the CI crosses zero, the effect is not significant: it can't be distinguished from random fluctuation. Narrower whiskers mean a more precise estimate (usually narrower for variance-reduction methods like CUPED). If all methods agree (all to the right or all to the left of zero), the conclusions are robust. If the methods disagree, the effect is sensitive to the choice of test and should be treated with caution.
 
-**Когда что-то не так**
+**When something looks off**
 
-Разные методы дают принципиально разные результаты (например, Welch показывает эффект, а Bootstrap — нет). Часто это означает выбросы или сильную асимметрию распределения. ДИ CUPED-метода не уже, чем без CUPED — значит ковариата слабо коррелирует с метрикой, CUPED не помог. Mann-Whitney и t-test принципиально расходятся — распределение сильно перекошено.""",
+Different methods give fundamentally different results (e.g. Welch shows an effect but Bootstrap doesn't). This often means outliers or a strongly skewed distribution. The CUPED method's CI isn't narrower than without CUPED — the covariate is weakly correlated with the metric, so CUPED didn't help. Mann-Whitney and the t-test disagree substantially — the distribution is heavily skewed.""",
     "distribution_continuous": """\
-**Что показано**
+**What is shown**
 
-Наложенные полупрозрачные гистограммы control (одного цвета) и treatment (другого) — визуализация того, как распределены значения метрики в каждой группе. Плюс ECDF (эмпирическая функция распределения — кумулятивная кривая): для каждого значения X она показывает долю юзеров с метрикой ≤ X. Вертикальная пунктирная линия — порог обрезки выбросов, если он применялся.
+Overlaid, semi-transparent histograms for control (one color) and treatment (another) — a visualization of how the metric's values are distributed in each group. Plus the ECDF (empirical cumulative distribution function — a cumulative curve): for each value X it shows the share of users with a metric value ≤ X. The vertical dashed line is the outlier-clipping threshold, if one was applied.
 
-**Как читать**
+**How to read it**
 
-Гистограммы показывают форму распределения. Если гистограммы control и treatment почти совпадают — эффекта, скорее всего, нет. Если treatment сдвинут вправо относительно control — есть положительный эффект. ECDF-кривые помогают увидеть сдвиг лучше при перекошенных распределениях: если кривая treatment сдвинута вправо от control, значит при том же значении метрики в treatment эту планку набирает меньшая доля юзеров — то есть в treatment больше высоких значений.
+The histograms show the shape of the distribution. If the control and treatment histograms nearly overlap, there's likely no effect. If treatment is shifted right relative to control, there's a positive effect. The ECDF curves make the shift easier to see for skewed distributions: if the treatment curve is shifted right of control, then at the same metric value a smaller share of treatment users has reached that bar — meaning treatment has more high values.
 
-**Когда что-то не так**
+**When something looks off**
 
-Длинный тонкий хвост справа — выбросы могут искажать средние; стоит применить обрезку или использовать bootstrap/Mann-Whitney. Куча наблюдений в нуле плюс распределение правее — типичная картина для «купили/не купили» (много нулей + распределение среди купивших); для такой метрики имеет смысл считать эффект отдельно на сконвертировавшихся или использовать ratio-подход.""",
+A long thin tail on the right — outliers may be distorting the means; consider clipping or using bootstrap/Mann-Whitney. A pile of observations at zero plus a distribution to the right — a typical "bought/didn't buy" pattern (lots of zeros plus a distribution among buyers); for such a metric it can make sense to compute the effect only on converted users, or use a ratio approach.""",
     "distribution_binary": """\
-**Что показано**
+**What is shown**
 
-Два столбца рядом — доля конверсий (или другого положительного события) в control и treatment. Усы над столбцами — 95% доверительный интервал (ДИ) для доли, посчитанный методом Wilson score interval. Подписи над столбцами — точное значение доли и половина ширины ДИ.
+Two side-by-side bars — the conversion rate (or other positive-event rate) in control and treatment. The whiskers above the bars are the 95% confidence interval (CI) for the proportion, computed via the Wilson score interval. The labels above the bars are the exact proportion and half the CI width.
 
-**Как читать**
+**How to read it**
 
-Разница высот столбцов — оценка абсолютного эффекта в процентных пунктах. Если усы столбцов не пересекаются (у ДИ нет общих значений) — эффект точно значимый. Если усы пересекаются слегка — эффект может быть на грани значимости, для точного вердикта смотрите forest plot.
+The difference in bar heights is the estimated absolute effect in percentage points. If the bars' whiskers don't overlap (the CIs share no values), the effect is definitely significant. If the whiskers overlap slightly, the effect may be borderline — check the forest plot for the precise verdict.
 
-**Когда что-то не так**
+**When something looks off**
 
-Один или оба ДИ пересекают ноль при очень низкой конверсии — значит данных мало для уверенной оценки. Разница между группами очень большая (в несколько раз) — стоит проверить качество данных, возможно проблема с назначением групп.""",
+One or both CIs cross zero at a very low conversion rate — there isn't enough data for a confident estimate. The difference between groups is very large (several-fold) — worth checking data quality, there may be a problem with group assignment.""",
     "cumulative_lift": """\
-**Что показано**
+**What is shown**
 
-На горизонтальной оси — дни от начала теста. На вертикальной — относительный лифт в процентах. Линия — оценка эффекта на данных, накопленных с 1-го по указанный день теста. Залитая полоса вокруг линии — 95% доверительный интервал (ДИ). Горизонтальная пунктирная линия — граница «нет эффекта» (лифт = 0%).
+The horizontal axis is days since the start of the test. The vertical axis is relative lift, in percent. The line is the effect estimate computed on data accumulated from day 1 through the given day of the test. The shaded band around the line is the 95% confidence interval (CI). The horizontal dashed line is the "no effect" boundary (lift = 0%).
 
-**Как читать**
+**How to read it**
 
-График показывает, как менялась оценка эффекта по мере накопления данных. В начале теста ДИ очень широкий (данных мало), к концу сужается. Если линия стабилизируется на определенном уровне — выборки достаточно, оценка надежная. Если к концу теста линия продолжает сильно колебаться — данных было мало, и реального эффекта может не быть там, где кажется.
+The chart shows how the effect estimate changed as data accumulated. Early in the test the CI is very wide (little data); it narrows toward the end. If the line stabilizes at a certain level, the sample is sufficient and the estimate is reliable. If the line is still fluctuating heavily near the end of the test, there wasn't enough data, and the apparent effect may not be real.
 
-**Когда что-то не так**
+**When something looks off**
 
-Резкий пик в первые дни, затем спад к меньшему значению — похоже на novelty-эффект (юзеры активно реагируют на новизну, но эффект не устойчив). Резкие всплески в отдельные дни — вероятно, маркетинговая активность, технический сбой или другое внешнее событие. Тренд не стабилизировался к концу теста — тест был слишком коротким.""",
+A sharp spike in the first few days followed by a drop to a lower value — looks like a novelty effect (users react strongly to the novelty, but the effect isn't durable). Sharp spikes on individual days — likely marketing activity, a technical incident, or another external event. The trend hasn't stabilized by the end of the test — the test was too short.""",
     "segment_forest": """\
-**Что показано**
+**What is shown**
 
-Тот же forest plot, но каждая строка — эффект метрики внутри отдельного сегмента (страты), например iOS/Android или RU/UZ/KZ. Общая оценка эффекта по всей выборке показывается отдельно — для сравнения.
+The same forest plot, but each row is the metric's effect within a single segment (stratum), e.g. iOS/Android or country. The overall effect across the whole sample is shown separately, for comparison.
 
-**Как читать**
+**How to read it**
 
-Смотрите на однородность эффекта: если доверительные интервалы (ДИ) всех сегментов пересекают общую оценку и друг друга — эффект примерно одинаковый во всех сегментах. Если сегменты сильно разлетаются (один положительный, другой отрицательный) — эффект неоднороден, и общая оценка маскирует разное поведение групп.
+Look at how uniform the effect is: if the confidence intervals (CIs) of all segments overlap the overall estimate and each other, the effect is roughly the same across segments. If segments diverge sharply (one positive, another negative), the effect is heterogeneous, and the overall estimate is masking different behavior across groups.
 
-**Когда что-то не так**
+**When something looks off**
 
-Сегментные разрезы — exploratory (их всего лишь предположения, а не проверенный результат). Поправка на множественность на них не применяется. Не принимайте решения по сегментам как основные — это гипотезы, которые нужно проверять отдельным тестом. Использование сегментных результатов как основных ведет к завышению частоты ложных срабатываний.""",
+Segment breakdowns are exploratory (they're hypotheses, not a validated result). No multiple-testing correction is applied to them. Don't treat segment-level decisions as primary — these are hypotheses that need to be validated with a separate test. Using segment results as primary evidence inflates the false-positive rate.""",
     "verdicts_table": """\
-**Что показано**
+**What is shown**
 
-Строка на каждую пару метрика × метод × группа-treatment: точечная оценка эффекта (абсолютная и относительная), p-value (сырое и после поправки на множественность), был ли метод заявлен в дизайне (designed) и роль метрики (primary/secondary).
+One row per metric × method × treatment-group pair: the point estimate of the effect (absolute and relative), the p-value (raw and after multiple-testing correction), whether the method was declared in the design (designed), and the metric's role (primary/secondary).
 
-**Как читать**
+**How to read it**
 
-Решение принимается только по строкам с designed=True и p-adj (скорректированный p-value). Если p-adj < alpha (обычно 0.05) и эффект положительный — вердикт «значимо позитивный», если отрицательный — «значимо негативный», иначе — эффект не обнаружен. Строки с designed=False — это альтернативные методы для проверки устойчивости вывода, в вердикт они не входят.
+The decision is based only on rows with designed=True and p-adj (the corrected p-value). If p-adj < alpha (usually 0.05) and the effect is positive, the verdict is "significant positive"; if negative, "significant negative"; otherwise, no effect was detected. Rows with designed=False are alternative methods used to check the robustness of the conclusion — they don't factor into the verdict.
 
-**Когда что-то не так**
+**When something looks off**
 
-p-value и p-adj сильно расходятся — вокруг метрики много других сравнений, поправка на множественность существенно урезает значимость. Secondary-метрики помечены как exploratory: относитесь к их вердиктам как к гипотезам, а не как к основанию для решения.""",
+p-value and p-adj diverge substantially — there are many other comparisons around this metric, and the multiple-testing correction is meaningfully reducing significance. Secondary metrics are marked as exploratory: treat their verdicts as hypotheses, not as grounds for a decision.""",
     "srm_table": """\
-**Что показано**
+**What is shown**
 
-Таблица SRM (Sample Ratio Mismatch — несовпадение соотношения выборок): сколько юзеров реально наблюдалось в каждой группе против того, сколько ожидалось по заданным долям сплита, плюс chi-квадрат тест на их согласие. Ниже — таблица потерь данных: сколько юзеров было назначено в группу, сколько реально попало в пост-данные, и доля потерь по каждой группе.
+The SRM (Sample Ratio Mismatch) table: how many users were actually observed in each group versus how many were expected from the configured split proportions, plus a chi-square test of their agreement. Below it, the data-loss table: how many users were assigned to a group, how many actually showed up in the post-period data, and the loss rate for each group.
 
-**Как читать**
+**How to read it**
 
-Если p-value теста SRM ≥ 0.001 — фактическое разбиение соответствует заявленному, всё в порядке. Потери данных должны быть примерно одинаковой доли в обеих группах — тогда они не искажают сравнение.
+If the SRM test's p-value is ≥ 0.001, the actual split matches the intended one — everything's fine. Data loss should be roughly the same proportion in both groups — then it doesn't bias the comparison.
 
-**Когда что-то не так**
+**When something looks off**
 
-SRM провален (p-value < 0.001) — фактические доли групп статистически значимо отличаются от заявленных; результатам анализа в этом случае доверять нельзя, пока не найдена причина (баг в сплите, фильтрация данных перед выгрузкой и т.д.). Потери асимметричны между группами (например, в одной группе потерь заметно больше) — значит что-то в проценте отсева коррелирует с группой, и итоговое сравнение может быть смещенным даже при прошедшем SRM.""",
+SRM fails (p-value < 0.001) — the actual group proportions differ statistically significantly from the intended ones; the analysis results shouldn't be trusted in this case until the cause is found (a bug in the split, filtering applied before the export, etc). Loss is asymmetric between groups (e.g. one group has noticeably more loss) — something about the drop-off rate correlates with the group, and the final comparison may be biased even if SRM passed.""",
     "mde_table": """\
-**Что показано**
+**What is shown**
 
-Для каждой метрики — минимальный обнаружимый эффект (MDE, minimum detectable effect) в относительном выражении при заданном размере выборки и мощности, тот же MDE с учетом CUPED (если есть pre-period колонка), размер группы и ρ (корреляция между pre-period и текущим значением метрики — насколько CUPED может снизить дисперсию).
+For each metric: the minimum detectable effect (MDE), in relative terms, for the given sample size and power; the same MDE accounting for CUPED (if a pre-period column is available); the group size; and ρ (the correlation between the pre-period and current metric value — how much CUPED can reduce variance).
 
-**Как читать**
+**How to read it**
 
-MDE — это наименьший эффект, который эксперимент способен статистически надежно обнаружить при данном размере выборки. Если ожидаемый реальный эффект меньше MDE — тест, скорее всего, не покажет значимого результата, даже если эффект есть на самом деле. Чем больше ρ — тем сильнее CUPED снижает MDE.
+MDE is the smallest effect the experiment can reliably detect statistically at the given sample size. If the expected real effect is smaller than the MDE, the test likely won't show a significant result even if the effect actually exists. The higher ρ is, the more CUPED reduces the MDE.
 
-**Когда что-то не так**
+**When something looks off**
 
-MDE намного больше ожидаемого реального эффекта — выборки не хватит, нужно либо увеличить размер эксперимента/срок, либо снизить дисперсию (стратификация, CUPED, обрезка выбросов). MDE с CUPED почти не отличается от MDE без CUPED — ρ низкий, ковариата слабо помогает, не стоит рассчитывать на выигрыш от CUPED.""",
+MDE is much larger than the expected real effect — the sample isn't big enough; either increase the experiment's size/duration, or reduce variance (stratification, CUPED, outlier clipping). MDE with CUPED is barely different from MDE without it — ρ is low, the covariate doesn't help much, don't count on a gain from CUPED.""",
 }
 
 _WARNINGS: dict[str, str] = {
     "cumulative_lift": (
-        "Этот график — для post-hoc диагностики, не для остановки теста. Решение "
-        "принимается только по последнему дню, зафиксированному в дизайне. Остановка "
-        "теста в момент «прокраса» на промежуточном дне (peeking) ломает статистику "
-        "и завышает частоту ложных срабатываний."
+        "This chart is for post-hoc diagnostics, not for stopping the test. The "
+        "decision is based only on the last day fixed in the design. Stopping "
+        "the test the moment an intermediate day looks good (peeking) breaks the "
+        "statistics and inflates the false-positive rate."
     ),
     "segment_forest": (
-        "Сегментные разрезы — exploratory. Поправка на множественность на них не "
-        "применяется. Не принимайте решения по сегментам как основные — это гипотезы, "
-        "которые нужно проверять отдельным тестом. Использование сегментных "
-        "результатов как основных ведет к завышению частоты ложных срабатываний."
+        "Segment breakdowns are exploratory. No multiple-testing correction is "
+        "applied to them. Don't treat segment-level decisions as primary — these "
+        "are hypotheses that need to be validated with a separate test. Using "
+        "segment results as primary evidence inflates the false-positive rate."
     ),
 }
 
@@ -127,8 +127,8 @@ _HELP_ALIASES: dict[str, str] = {
     "distribution_ratio": "distribution_continuous",
 }
 
-HELP_EXPANDER_LABEL = "❓ Как читать этот график?"
-HELP_EXPANDER_LABEL_TABLE = "❓ Как читать эту таблицу?"
+HELP_EXPANDER_LABEL = "❓ How do I read this chart?"
+HELP_EXPANDER_LABEL_TABLE = "❓ How do I read this table?"
 
 
 def get_help_text(chart_type: str) -> str:
@@ -136,7 +136,7 @@ def get_help_text(chart_type: str) -> str:
     указанного типа графика или таблицы (см. ключи в _HELP_TEXTS)."""
     key = _HELP_ALIASES.get(chart_type, chart_type)
     if key not in _HELP_TEXTS:
-        raise KeyError(f"Нет текста помощи для chart_type={chart_type!r}")
+        raise KeyError(f"No help text for chart_type={chart_type!r}")
     return _HELP_TEXTS[key]
 
 

@@ -126,7 +126,7 @@ def check_no_duplicates(data: pd.DataFrame, unit_col: str) -> None:
     dup_mask = data[unit_col].duplicated()
     if dup_mask.any():
         raise AnalysisError(
-            f"В данных {int(dup_mask.sum())} дублирующихся значений '{unit_col}' — анализ невозможен"
+            f"The data has {int(dup_mask.sum())} duplicate '{unit_col}' values — cannot analyze"
         )
 
 

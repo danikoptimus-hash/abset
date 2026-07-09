@@ -18,7 +18,7 @@ class RemoveOutliers(Step):
 
     def __init__(self, lower_q: float = 0.0, upper_q: float = 0.99):
         if not 0 <= lower_q < upper_q <= 1:
-            raise ValueError("Нужно 0 <= lower_q < upper_q <= 1")
+            raise ValueError("Requires 0 <= lower_q < upper_q <= 1")
         self.lower_q = lower_q
         self.upper_q = upper_q
 
@@ -50,7 +50,7 @@ class Winsorize(Step):
 
     def __init__(self, lower_q: float = 0.0, upper_q: float = 0.99):
         if not 0 <= lower_q < upper_q <= 1:
-            raise ValueError("Нужно 0 <= lower_q < upper_q <= 1")
+            raise ValueError("Requires 0 <= lower_q < upper_q <= 1")
         self.lower_q = lower_q
         self.upper_q = upper_q
 
@@ -77,6 +77,6 @@ class Log1p(Step):
 
     def apply(self, ctx: MetricContext) -> MetricContext:
         if (ctx.values.dropna() < 0).any():
-            raise ValueError("Log1p требует неотрицательных значений метрики")
+            raise ValueError("Log1p requires non-negative metric values")
         ctx.values = np.log1p(ctx.values)
         return ctx

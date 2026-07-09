@@ -70,7 +70,7 @@ def resolve_steps(
             ]
         except KeyError as e:
             raise checks.AnalysisError(
-                f"Неизвестный метод '{e.args[0]}' в default_methods метрики '{metric.name}'"
+                f"Unknown method '{e.args[0]}' in default_methods for metric '{metric.name}'"
             ) from e
     return _default_steps_for_metric(metric)
 
@@ -142,14 +142,14 @@ def build_metric_context(
         for col in (metric.num, metric.den):
             if col not in merged.columns:
                 raise checks.AnalysisError(
-                    f"Для ratio-метрики '{metric.name}' нужна колонка '{col}' в данных"
+                    f"Ratio metric '{metric.name}' needs column '{col}' in the data"
                 )
         values = subset[metric.num] / subset[metric.den].replace(0, np.nan)
         num, den = subset[metric.num], subset[metric.den]
     else:
         if metric.name not in merged.columns:
             raise checks.AnalysisError(
-                f"В данных нет колонки метрики '{metric.name}' после join с назначениями"
+                f"Data is missing metric column '{metric.name}' after joining with assignments"
             )
         values = subset[metric.name]
         num, den = None, None
@@ -179,20 +179,20 @@ def build_metric_context(
 
 def _validate_input_data(config: DesignConfig, data: pd.DataFrame) -> None:
     if config.unit_col not in data.columns:
-        raise DesignError(f"В данных нет колонки unit_col '{config.unit_col}'")
+        raise DesignError(f"Data is missing the unit_col column '{config.unit_col}'")
     if data[config.unit_col].isna().any():
-        raise DesignError(f"Колонка unit_col '{config.unit_col}' содержит пропуски")
+        raise DesignError(f"Column unit_col '{config.unit_col}' contains missing values")
     if data[config.unit_col].duplicated().any():
-        raise DesignError(f"Колонка unit_col '{config.unit_col}' содержит дубликаты")
+        raise DesignError(f"Column unit_col '{config.unit_col}' contains duplicates")
 
     for col in config.strata:
         if col not in data.columns:
-            raise DesignError(f"В данных нет колонки страты '{col}'")
+            raise DesignError(f"Data is missing stratum column '{col}'")
         if config.nan_strategy == "error" and data[col].isna().any():
             raise DesignError(
-                f"Колонка страты '{col}' содержит пропуски (nan_strategy='error'). "
-                "Чтобы не падать на пропусках, используйте nan_strategy='separate_stratum' "
-                "(по умолчанию) или 'drop'."
+                f"Stratum column '{col}' contains missing values (nan_strategy='error'). "
+                "To avoid failing on missing values, use nan_strategy='separate_stratum' "
+                "(default) or 'drop'."
             )
 
     for metric in config.metrics:
@@ -200,15 +200,15 @@ def _validate_input_data(config: DesignConfig, data: pd.DataFrame) -> None:
             for col in (metric.num, metric.den):
                 if col not in data.columns:
                     raise DesignError(
-                        f"Для ratio-метрики '{metric.name}' нужна колонка '{col}', ее нет в данных"
+                        f"Ratio metric '{metric.name}' needs column '{col}', it is not in the data"
                     )
         else:
             if metric.name not in data.columns and (
                 metric.pre_col is None or metric.pre_col not in data.columns
             ):
                 raise DesignError(
-                    f"Для метрики '{metric.name}' нет данных для оценки дисперсии: "
-                    f"нужна историческая колонка '{metric.name}' либо pre_col"
+                    f"No data to estimate variance for metric '{metric.name}': "
+                    f"needs a historical column '{metric.name}' or pre_col"
                 )
 
 
@@ -338,8 +338,8 @@ def _compute_power_results(
                 p_treat = mean * (1 + config.mde)
                 if not 0 < p_treat < 1:
                     warnings.append(
-                        f"MDE {config.mde:.2%} недостижим для baseline {mean:.4f}: "
-                        "итоговая пропорция вне (0, 1)"
+                        f"MDE {config.mde:.2%} is not achievable for baseline {mean:.4f}: "
+                        "the resulting proportion is outside (0, 1)"
                     )
                 else:
                     n_req = power.sample_size_binary(mean, p_treat, alpha=alpha, power=config.power, ratio=ratio)
@@ -362,8 +362,8 @@ def _compute_power_results(
 
             if result.sample_size_per_group is not None and result.sample_size_per_group > n_control_available:
                 warnings.append(
-                    f"Недостаточно данных для заданного MDE: нужно ~{result.sample_size_per_group:.0f} "
-                    f"в контрольной группе, доступно {n_control_available:.0f}"
+                    f"Not enough data for the given MDE: need ~{result.sample_size_per_group:.0f} "
+                    f"in the control group, {n_control_available:.0f} available"
                 )
         else:
             n_control = config.sample_size * control_prop if config.sample_size else n_control_available
@@ -459,11 +459,11 @@ class Experiment:
         store = get_experiment_store(experiments_dir)
         cb = progress_callback or (lambda _label: None)
 
-        cb("Валидируем данные...")
+        cb("Validating data...")
         _validate_input_data(config, data)
         control_name = infer_control_name(config.groups)
 
-        cb("Проверяем изоляцию от других экспериментов...")
+        cb("Checking isolation from other experiments...")
         # store.occupied_units — только у db-режима (ABKIT_MODE=db); файловый
         # режим (дефолт) продолжает читать assignments.parquet как раньше
         isolation_store = store if hasattr(store, "occupied_units") else None
@@ -479,7 +479,7 @@ class Experiment:
         )
         candidates = isolation_result.candidates
         if len(candidates) == 0:
-            raise DesignError("После изоляции не осталось кандидатов для сплита")
+            raise DesignError("No candidates left for the split after isolation")
 
         strata_nan_counts = nan_counts_by_column(candidates, config.strata) if config.strata else {}
         n_dropped_for_nan_strata = 0
@@ -492,18 +492,18 @@ class Experiment:
                 pct = n_missing / n_pool * 100
                 if config.nan_strategy == "drop":
                     strata_nan_warnings.append(
-                        f"Колонка страты '{col}': {n_missing} пропусков ({pct:.1f}%) — "
-                        "юзеры удалены из кандидатов (nan_strategy='drop')"
+                        f"Stratum column '{col}': {n_missing} missing values ({pct:.1f}%) — "
+                        "users removed from candidates (nan_strategy='drop')"
                     )
                 else:
                     strata_nan_warnings.append(
-                        f"Колонка страты '{col}': {n_missing} пропусков ({pct:.1f}%) — "
-                        "выделены в отдельную страту 'unknown'"
+                        f"Stratum column '{col}': {n_missing} missing values ({pct:.1f}%) — "
+                        "assigned to a separate 'unknown' stratum"
                     )
                 if pct > 5:
                     strata_nan_warnings.append(
-                        f"Внимание: в колонке '{col}' у {pct:.1f}% пользователей пропуски. "
-                        "Проверьте качество данных."
+                        f"Warning: {pct:.1f}% of users are missing column '{col}'. "
+                        "Check the data quality."
                     )
 
             if config.nan_strategy == "drop":
@@ -513,14 +513,14 @@ class Experiment:
                     candidates = candidates[~nan_mask]
                 if len(candidates) == 0:
                     raise DesignError(
-                        "После удаления юзеров с пропусками в стратах (nan_strategy='drop') "
-                        "не осталось кандидатов для сплита"
+                        "No candidates left for the split after removing users with missing "
+                        "strata values (nan_strategy='drop')"
                     )
 
-        cb("Считаем мощность...")
+        cb("Computing power...")
         power_results = _compute_power_results(config, candidates, control_name)
 
-        cb("Строим страты...")
+        cb("Building strata...")
         stratum = build_strata(
             candidates,
             strata_cols=config.strata,
@@ -528,7 +528,7 @@ class Experiment:
             min_stratum_size=config.min_stratum_size,
         )
 
-        cb("Разбиваем на группы (сплит)...")
+        cb("Splitting into groups...")
         seed = config.seed if config.seed is not None else secrets.randbits(32)
         split_result = run_split(
             data=candidates,
@@ -549,7 +549,7 @@ class Experiment:
             }
         )
 
-        cb("Проверяем честность (SRM, баланс страт, pre-period A/A)...")
+        cb("Checking validity (SRM, strata balance, pre-period A/A)...")
         observed_counts = assignments["group"].value_counts().to_dict()
         srm_result = checks.check_srm(observed_counts, config.groups)
         balance_result = checks.check_strata_balance(assignments["stratum"], assignments["group"])
@@ -560,17 +560,17 @@ class Experiment:
         report_warnings = list(split_result.warnings) + strata_nan_warnings
         if not srm_result.passed:
             report_warnings.append(
-                f"SRM: p-value={srm_result.p_value:.2e} < 0.001 — фактические доли групп "
-                "значимо отличаются от заявленных"
+                f"SRM: p-value={srm_result.p_value:.2e} < 0.001 — actual group proportions "
+                "differ significantly from the intended ones"
             )
         if not balance_result.passed:
             report_warnings.append(
-                f"Дисбаланс страт между группами: p-value={balance_result.p_value:.4f}"
+                f"Stratum imbalance between groups: p-value={balance_result.p_value:.4f}"
             )
         for aa in aa_results:
             if not aa.passed:
                 report_warnings.append(
-                    f"Pre-period A/A провален для метрики '{aa.metric}' "
+                    f"Pre-period A/A failed for metric '{aa.metric}' "
                     f"({control_name} vs {aa.treatment_group}): p-value={aa.p_value:.4f}"
                 )
 
@@ -626,7 +626,7 @@ class Experiment:
             }
         )
 
-        cb("Сохраняем эксперимент...")
+        cb("Saving experiment...")
         handle = store.create_experiment(final_config, assignments, owner_id=owner_id)
         path = handle.path
 
@@ -723,10 +723,10 @@ class Experiment:
         """
         cb = progress_callback or (lambda _label: None)
         if self.assignments is None:
-            raise DesignError("У эксперимента нет assignments (design() не выполнялся или не загружены)")
+            raise DesignError("This experiment has no assignments (design() was not run, or they were not loaded)")
 
         if date_col and date_col not in data.columns:
-            raise checks.AnalysisError(f"Колонки даты '{date_col}' нет в данных")
+            raise checks.AnalysisError(f"Date column '{date_col}' is not in the data")
 
         global_warnings: list[str] = []
 
@@ -735,44 +735,44 @@ class Experiment:
             if not date_col:
                 n_users_with_dupes = int(data.loc[dup_mask, self.config.unit_col].nunique())
                 raise checks.AnalysisError(
-                    f"В данных обнаружены дубли по '{self.config.unit_col}' "
-                    f"({n_users_with_dupes} юзеров с несколькими строками). Либо "
-                    "агрегируйте данные заранее (одна строка = один юзер), либо "
-                    "укажите колонку даты — программа сама агрегирует по юзеру для "
-                    "основного анализа и использует разбивку по дням для "
-                    "кумулятивного лифта."
+                    f"Found duplicate '{self.config.unit_col}' values in the data "
+                    f"({n_users_with_dupes} users with multiple rows). Either "
+                    "aggregate the data beforehand (one row = one user), or "
+                    "provide a date column — the program will aggregate by user for "
+                    "the main analysis and use the day-by-day breakdown for "
+                    "the cumulative lift."
                 )
             n_users = int(data[self.config.unit_col].nunique())
             n_days = int(data[date_col].nunique())
-            cb("Агрегируем данные по дням...")
+            cb("Aggregating data by day...")
             main_data = aggregate_post_data(
                 data, self.config.unit_col, self.config.metrics, date_col, agg_methods
             )
             global_warnings.append(
-                f"Данные содержат разбивку по дням ({n_users} уникальных юзеров × "
-                f"{n_days} дней). Программа автоматически агрегирует их для "
-                "основного анализа: continuous метрики — сумма, binary — max, "
-                "ratio — sum(num)/sum(den) (если не переопределено для метрики)."
+                f"The data has a day-by-day breakdown ({n_users} unique users × "
+                f"{n_days} days). It is automatically aggregated for "
+                "the main analysis: continuous metrics — sum, binary — max, "
+                "ratio — sum(num)/sum(den) (unless overridden for the metric)."
             )
         else:
             main_data = data
 
-        cb("Джойним с назначениями...")
+        cb("Joining with assignments...")
         merged = checks.join_with_assignments(self.assignments, main_data, self.config.unit_col)
 
-        cb("Проверяем честность (SRM, потери)...")
+        cb("Checking validity (SRM, data loss)...")
         observed_counts = merged["group"].value_counts().to_dict()
         srm_result = checks.check_srm(observed_counts, self.config.groups)
         if not srm_result.passed:
             global_warnings.append(
-                f"SRM на фактических данных: p-value={srm_result.p_value:.2e} < 0.001 — "
-                "результаты анализа недостоверны"
+                f"SRM on the actual data: p-value={srm_result.p_value:.2e} < 0.001 — "
+                "the analysis results are unreliable"
             )
 
         loss_result = checks.check_data_loss(self.assignments, merged["unit_id"])
         if not loss_result.symmetric:
             global_warnings.append(
-                f"Асимметричные потери данных по группам (p-value={loss_result.p_value:.4f}): "
+                f"Asymmetric data loss between groups (p-value={loss_result.p_value:.4f}): "
                 f"{loss_result.missing_rate}"
             )
 
@@ -786,7 +786,7 @@ class Experiment:
 
         n_metrics = len(self.config.metrics)
         for i, metric in enumerate(self.config.metrics, start=1):
-            cb(f"Считаем метрику {i} из {n_metrics}: {metric.name}...")
+            cb(f"Computing metric {i} of {n_metrics}: {metric.name}...")
             designed_steps = resolve_steps(metric, methods, seed=self.config.seed)
             extra_chains = compare_methods_chains(metric, seed=self.config.seed) if compare_methods else []
             raw_values.setdefault(metric.name, {})
@@ -824,7 +824,7 @@ class Experiment:
                         metric, data, control_name, treat_name, date_col, designed_steps, agg_methods
                     )
 
-        cb("Применяем поправку на множественность...")
+        cb("Applying multiple-testing correction...")
         # поправка на множественность раздельно для primary (влияет на вердикт) и
         # secondary/exploratory (только информативно, в вердикт не входит)
         for role in ("primary", "secondary"):

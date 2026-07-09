@@ -15,7 +15,7 @@ from abkit.db.repositories import UserRepo
 
 def test_login_success_sets_cookie_and_returns_user(app_client):
     UserRepo().create(
-        email="editor@co.com", name="Editor", password_hash=hash_password("pw12345"), role="editor"
+        email="editor@co.com", first_name="Editor", password_hash=hash_password("pw12345"), role="editor"
     )
     resp = app_client.post("/api/v1/auth/login", json={"email": "editor@co.com", "password": "pw12345"})
     assert resp.status_code == 200
@@ -27,7 +27,7 @@ def test_login_success_sets_cookie_and_returns_user(app_client):
 
 def test_login_wrong_password_returns_401_unified_error_shape(app_client):
     UserRepo().create(
-        email="viewer@co.com", name="V", password_hash=hash_password("pw12345"), role="viewer"
+        email="viewer@co.com", first_name="V", password_hash=hash_password("pw12345"), role="viewer"
     )
     resp = app_client.post("/api/v1/auth/login", json={"email": "viewer@co.com", "password": "wrong"})
     assert resp.status_code == 401
@@ -44,7 +44,7 @@ def test_me_without_cookie_is_401(app_client):
 
 def test_me_with_valid_session_returns_user(app_client):
     UserRepo().create(
-        email="admin@co.com", name="A", password_hash=hash_password("pw12345"), role="admin"
+        email="admin@co.com", first_name="A", password_hash=hash_password("pw12345"), role="admin"
     )
     app_client.post("/api/v1/auth/login", json={"email": "admin@co.com", "password": "pw12345"})
     resp = app_client.get("/api/v1/auth/me")
@@ -54,7 +54,7 @@ def test_me_with_valid_session_returns_user(app_client):
 
 def test_logout_clears_session(app_client):
     UserRepo().create(
-        email="editor2@co.com", name="E", password_hash=hash_password("pw12345"), role="editor"
+        email="editor2@co.com", first_name="E", password_hash=hash_password("pw12345"), role="editor"
     )
     app_client.post("/api/v1/auth/login", json={"email": "editor2@co.com", "password": "pw12345"})
     resp = app_client.post("/api/v1/auth/logout")
@@ -66,7 +66,7 @@ def test_logout_clears_session(app_client):
 
 def test_change_password_then_old_password_rejected_new_accepted(app_client):
     UserRepo().create(
-        email="pw@co.com", name="P", password_hash=hash_password("oldpass123"), role="editor"
+        email="pw@co.com", first_name="P", password_hash=hash_password("oldpass123"), role="editor"
     )
     app_client.post("/api/v1/auth/login", json={"email": "pw@co.com", "password": "oldpass123"})
     resp = app_client.post(
@@ -84,7 +84,7 @@ def test_change_password_then_old_password_rejected_new_accepted(app_client):
 
 def test_change_password_wrong_old_password_400(app_client):
     UserRepo().create(
-        email="pw2@co.com", name="P2", password_hash=hash_password("realpass123"), role="editor"
+        email="pw2@co.com", first_name="P2", password_hash=hash_password("realpass123"), role="editor"
     )
     app_client.post("/api/v1/auth/login", json={"email": "pw2@co.com", "password": "realpass123"})
     resp = app_client.post(
@@ -97,7 +97,7 @@ def test_change_password_wrong_old_password_400(app_client):
 
 def test_login_locks_out_after_five_failed_attempts(app_client):
     UserRepo().create(
-        email="lockout@co.com", name="L", password_hash=hash_password("realpass123"), role="editor"
+        email="lockout@co.com", first_name="L", password_hash=hash_password("realpass123"), role="editor"
     )
     for _ in range(5):
         resp = app_client.post(
@@ -111,7 +111,7 @@ def test_login_locks_out_after_five_failed_attempts(app_client):
     )
     assert resp.status_code == 401
     assert resp.json()["error"]["code"] == "invalid_credentials"
-    assert "попыток" in resp.json()["error"]["message"]
+    assert "attempts" in resp.json()["error"]["message"]
 
 
 def test_config_reports_self_registration_disabled_by_default(app_client, monkeypatch):
@@ -132,7 +132,7 @@ def test_register_returns_403_when_disabled(app_client, monkeypatch):
     monkeypatch.delenv("ABKIT_ALLOW_SELF_REGISTRATION", raising=False)
     resp = app_client.post(
         "/api/v1/auth/register",
-        json={"email": "new@co.com", "name": "New", "password": "pw123456"},
+        json={"email": "new@co.com", "first_name": "New", "password": "pw123456"},
     )
     assert resp.status_code == 403
     assert resp.json()["error"]["code"] == "registration_disabled"
@@ -142,7 +142,7 @@ def test_register_creates_viewer_without_auto_login(app_client, monkeypatch):
     monkeypatch.setenv("ABKIT_ALLOW_SELF_REGISTRATION", "true")
     resp = app_client.post(
         "/api/v1/auth/register",
-        json={"email": "selfreg@co.com", "name": "Self", "password": "pw123456"},
+        json={"email": "selfreg@co.com", "first_name": "Self", "password": "pw123456"},
     )
     assert resp.status_code == 201
     assert resp.json() == {"ok": True}
@@ -158,11 +158,11 @@ def test_register_creates_viewer_without_auto_login(app_client, monkeypatch):
 def test_register_duplicate_email_returns_409(app_client, monkeypatch):
     monkeypatch.setenv("ABKIT_ALLOW_SELF_REGISTRATION", "true")
     UserRepo().create(
-        email="dup@co.com", name="D", password_hash=hash_password("pw12345"), role="viewer"
+        email="dup@co.com", first_name="D", password_hash=hash_password("pw12345"), role="viewer"
     )
     resp = app_client.post(
         "/api/v1/auth/register",
-        json={"email": "dup@co.com", "name": "Dup", "password": "pw123456"},
+        json={"email": "dup@co.com", "first_name": "Dup", "password": "pw123456"},
     )
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "already_exists"
@@ -171,13 +171,22 @@ def test_register_duplicate_email_returns_409(app_client, monkeypatch):
 def test_openapi_schema_is_served(app_client):
     resp = app_client.get("/api/openapi.json")
     assert resp.status_code == 200
-    assert resp.json()["info"]["title"] == "abkit API"
+    assert resp.json()["info"]["title"] == "ABKit API"
 
 
 def test_health_endpoint_does_not_require_auth(app_client):
     resp = app_client.get("/api/health")
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
+
+
+def test_version_endpoint_reports_product_name_and_version(app_client):
+    from abkit import PRODUCT_NAME, __version__
+
+    resp = app_client.get("/api/v1/version")
+    assert resp.status_code == 200
+    assert resp.json() == {"product_name": PRODUCT_NAME, "version": __version__}
+    assert resp.json()["product_name"] == "ABKit"
 
 
 def test_require_min_role_blocks_below_threshold():

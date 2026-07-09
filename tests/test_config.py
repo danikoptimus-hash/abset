@@ -38,12 +38,12 @@ def test_yaml_roundtrip(tmp_path):
 
 
 def test_groups_must_sum_to_one():
-    with pytest.raises(ValidationError, match="Сумма долей"):
+    with pytest.raises(ValidationError, match="sum of groups"):
         make_config(groups={"control": 0.5, "treatment": 0.6})
 
 
 def test_cannot_specify_both_mde_and_sample_size():
-    with pytest.raises(ValidationError, match="ровно одно"):
+    with pytest.raises(ValidationError, match="exactly one"):
         make_config(mde=0.05, sample_size=1000)
 
 
@@ -54,7 +54,7 @@ def test_neither_mde_nor_sample_size_is_allowed():
 
 
 def test_duplicate_metric_names_rejected():
-    with pytest.raises(ValidationError, match="уникальны"):
+    with pytest.raises(ValidationError, match="unique"):
         make_config(
             metrics=[
                 MetricConfig(name="revenue", type="continuous"),
@@ -64,7 +64,7 @@ def test_duplicate_metric_names_rejected():
 
 
 def test_ratio_metric_requires_num_den():
-    with pytest.raises(ValidationError, match="num и den"):
+    with pytest.raises(ValidationError, match="num and den"):
         MetricConfig(name="conv_rate", type="ratio")
 
 
@@ -75,7 +75,7 @@ def test_ratio_metric_with_num_den_ok():
 
 
 def test_empty_groups_rejected():
-    with pytest.raises(ValidationError, match="groups не может быть пустым"):
+    with pytest.raises(ValidationError, match="groups cannot be empty"):
         make_config(groups={})
 
 

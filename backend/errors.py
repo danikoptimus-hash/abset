@@ -38,7 +38,7 @@ def _auth_error_status(exc: AuthError) -> int:
     """require_login поднимает AuthError с этим ТОЧНЫМ текстом при отсутствии
     сессии — 401 (не аутентифицирован). Любая другая AuthError (недостаточно
     прав / не владелец) — 403 (аутентифицирован, но запрещено)."""
-    return 401 if str(exc) == "Требуется вход в систему" else 403
+    return 401 if str(exc) == "Login required" else 403
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -70,7 +70,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=422,
             content=_error_body(
-                "validation_error", "Некорректные данные запроса", {"errors": exc.errors()}
+                "validation_error", "Invalid request data", {"errors": exc.errors()}
             ),
         )
 
@@ -83,5 +83,5 @@ def register_exception_handlers(app: FastAPI) -> None:
         get_logger("backend.errors").error("unhandled_exception", exc_info=True, path=str(request.url))
         return JSONResponse(
             status_code=500,
-            content=_error_body("internal_error", "Внутренняя ошибка сервера"),
+            content=_error_body("internal_error", "Internal server error"),
         )

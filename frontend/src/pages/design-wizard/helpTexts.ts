@@ -15,58 +15,58 @@ export const DESIGN_SQL_EXAMPLE = `SELECT
     any(platform) as platform,
     any(country) as country,
     any(segment) as segment,
-    -- бинарные pre-period метрики
+    -- binary pre-period metrics
     max(if(event = 'purchase', 1, 0)) as converted_pre_30d,
-    -- continuous pre-period метрики
+    -- continuous pre-period metrics
     sum(if(event = 'purchase', revenue, 0)) as revenue_pre_30d,
     count(distinct session_id) as sessions_pre_30d
 FROM events
 WHERE date >= today() - 30 AND date < today()
 GROUP BY user_id`
 
-export const WHAT_IS_THIS_DATA = `Это snapshot вашей базы пользователей **ПЕРЕД** тестом — те, кого вы потенциально включите в эксперимент.
+export const WHAT_IS_THIS_DATA = `This is a snapshot of your user base **BEFORE** the test — the people you might include in the experiment.
 
-**Формат:** одна строка = один пользователь.
+**Format:** one row = one user.
 
-**Что должно быть в файле:**
-- Колонка с ID пользователя (обязательно, уникальная)
-- Признаки для стратификации: платформа, страна, сегмент, тариф и т.д. (желательно — иначе группы не будут сбалансированы)
-- Pre-period метрики: те же метрики, что будете мерить в тесте, но за период ДО теста (желательно — без них не работает CUPED и точный расчет MDE)`
+**What the file should contain:**
+- A user ID column (required, unique)
+- Attributes for stratification: platform, country, segment, plan, etc. (recommended — without them groups won't be balanced)
+- Pre-period metrics: the same metrics you'll measure in the test, but for the period BEFORE the test (recommended — CUPED and an accurate MDE calculation don't work without them)`
 
-export const EXAMPLE_EXPLANATION = `- **user_id** — уникальный идентификатор (обязательно)
-- **platform, country, segment** — признаки для стратификации (можно любые категориальные, чем больше — тем лучше баланс)
-- **converted_pre_30d** — бинарная pre-period метрика (0/1) для будущего анализа конверсии
-- **revenue_pre_30d** — continuous pre-period метрика для выручки
-- **sessions_pre_30d** — количество сессий, нужно для ratio-метрик вроде revenue/sessions`
+export const EXAMPLE_EXPLANATION = `- **user_id** — unique identifier (required)
+- **platform, country, segment** — attributes for stratification (any categorical columns work, more is better for balance)
+- **converted_pre_30d** — binary pre-period metric (0/1) for the future conversion analysis
+- **revenue_pre_30d** — continuous pre-period metric for revenue
+- **sessions_pre_30d** — number of sessions, needed for ratio metrics like revenue/sessions`
 
-export const SQL_EXPLANATION = `Замените \`event = 'purchase'\` на ваше событие конверсии. Период (30 дней) выбирайте так, чтобы он был осмысленным для вашего продукта — типичное окно принятия решения.`
+export const SQL_EXPLANATION = `Replace \`event = 'purchase'\` with your conversion event. Choose the period (30 days) so it makes sense for your product — a typical decision window.`
 
-export const NO_DATA_EXPLANATION = `Нажмите кнопку **«Демо-данные»**. Программа сгенерирует синтетический датасет на 5000 пользователей с реалистичной структурой (разные платформы, страны, сегменты, pre-period метрики) и проведет вас через весь воркфлоу — от дизайна до отчета анализа. Это лучший способ разобраться, как работает инструмент.`
+export const NO_DATA_EXPLANATION = `Click **"Demo Data"**. The app will generate a synthetic dataset of 5000 users with a realistic structure (different platforms, countries, segments, pre-period metrics) and walk you through the entire workflow — from design to the analysis report. This is the best way to see how the tool works.`
 
 export const SPLIT_METHOD_LABELS: Record<string, string> = {
-  stratified: 'stratified — сплит внутри каждой страты отдельно (лучший баланс групп)',
-  simple: 'simple — случайный сплит без учета страт (largest remainder)',
-  hash: 'hash — детерминированный сплит по sha256(salt + unit_id), не гарантирует баланс страт',
+  stratified: 'stratified — split within each stratum separately (best group balance)',
+  simple: 'simple — random split ignoring strata (largest remainder)',
+  hash: 'hash — deterministic split by sha256(salt + unit_id), does not guarantee stratum balance',
 }
 
 export const ISOLATION_LABELS: Record<string, string> = {
-  exclude: 'exclude — исключить участников всех активных тестов (рекомендуется)',
-  warn: 'warn — показать пересечение и спросить подтверждение',
-  off: 'off — не исключать никого (осознанный риск пересечения)',
-  exclude_selected: 'exclude_selected — исключить участников только выбранных тестов',
+  exclude: 'exclude — exclude participants of all active tests (recommended)',
+  warn: 'warn — show the overlap and ask for confirmation',
+  off: 'off — exclude no one (a deliberate overlap risk)',
+  exclude_selected: 'exclude_selected — exclude participants of only the selected tests',
 }
 
 export const NAN_STRATEGY_LABELS: Record<string, string> = {
-  separate_stratum: "Выделить в отдельную страту 'unknown' (по умолчанию)",
-  drop: 'Удалить юзеров с пропусками',
-  error: 'Считать ошибкой дизайна',
+  separate_stratum: "Put into a separate 'unknown' stratum (default)",
+  drop: 'Remove users with missing values',
+  error: 'Treat as a design error',
 }
 
 export const SIZE_MODE_LABELS: Record<string, string> = {
-  mde_rel: 'Задать целевой относительный MDE',
-  mde_abs: 'Задать целевой абсолютный MDE',
-  sample_size: 'Задать размер выборки',
-  all: 'Использовать все доступные данные',
+  mde_rel: 'Set a target relative MDE',
+  mde_abs: 'Set a target absolute MDE',
+  sample_size: 'Set a sample size',
+  all: 'Use all available data',
 }
 
 export const GROUP_PRESETS: Record<string, Record<string, number>> = {

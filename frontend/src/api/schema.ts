@@ -295,6 +295,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/experiments/{name}/properties": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Properties
+         * @description Edit Properties modal (UX package, like Superset's dashboard Properties)
+         *     — same edit-access gate as saving it, so only owners/access-editors/admin
+         *     can even open the form (matches the "..." menu / hover Edit button being
+         *     shown only to them, FRONTEND.md UX package sections 3 and 5).
+         */
+        get: operations["get_properties_api_v1_experiments__name__properties_get"];
+        /** Put Properties */
+        put: operations["put_properties_api_v1_experiments__name__properties_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/experiments/{name}/blocks": {
         parameters: {
             query?: never;
@@ -550,6 +574,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Users */
+        get: operations["list_users_api_v1_users_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -559,6 +600,27 @@ export interface paths {
         };
         /** Health */
         get: operations["health_api_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/version": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Version Info
+         * @description Settings > About (UX package) — the only public (no-auth) way for
+         *     the frontend to know what to display; not sensitive information.
+         */
+        get: operations["version_info_api_v1_version_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -683,8 +745,13 @@ export interface components {
         CreateUserRequest: {
             /** Email */
             email: string;
-            /** Name */
-            name: string;
+            /** First Name */
+            first_name: string;
+            /**
+             * Last Name
+             * @default
+             */
+            last_name: string;
             /** Role */
             role: string;
             /** Password */
@@ -862,6 +929,8 @@ export interface components {
             owner_email: string | null;
             /** Owner Name */
             owner_name: string | null;
+            /** Can Edit */
+            can_edit: boolean;
             /** Config */
             config: {
                 [key: string]: unknown;
@@ -886,6 +955,18 @@ export interface components {
             /** Files */
             files: components["schemas"]["FileInfo"][];
         };
+        /** ExperimentPropertiesOut */
+        ExperimentPropertiesOut: {
+            /** Name */
+            name: string;
+            owner: components["schemas"]["UserBrief"] | null;
+            /** Owners */
+            owners: components["schemas"]["UserBrief"][];
+            /** Editors */
+            editors: components["schemas"]["UserBrief"][];
+            /** Visible Roles */
+            visible_roles: string[] | null;
+        };
         /** ExperimentSummary */
         ExperimentSummary: {
             /** Name */
@@ -894,8 +975,16 @@ export interface components {
             status: string;
             /** Publication Status */
             publication_status: string;
+            /** Owner Id */
+            owner_id: string | null;
             /** Owner Email */
             owner_email: string | null;
+            /** Owner First Name */
+            owner_first_name: string | null;
+            /** Owner Last Name */
+            owner_last_name: string | null;
+            /** Can Edit */
+            can_edit: boolean;
             /**
              * Created At
              * Format: date-time
@@ -1056,8 +1145,10 @@ export interface components {
         };
         /** PatchUserRequest */
         PatchUserRequest: {
-            /** Name */
-            name?: string | null;
+            /** First Name */
+            first_name?: string | null;
+            /** Last Name */
+            last_name?: string | null;
             /** Role */
             role?: string | null;
             /** Is Active */
@@ -1067,8 +1158,13 @@ export interface components {
         RegisterRequest: {
             /** Email */
             email: string;
-            /** Name */
-            name: string;
+            /** First Name */
+            first_name: string;
+            /**
+             * Last Name
+             * @default
+             */
+            last_name: string;
             /** Password */
             password: string;
         };
@@ -1091,14 +1187,33 @@ export interface components {
             /** To */
             to: string;
         };
+        /** UpdateExperimentPropertiesRequest */
+        UpdateExperimentPropertiesRequest: {
+            /** Name */
+            name: string;
+            /**
+             * Owner Ids
+             * @default []
+             */
+            owner_ids: string[];
+            /**
+             * Editor Ids
+             * @default []
+             */
+            editor_ids: string[];
+            /** Visible Roles */
+            visible_roles?: string[] | null;
+        };
         /** UserAdminOut */
         UserAdminOut: {
             /** Id */
             id: string;
             /** Email */
             email: string;
-            /** Name */
-            name: string;
+            /** First Name */
+            first_name: string;
+            /** Last Name */
+            last_name: string;
             /** Role */
             role: string;
             /** Is Active */
@@ -1112,6 +1227,23 @@ export interface components {
             created_at: string;
             /** Last Login At */
             last_login_at: string | null;
+        };
+        /**
+         * UserBrief
+         * @description Lightweight user shape for pickers (Properties modal Owners/Editors
+         *     multiselects) — not the full admin-only UserAdminOut.
+         */
+        UserBrief: {
+            /** Id */
+            id: string;
+            /** Email */
+            email: string;
+            /** First Name */
+            first_name: string;
+            /** Last Name */
+            last_name: string;
+            /** Role */
+            role: string;
         };
         /** UserOut */
         UserOut: {
@@ -1770,6 +1902,76 @@ export interface operations {
             };
         };
     };
+    get_properties_api_v1_experiments__name__properties_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperimentPropertiesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_properties_api_v1_experiments__name__properties_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateExperimentPropertiesRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperimentPropertiesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_blocks_api_v1_experiments__name__blocks_get: {
         parameters: {
             query?: never;
@@ -2364,6 +2566,37 @@ export interface operations {
             };
         };
     };
+    list_users_api_v1_users_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserBrief"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     health_api_health_get: {
         parameters: {
             query?: never;
@@ -2381,6 +2614,28 @@ export interface operations {
                 content: {
                     "application/json": {
                         [key: string]: boolean;
+                    };
+                };
+            };
+        };
+    };
+    version_info_api_v1_version_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
                     };
                 };
             };

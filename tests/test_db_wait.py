@@ -13,5 +13,5 @@ def test_wait_for_postgres_succeeds_immediately_when_available(db_url, monkeypat
 
 def test_wait_for_postgres_times_out_on_unreachable_host(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://x:y@localhost:1/nope")
-    with pytest.raises(TimeoutError, match="недоступен"):
+    with pytest.raises(TimeoutError, match="unavailable"):
         wait_for_postgres(timeout_seconds=2, poll_interval=0.3)

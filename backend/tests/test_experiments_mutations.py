@@ -8,7 +8,7 @@ from abkit.db.repositories import ExperimentRepo, UserRepo
 
 
 def _login(app_client, email="editor@co.com", role="editor"):
-    user_id = UserRepo().create(email=email, name="E", password_hash=hash_password("pw12345"), role=role)
+    user_id = UserRepo().create(email=email, first_name="E", password_hash=hash_password("pw12345"), role=role)
     app_client.post("/api/v1/auth/login", json={"email": email, "password": "pw12345"})
     return user_id
 
@@ -31,7 +31,7 @@ def test_change_status_owner_can_change_own(app_client):
 
 def test_change_status_forbidden_for_non_owner_editor(app_client):
     other_owner = UserRepo().create(
-        email="owner_status@co.com", name="O", password_hash=hash_password("pw12345"), role="editor"
+        email="owner_status@co.com", first_name="O", password_hash=hash_password("pw12345"), role="editor"
     )
     _make_experiment("status_exp2", owner_id=other_owner)
 
@@ -84,7 +84,7 @@ def test_patch_rename_conflict_409(app_client):
 
 def test_patch_forbidden_for_non_owner(app_client):
     other_owner = UserRepo().create(
-        email="owner_patch@co.com", name="O", password_hash=hash_password("pw12345"), role="editor"
+        email="owner_patch@co.com", first_name="O", password_hash=hash_password("pw12345"), role="editor"
     )
     _make_experiment("patch_forbidden_exp", owner_id=other_owner)
 
@@ -114,7 +114,7 @@ def test_delete_requires_exact_confirm_text(app_client):
 
 def test_delete_forbidden_for_non_owner(app_client):
     other_owner = UserRepo().create(
-        email="owner_del@co.com", name="O", password_hash=hash_password("pw12345"), role="editor"
+        email="owner_del@co.com", first_name="O", password_hash=hash_password("pw12345"), role="editor"
     )
     _make_experiment("del_exp2", owner_id=other_owner)
 
@@ -164,7 +164,7 @@ def test_blocks_put_updates_and_adds_custom(app_client):
 
 def test_blocks_put_forbidden_for_non_owner(app_client):
     other_owner = UserRepo().create(
-        email="owner_blocks@co.com", name="O", password_hash=hash_password("pw12345"), role="editor"
+        email="owner_blocks@co.com", first_name="O", password_hash=hash_password("pw12345"), role="editor"
     )
     _make_experiment("blocks_forbidden_exp", owner_id=other_owner)
 
@@ -197,7 +197,7 @@ def test_deletion_summary_returns_real_counts(app_client):
 
 def test_deletion_summary_forbidden_for_non_owner(app_client):
     other_owner = UserRepo().create(
-        email="owner_delsum@co.com", name="O", password_hash=hash_password("pw12345"), role="editor"
+        email="owner_delsum@co.com", first_name="O", password_hash=hash_password("pw12345"), role="editor"
     )
     _make_experiment("delsum_exp", owner_id=other_owner)
 

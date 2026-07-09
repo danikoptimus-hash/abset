@@ -8,7 +8,8 @@ from pydantic import BaseModel
 class UserAdminOut(BaseModel):
     id: str
     email: str
-    name: str
+    first_name: str
+    last_name: str
     role: str
     is_active: bool
     must_change_password: bool
@@ -18,7 +19,8 @@ class UserAdminOut(BaseModel):
 
 class CreateUserRequest(BaseModel):
     email: str
-    name: str
+    first_name: str
+    last_name: str = ""
     role: str
     password: str | None = None
 
@@ -29,7 +31,8 @@ class CreateUserResponse(BaseModel):
 
 
 class PatchUserRequest(BaseModel):
-    name: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
     role: str | None = None
     is_active: bool | None = None
 

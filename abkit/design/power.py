@@ -43,9 +43,9 @@ def sample_size_continuous(
     ratio = n_treatment / n_control.
     """
     if mde_abs <= 0:
-        raise ValueError("mde_abs должен быть положительным")
+        raise ValueError("mde_abs must be positive")
     if std < 0:
-        raise ValueError("std не может быть отрицательным")
+        raise ValueError("std cannot be negative")
     z_alpha, z_power = _z_scores(alpha, power)
     return (1 + 1 / ratio) * std**2 * (z_alpha + z_power) ** 2 / mde_abs**2
 
@@ -55,7 +55,7 @@ def mde_continuous(
 ) -> float:
     """Достижимый абсолютный MDE при заданном размере контрольной группы."""
     if n_control <= 0:
-        raise ValueError("n_control должен быть положительным")
+        raise ValueError("n_control must be positive")
     z_alpha, z_power = _z_scores(alpha, power)
     return (z_alpha + z_power) * std * np.sqrt((1 + 1 / ratio) / n_control)
 
@@ -68,7 +68,7 @@ def power_given_n_continuous(
     Замкнутая форма — обращение sample_size_continuous относительно power.
     """
     if n_control <= 0:
-        raise ValueError("n_control должен быть положительным")
+        raise ValueError("n_control must be positive")
     z_alpha, _ = _z_scores(alpha, 0.5)
     z_power = np.sqrt(n_control * mde_abs**2 / ((1 + 1 / ratio) * std**2)) - z_alpha
     return float(sp_stats.norm.cdf(z_power))
@@ -86,9 +86,9 @@ def sample_size_binary(
     ratio = n_treatment / n_control.
     """
     if not (0 < p_control < 1) or not (0 < p_treat < 1):
-        raise ValueError("Пропорции должны быть в интервале (0, 1)")
+        raise ValueError("Proportions must be in the interval (0, 1)")
     if p_control == p_treat:
-        raise ValueError("p_control и p_treat не могут совпадать")
+        raise ValueError("p_control and p_treat cannot be equal")
     z_alpha, z_power = _z_scores(alpha, power)
     p_pooled = (p_control + ratio * p_treat) / (1 + ratio)
     std_null = np.sqrt(p_pooled * (1 - p_pooled) * (1 + 1 / ratio))
@@ -109,9 +109,9 @@ def mde_binary(
     обращения нет.
     """
     if not 0 < p_control < 1:
-        raise ValueError("p_control должен быть в интервале (0, 1)")
+        raise ValueError("p_control must be in the interval (0, 1)")
     if n_control <= 0:
-        raise ValueError("n_control должен быть положительным")
+        raise ValueError("n_control must be positive")
 
     def f(delta: float) -> float:
         return (
@@ -136,9 +136,9 @@ def power_given_n_binary(
     Замкнутая форма — обращение sample_size_binary относительно power.
     """
     if not (0 < p_control < 1) or not (0 < p_treat < 1):
-        raise ValueError("Пропорции должны быть в интервале (0, 1)")
+        raise ValueError("Proportions must be in the interval (0, 1)")
     if n_control <= 0:
-        raise ValueError("n_control должен быть положительным")
+        raise ValueError("n_control must be positive")
     z_alpha, _ = _z_scores(alpha, 0.5)
     p_pooled = (p_control + ratio * p_treat) / (1 + ratio)
     std_null = np.sqrt(p_pooled * (1 - p_pooled) * (1 + 1 / ratio))
@@ -154,10 +154,10 @@ def delta_method_variance(num: pd.Series, den: pd.Series) -> tuple[float, float]
     continuous-метрику в формулах sample_size_continuous/mde_continuous.
     """
     if len(num) < 2:
-        raise ValueError("Нужно минимум 2 наблюдения для оценки дисперсии")
+        raise ValueError("At least 2 observations are needed to estimate variance")
     num_mean, den_mean = float(num.mean()), float(den.mean())
     if den_mean == 0:
-        raise ValueError("Среднее знаменателя не может быть нулевым")
+        raise ValueError("The denominator mean cannot be zero")
     var_num = float(num.var(ddof=1))
     var_den = float(den.var(ddof=1))
     cov = float(np.cov(num, den, ddof=1)[0, 1])

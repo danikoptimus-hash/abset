@@ -21,7 +21,7 @@ export function Step4Review({ state }: Props) {
   const pollJob = async (jobId: string): Promise<void> => {
     for (;;) {
       const { data } = await apiClient.GET('/api/v1/jobs/{job_id}', { params: { path: { job_id: jobId } } })
-      if (!data) throw new Error('Не удалось получить статус задачи')
+      if (!data) throw new Error('Failed to get job status')
       setStage(data.progress?.stage ?? null)
       if (data.status === 'completed') {
         const experimentName = (data.result as { experiment_name?: string } | null)?.experiment_name
@@ -32,7 +32,7 @@ export function Step4Review({ state }: Props) {
       }
       if (data.status === 'failed') {
         setPhase('failed')
-        setError(data.error ?? 'Дизайн завершился с ошибкой')
+        setError(data.error ?? 'Design failed')
         return
       }
       if (data.status === 'requires_confirmation') {
@@ -54,7 +54,7 @@ export function Step4Review({ state }: Props) {
       if (state.sizeMode === 'mde_abs') {
         const mdeAbsMetric = state.metrics.find((m) => m.id === state.mdeAbsMetricId)
         if (!mdeAbsMetric) {
-          throw new Error('Выберите метрику для абсолютного MDE на предыдущем шаге')
+          throw new Error('Select a metric for the absolute MDE on the previous step')
         }
         const { data: baselineData } = await apiClient.POST('/api/v1/datasets/{dataset_id}/metric-baseline', {
           params: { path: { dataset_id: state.datasetId } },
@@ -68,7 +68,7 @@ export function Step4Review({ state }: Props) {
         })
         const baseline = baselineData?.baseline_mean
         if (!baseline) {
-          throw new Error('Не удалось определить baseline для абсолютного MDE')
+          throw new Error('Could not determine the baseline for the absolute MDE')
         }
         config.mde = state.mdeAbsValue / baseline
         config.mde_abs_input = state.mdeAbsValue
@@ -82,41 +82,41 @@ export function Step4Review({ state }: Props) {
       await pollJob(data.job_id)
     } catch (e) {
       setPhase('failed')
-      setError(e instanceof Error ? e.message : 'Не удалось запустить дизайн')
+      setError(e instanceof Error ? e.message : 'Failed to start the design')
     }
   }
 
   return (
     <div>
-      <Typography.Title level={5}>Сводка</Typography.Title>
+      <Typography.Title level={5}>Summary</Typography.Title>
       <Descriptions bordered column={1} size="small" style={{ marginBottom: 24 }}>
-        <Descriptions.Item label="Название">{state.name || '—'}</Descriptions.Item>
-        <Descriptions.Item label="Колонка юнита">{state.unitCol || '—'}</Descriptions.Item>
-        <Descriptions.Item label="Группы">
+        <Descriptions.Item label="Name">{state.name || '—'}</Descriptions.Item>
+        <Descriptions.Item label="Unit Column">{state.unitCol || '—'}</Descriptions.Item>
+        <Descriptions.Item label="Groups">
           {Object.entries(groupsToApi(state))
             .map(([name, prop]) => `${name}: ${(prop * 100).toFixed(0)}%`)
             .join(', ')}
         </Descriptions.Item>
-        <Descriptions.Item label="Метрики">
+        <Descriptions.Item label="Metrics">
           {metricsToApi(state)
             .map((m) => `${m.name} (${m.type})`)
             .join(', ')}
         </Descriptions.Item>
-        <Descriptions.Item label="Страты">{state.strata.join(', ') || '—'}</Descriptions.Item>
-        <Descriptions.Item label="Метод сплита">{state.splitMethod}</Descriptions.Item>
-        <Descriptions.Item label="Изоляция">{state.isolation}</Descriptions.Item>
+        <Descriptions.Item label="Strata">{state.strata.join(', ') || '—'}</Descriptions.Item>
+        <Descriptions.Item label="Split Method">{state.splitMethod}</Descriptions.Item>
+        <Descriptions.Item label="Isolation">{state.isolation}</Descriptions.Item>
       </Descriptions>
 
       {phase === 'idle' && (
         <Button type="primary" size="large" onClick={() => submit(false)}>
-          Спроектировать
+          Design
         </Button>
       )}
 
       {phase === 'running' && (
         <div>
           <Progress percent={undefined} status="active" showInfo={false} />
-          <Typography.Text>{stage ?? 'Запускаем...'}</Typography.Text>
+          <Typography.Text>{stage ?? 'Starting...'}</Typography.Text>
         </div>
       )}
 
@@ -124,11 +124,11 @@ export function Step4Review({ state }: Props) {
         <Alert
           type="warning"
           showIcon
-          message="Обнаружено пересечение с другими активными экспериментами"
+          message="Overlap detected with other active experiments"
           description={
             <div>
               <Typography.Paragraph>
-                Всего пересекающихся юнитов: <b>{confirmation.overlap}</b>
+                Total overlapping units: <b>{confirmation.overlap}</b>
               </Typography.Paragraph>
               <Space direction="vertical" style={{ marginBottom: 12 }}>
                 {Object.entries(confirmation.by_experiment).map(([name, n]) => (
@@ -139,7 +139,7 @@ export function Step4Review({ state }: Props) {
               </Space>
               <br />
               <Button type="primary" onClick={() => submit(true)}>
-                Продолжить несмотря на пересечение
+                Continue despite the overlap
               </Button>
             </div>
           }
@@ -149,7 +149,7 @@ export function Step4Review({ state }: Props) {
       {phase === 'failed' && error && (
         <div>
           <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} />
-          <Button onClick={() => submit(false)}>Повторить</Button>
+          <Button onClick={() => submit(false)}>Retry</Button>
         </div>
       )}
     </div>

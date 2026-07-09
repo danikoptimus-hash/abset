@@ -10,7 +10,7 @@ from abkit.db.repositories import UserRepo
 
 
 def _login(app_client, email="editor@co.com", role="editor"):
-    UserRepo().create(email=email, name="E", password_hash=hash_password("pw12345"), role=role)
+    UserRepo().create(email=email, first_name="E", password_hash=hash_password("pw12345"), role=role)
     app_client.post("/api/v1/auth/login", json={"email": email, "password": "pw12345"})
 
 
@@ -126,6 +126,31 @@ def test_analyze_requires_editor_role(app_client, tmp_path, monkeypatch):
         "/api/v1/experiments/analyze_perm_exp/analyze", json={"dataset_id": dataset_id},
     )
     assert resp.status_code == 403
+
+
+def test_analyze_blocked_on_experiment_editor_cannot_see(app_client, tmp_path, monkeypatch):
+    """UX package (see CLAUDE.md 'Permissions model'): Analyze/Validate stay
+    open to any editor+ role (test_run_analyze_editor_allowed_on_others_experiment
+    in tests/test_jobs_permission_matrix.py), but ONLY for an experiment the
+    editor can actually see — a draft experiment they don't own and have no
+    experiment_access grant on is invisible (404), so it's also unreachable
+    via analyze, same as it's unreachable via GET /experiments/{name}."""
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client, email="owner3@co.com", role="editor")
+    _design_experiment(app_client, "analyze_invisible_exp")  # publication_status="draft" by default
+    dataset_id = _upload_csv(
+        app_client, _post_csv(), kind="post_analysis", experiment_name="analyze_invisible_exp"
+    )
+    app_client.post("/api/v1/auth/logout")
+
+    _login(app_client, email="outsider_editor@co.com", role="editor")
+    list_resp = app_client.get("/api/v1/experiments")
+    assert list_resp.json()["total"] == 0
+
+    resp = app_client.post(
+        "/api/v1/experiments/analyze_invisible_exp/analyze", json={"dataset_id": dataset_id},
+    )
+    assert resp.status_code == 404
 
 
 def test_validate_runs_aa_and_ab(app_client, tmp_path, monkeypatch):

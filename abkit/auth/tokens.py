@@ -23,9 +23,9 @@ def get_secret_key() -> str:
     secret = os.environ.get("ABKIT_SECRET_KEY")
     if not secret or secret.startswith(_DEFAULT_SECRET_PREFIX):
         raise TokenError(
-            "ABKIT_SECRET_KEY не задан или использует дефолтное значение "
-            "'change-me...' — обязателен для серверного режима (см. .env.example, "
-            "генерировать: openssl rand -hex 32)"
+            "ABKIT_SECRET_KEY is not set or uses the default "
+            "'change-me...' value — required for server mode (see .env.example, "
+            "generate with: openssl rand -hex 32)"
         )
     return secret
 
@@ -55,6 +55,6 @@ def verify_session_token(token: str, secret_key: str | None = None) -> dict[str,
     try:
         return jwt.decode(token, secret, algorithms=[_ALGORITHM])
     except jwt.ExpiredSignatureError as e:
-        raise TokenError("Сессия истекла, войдите заново") from e
+        raise TokenError("Session expired, please log in again") from e
     except jwt.InvalidTokenError as e:
-        raise TokenError("Невалидный токен сессии") from e
+        raise TokenError("Invalid session token") from e

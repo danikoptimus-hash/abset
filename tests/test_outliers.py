@@ -81,7 +81,7 @@ def test_log1p_transforms_values():
 
 def test_log1p_rejects_negative_values():
     ctx = make_ctx([-1.0, 2.0], ["control", "treatment"])
-    with pytest.raises(ValueError, match="неотрицательных"):
+    with pytest.raises(ValueError, match="non-negative"):
         Log1p().apply(ctx)
 
 

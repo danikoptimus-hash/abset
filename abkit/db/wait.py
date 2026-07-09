@@ -27,7 +27,7 @@ def wait_for_postgres(timeout_seconds: int = 60, poll_interval: float = 1.0) -> 
         except Exception as e:  # noqa: BLE001 — любая ошибка подключения = "еще не готов"
             last_error = e
             time.sleep(poll_interval)
-    raise TimeoutError(f"Postgres недоступен через {timeout_seconds}с: {last_error}")
+    raise TimeoutError(f"Postgres unavailable after {timeout_seconds}s: {last_error}")
 
 
 if __name__ == "__main__":
@@ -37,4 +37,4 @@ if __name__ == "__main__":
     except TimeoutError as e:
         print(str(e), file=sys.stderr)
         sys.exit(1)
-    print("Postgres доступен.")
+    print("Postgres is available.")

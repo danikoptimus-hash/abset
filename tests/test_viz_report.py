@@ -126,8 +126,8 @@ def test_analysis_report_shows_p99_clip_caption_for_continuous_metric(tmp_path):
     html = report_path.read_text(encoding="utf-8")
 
     assert "clip-caption" in html
-    assert "99-м перцентилем" in html
-    assert "последний столбец" in html
+    assert "99th percentile" in html
+    assert "last bin" in html
 
 
 def test_analysis_report_opens_offline_plotly_inline(tmp_path):
@@ -152,7 +152,7 @@ def test_analysis_report_shows_cumulative_lift_when_date_col_given(tmp_path):
 
     results = experiment.analyze(post_data, date_col="event_date")
     html = results.report().read_text(encoding="utf-8")
-    assert "Колонка даты не передана" not in html
+    assert "No date column was passed" not in html
 
 
 def test_analysis_report_placeholder_when_no_date_col(tmp_path):
@@ -162,7 +162,7 @@ def test_analysis_report_placeholder_when_no_date_col(tmp_path):
 
     results = experiment.analyze(post_data)
     html = results.report().read_text(encoding="utf-8")
-    assert "Колонка даты не передана" in html
+    assert "No date column was passed" in html
 
 
 def test_analysis_report_shows_segments_when_strata_present(tmp_path):
@@ -172,7 +172,7 @@ def test_analysis_report_shows_segments_when_strata_present(tmp_path):
 
     results = experiment.analyze(post_data)
     html = results.report().read_text(encoding="utf-8")
-    assert "Недостаточно страт" not in html
+    assert "Not enough strata" not in html
 
 
 def test_analysis_report_placeholder_when_no_strata(tmp_path):
@@ -182,7 +182,7 @@ def test_analysis_report_placeholder_when_no_strata(tmp_path):
 
     results = experiment.analyze(post_data)
     html = results.report().read_text(encoding="utf-8")
-    assert "Недостаточно страт" in html
+    assert "Not enough strata" in html
 
 
 def test_analysis_report_has_help_expanders_for_all_chart_types(tmp_path):
@@ -198,26 +198,26 @@ def test_analysis_report_has_help_expanders_for_all_chart_types(tmp_path):
 
     assert html.count("<details>") == html.count("</details>")
     assert html.count("<details>") > 0
-    assert "❓ Как читать этот график?" in html
-    assert "❓ Как читать эту таблицу?" in html
+    assert "❓ How do I read this chart?" in html
+    assert "❓ How do I read this table?" in html
     # текст помощи для binary-метрики (bar chart) должен быть про Wilson-ДИ, а не про гистограмму
     assert "Wilson score interval" in html
-    assert "post-hoc диагностики" in html  # предупреждение про peeking над cumulative
-    assert "Сегментные разрезы" in html  # предупреждение над segment-графиками
+    assert "post-hoc diagnostics" in html  # предупреждение про peeking над cumulative
+    assert "Segment breakdowns" in html  # предупреждение над segment-графиками
 
 
 def test_design_report_has_mde_table_help_expander(tmp_path):
     experiment = _demo_design(tmp_path)
     html = (experiment.path / "design_report.html").read_text(encoding="utf-8")
     assert html.count("<details>") == html.count("</details>")
-    assert "❓ Как читать эту таблицу?" in html
+    assert "❓ How do I read this table?" in html
 
 
 def test_report_raises_without_context_when_constructed_directly():
     from abkit.analysis.results import AnalysisResults
 
     results = AnalysisResults([])
-    with pytest.raises(RuntimeError, match="не привязан"):
+    with pytest.raises(RuntimeError, match="is not attached"):
         results.report()
 
 

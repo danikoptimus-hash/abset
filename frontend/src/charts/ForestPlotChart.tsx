@@ -47,7 +47,7 @@ export function ForestPlotChart({ rows, title }: { rows: ForestRow[]; title?: st
     grid: { left: 220, right: 40, top: title ? 48 : 20, bottom: 32 },
     xAxis: {
       type: 'value',
-      name: 'Эффект, %',
+      name: 'Effect, %',
       axisLine: { lineStyle: { color: chartColors.axisLine } },
       splitLine: { lineStyle: { color: chartColors.grid } },
     },

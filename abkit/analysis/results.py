@@ -59,7 +59,7 @@ class AnalysisResults:
 
     def _designed_results(self, metric: str, treatment_group: str | None = None) -> list[TestResult]:
         if metric not in self._by_metric:
-            raise KeyError(f"Нет результатов для метрики '{metric}'")
+            raise KeyError(f"No results for metric '{metric}'")
         candidates = [r for r in self._by_metric[metric] if r.is_designed_method]
         if treatment_group is not None:
             candidates = [r for r in candidates if r.treatment_group == treatment_group]
@@ -72,11 +72,11 @@ class AnalysisResults:
         """
         candidates = self._designed_results(metric, treatment_group)
         if not candidates:
-            raise KeyError(f"Нет designed-результата для метрики '{metric}'")
+            raise KeyError(f"No designed result for metric '{metric}'")
         if len(candidates) > 1:
             raise ValueError(
-                f"Для метрики '{metric}' несколько treatment-групп: "
-                f"{[r.treatment_group for r in candidates]}. Укажите treatment_group явно."
+                f"Metric '{metric}' has several treatment groups: "
+                f"{[r.treatment_group for r in candidates]}. Specify treatment_group explicitly."
             )
         r = candidates[0]
         p = r.p_value_adjusted if r.p_value_adjusted is not None else r.p_value
@@ -121,8 +121,8 @@ class AnalysisResults:
         """
         if self._context is None:
             raise RuntimeError(
-                "AnalysisResults не привязан к эксперименту (нет контекста для отчета); "
-                "используйте Experiment.analyze(), а не создавайте AnalysisResults напрямую"
+                "AnalysisResults is not attached to an experiment (no context for the report); "
+                "use Experiment.analyze() rather than constructing AnalysisResults directly"
             )
         from abkit.viz.report import render_analysis_report  # локальный импорт: избегаем цикла
 
@@ -149,12 +149,12 @@ class AnalysisResults:
     def summary(self) -> None:
         """Печатает консольную таблицу результатов (rich)."""
         console = Console(legacy_windows=False)
-        table = Table(title="Результаты анализа")
-        table.add_column("Метрика")
-        table.add_column("Группа")
-        table.add_column("Метод")
-        table.add_column("Эффект (абс)")
-        table.add_column("Эффект (отн, %)")
+        table = Table(title="Analysis results")
+        table.add_column("Metric")
+        table.add_column("Group")
+        table.add_column("Method")
+        table.add_column("Effect (abs)")
+        table.add_column("Effect (rel, %)")
         table.add_column("p-value")
         table.add_column("p-adj")
         table.add_column("Designed")
@@ -167,11 +167,11 @@ class AnalysisResults:
                 f"{r.effect_rel * 100:.2f}%" if r.effect_rel == r.effect_rel else "n/a",
                 f"{r.p_value:.4g}",
                 f"{r.p_value_adjusted:.4g}" if r.p_value_adjusted is not None else "-",
-                "да" if r.is_designed_method else "нет",
+                "yes" if r.is_designed_method else "no",
             )
         console.print(table)
         if self.global_warnings:
-            console.print("[yellow]Предупреждения:[/yellow]")
+            console.print("[yellow]Warnings:[/yellow]")
             for w in self.global_warnings:
                 console.print(f"  - {w}")
 
@@ -200,7 +200,7 @@ class AnalysisResults:
                 elif "PostStratification" in r.method:
                     technique = "PostStrat"
                 else:
-                    technique = "да"
+                    technique = "yes"
                 variance_reduction_label = f"{technique} ({r.variance_reduction:.1%})"
 
             rows.append(
@@ -226,28 +226,30 @@ class AnalysisResults:
         return rows
 
     def detailed_display_rows(self, control_name: str, alpha: float = 0.05) -> list[dict[str, Any]]:
-        """Как detailed_rows(), но с готовыми к показу русскими заголовками
-        колонок и отформатированными значениями — единый источник для React-UI
-        (backend/chart_data.py), HTML-отчета (report.py) и CSV-выгрузки (report())."""
+        """Как detailed_rows(), но с готовыми к показу заголовками колонок и
+        отформатированными значениями — единый источник для HTML-отчета
+        (report.py) и CSV-выгрузки (report()). React-UI использует свою копию
+        (frontend/src/pages/experiment/DetailedResultsTable.tsx) — держит
+        английские заголовки в синхроне с этими вручную."""
         rows = self.detailed_rows(control_name, alpha=alpha)
         return [
             {
-                "Метрика": row["metric"],
-                "Группа сравнения": row["group"],
-                "Метод": row["method"],
+                "Metric": row["metric"],
+                "Comparison group": row["group"],
+                "Method": row["method"],
                 "Designed": "✓" if row["designed"] else "",
-                "Эффект (абс)": row["effect_abs"],
-                "Эффект (отн, %)": (
+                "Effect (abs)": row["effect_abs"],
+                "Effect (rel, %)": (
                     row["effect_rel"] * 100 if row["effect_rel"] == row["effect_rel"] else None
                 ),
-                "95% ДИ (отн.)": f"[{row['ci_rel_lo'] * 100:.2f}%, {row['ci_rel_hi'] * 100:.2f}%]",
+                "95% CI (rel.)": f"[{row['ci_rel_lo'] * 100:.2f}%, {row['ci_rel_hi'] * 100:.2f}%]",
                 "p-value": row["p_value"],
                 "p-adj": row["p_value_adjusted"],
-                "Коррекция": row["correction_method"],
+                "Correction": row["correction_method"],
                 "n (control)": row["n_control"],
                 "n (test)": row["n_test"],
-                "Снижение дисперсии": row["variance_reduction"],
-                "Вердикт": row["verdict"],
+                "Variance reduction": row["variance_reduction"],
+                "Verdict": row["verdict"],
             }
             for row in rows
         ]

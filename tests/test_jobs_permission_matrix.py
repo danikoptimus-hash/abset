@@ -31,10 +31,10 @@ def users(db_env):
     from abkit.db.repositories import UserRepo
 
     repo = UserRepo()
-    viewer_id = repo.create(email="viewer@co.com", name="V", password_hash="h", role="viewer")
-    editor_id = repo.create(email="editor@co.com", name="E", password_hash="h", role="editor")
-    other_editor_id = repo.create(email="editor2@co.com", name="E2", password_hash="h", role="editor")
-    admin_id = repo.create(email="admin@co.com", name="A", password_hash="h", role="admin")
+    viewer_id = repo.create(email="viewer@co.com", first_name="V", password_hash="h", role="viewer")
+    editor_id = repo.create(email="editor@co.com", first_name="E", password_hash="h", role="editor")
+    other_editor_id = repo.create(email="editor2@co.com", first_name="E2", password_hash="h", role="editor")
+    admin_id = repo.create(email="admin@co.com", first_name="A", password_hash="h", role="admin")
     return {
         "viewer": CurrentUser(id=str(viewer_id), email="viewer@co.com", name="V", role="viewer"),
         "editor": CurrentUser(id=str(editor_id), email="editor@co.com", name="E", role="editor"),
@@ -119,7 +119,19 @@ def test_run_analyze_viewer_blocked(users):
 
 
 def test_run_analyze_editor_allowed_on_others_experiment(users):
-    """Analyze/Validate доступны Editor'у на ЛЮБОМ эксперименте — не только своем."""
+    """Analyze/Validate доступны Editor'у на ЛЮБОМ эксперименте — не только
+    своем. Деликатное решение, зафиксированное явно при добавлении experiment_
+    access/visible_roles (UX-пакет, CLAUDE.md раздел "Permissions model"):
+    этот тест вызывает jobs.run_analyze() напрямую, минуя HTTP-уровень, где
+    и живет единственное реальное ограничение — видимость эксперимента
+    (abkit/access.py::can_view_experiment, применяется в backend/routers/
+    experiments.py перед постановкой analyze/validate в очередь). Если
+    редактор ВИДИТ эксперимент — jobs.run_analyze/run_validate_aa/
+    run_validate_ab остаются доступны ЛЮБОМУ editor+, без ограничения по
+    owner_id/experiment_access — намеренно НЕ через require_experiment_edit_
+    access (см. backend/tests/test_analyze_validate_jobs.py::
+    test_analyze_blocked_on_experiment_editor_cannot_see для теста на саму
+    видимость)."""
     data = _design_data(seed=5)
     experiment = jobs.run_design(users["admin"], _config("jobs_analyze_others", len(data)), data)
     post_data = pd.DataFrame(
@@ -158,7 +170,7 @@ def test_run_update_status_editor_own_experiment_ok(users):
 def test_run_update_status_editor_others_experiment_blocked(users):
     data = _design_data(seed=9)
     jobs.run_design(users["editor"], _config("jobs_status_others", len(data)), data)
-    with pytest.raises(AuthError, match="только свои"):
+    with pytest.raises(AuthError, match="only edit your own"):
         jobs.run_update_status(users["other_editor"], "jobs_status_others", "running")
 
 
@@ -199,7 +211,7 @@ def test_run_delete_experiment_owner_editor_allowed(users):
 def test_run_delete_experiment_non_owner_editor_blocked(users):
     data = _design_data(seed=14)
     jobs.run_design(users["editor"], _config("jobs_delete_others", len(data)), data)
-    with pytest.raises(AuthError, match="только свои"):
+    with pytest.raises(AuthError, match="only edit your own"):
         jobs.run_delete_experiment(users["other_editor"], "jobs_delete_others")
 
     from abkit.db.repositories import ExperimentRepo
@@ -230,7 +242,7 @@ def test_get_experiment_deletion_summary_counts_assignments(users):
 def test_get_experiment_deletion_summary_non_owner_editor_blocked(users):
     data = _design_data(seed=16)
     jobs.run_design(users["editor"], _config("jobs_delete_summary_others", len(data)), data)
-    with pytest.raises(AuthError, match="только свои"):
+    with pytest.raises(AuthError, match="only edit your own"):
         jobs.get_experiment_deletion_summary(users["other_editor"], "jobs_delete_summary_others")
 
 

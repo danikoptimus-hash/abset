@@ -103,7 +103,7 @@ def split(
 
     if method == "stratified":
         if stratum is None:
-            raise ValueError("Для stratified-сплита нужна колонка stratum")
+            raise ValueError("A stratum column is required for a stratified split")
         group = stratified_split(unit_ids, stratum, groups, seed=seed if seed is not None else 0)
         return SplitResult(group=group, salt=None, warnings=warnings)
 
@@ -112,9 +112,9 @@ def split(
         group = hash_split(unit_ids, groups, salt=used_salt)
         if stratum is not None and stratum.nunique() > 1:
             warnings.append(
-                "hash-сплит не гарантирует баланс страт: рекомендуется проверить "
-                "chi-square таблицы stratum x group после сплита"
+                "hash split does not guarantee stratum balance: consider checking "
+                "the stratum x group chi-square table after the split"
             )
         return SplitResult(group=group, salt=used_salt, warnings=warnings)
 
-    raise ValueError(f"Неизвестный метод сплитования: {method}")
+    raise ValueError(f"Unknown split method: {method}")

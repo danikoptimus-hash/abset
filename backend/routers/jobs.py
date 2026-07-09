@@ -23,11 +23,11 @@ def get_job(job_id: str, user: CurrentUser = Depends(get_current_user)) -> JobOu
     try:
         parsed_id = uuid_mod.UUID(job_id)
     except ValueError as e:
-        raise APIError(422, "validation_error", "Некорректный идентификатор задачи") from e
+        raise APIError(422, "validation_error", "Invalid job id") from e
 
     job = JobRepo().get_by_id(parsed_id)
     if job is None:
-        raise APIError(404, "not_found", f"Задача '{job_id}' не найдена")
+        raise APIError(404, "not_found", f"Job '{job_id}' not found")
     return JobOut(
         id=str(job.id), type=job.type, status=job.status, progress=job.progress,
         result=job.result_ref, error=job.error, created_at=job.created_at, finished_at=job.finished_at,

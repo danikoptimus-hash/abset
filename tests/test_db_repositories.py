@@ -22,7 +22,7 @@ from abkit.db.repositories import (
 
 
 def _make_user(db_url, email="a@co.com", role="admin"):
-    return UserRepo().create(email=email, name="A", password_hash="hash123", role=role)
+    return UserRepo().create(email=email, first_name="A", password_hash="hash123", role=role)
 
 
 def test_user_repo_create_and_get(db_url):
@@ -42,16 +42,16 @@ def test_user_repo_create_and_get(db_url):
 
 
 def test_user_repo_email_is_case_insensitive_citext(db_url):
-    UserRepo().create(email="Mixed@Co.com", name="M", password_hash="h", role="viewer")
+    UserRepo().create(email="Mixed@Co.com", first_name="M", password_hash="h", role="viewer")
     found = UserRepo().get_by_email("mixed@co.com")
     assert found is not None
     assert found.email.lower() == "mixed@co.com"
 
 
 def test_user_repo_rejects_duplicate_email(db_url):
-    UserRepo().create(email="dup@co.com", name="D1", password_hash="h", role="viewer")
-    with pytest.raises(RepoError, match="уже существует"):
-        UserRepo().create(email="dup@co.com", name="D2", password_hash="h2", role="editor")
+    UserRepo().create(email="dup@co.com", first_name="D1", password_hash="h", role="viewer")
+    with pytest.raises(RepoError, match="already exists"):
+        UserRepo().create(email="dup@co.com", first_name="D2", password_hash="h2", role="editor")
 
 
 def test_user_repo_role_and_active_updates(db_url):
@@ -121,7 +121,7 @@ def test_experiment_repo_create_get_list_and_status(db_url):
 def test_experiment_repo_rejects_duplicate_name(db_url):
     owner_id = _make_user(db_url, email="owner2@co.com")
     ExperimentRepo().create(name="dup_exp", owner_id=owner_id, status="designed", config={})
-    with pytest.raises(RepoError, match="уже существует"):
+    with pytest.raises(RepoError, match="already exists"):
         ExperimentRepo().create(name="dup_exp", owner_id=owner_id, status="designed", config={})
 
 
@@ -250,7 +250,7 @@ def test_experiment_repo_rename_rejects_existing_name(db_url):
     ExperimentRepo().create(name="taken", owner_id=owner_id, status="designed", config={})
     ExperimentRepo().create(name="to_rename", owner_id=owner_id, status="designed", config={})
 
-    with pytest.raises(RepoError, match="уже существует"):
+    with pytest.raises(RepoError, match="already exists"):
         ExperimentRepo().rename("to_rename", "taken")
 
 

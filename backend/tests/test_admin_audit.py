@@ -9,7 +9,7 @@ from abkit.db.repositories import AuditRepo, UserRepo
 
 
 def _login(app_client, email, role):
-    UserRepo().create(email=email, name="U", password_hash=hash_password("pw12345"), role=role)
+    UserRepo().create(email=email, first_name="U", password_hash=hash_password("pw12345"), role=role)
     app_client.post("/api/v1/auth/login", json={"email": email, "password": "pw12345"})
 
 
@@ -22,7 +22,7 @@ def test_list_users_requires_admin(app_client):
 
 def test_list_users_as_admin(app_client):
     _login(app_client, "admin@co.com", "admin")
-    UserRepo().create(email="viewer2@co.com", name="V2", password_hash=hash_password("pw12345"), role="viewer")
+    UserRepo().create(email="viewer2@co.com", first_name="V2", password_hash=hash_password("pw12345"), role="viewer")
     resp = app_client.get("/api/v1/admin/users")
     assert resp.status_code == 200
     emails = {u["email"] for u in resp.json()}
@@ -69,7 +69,7 @@ def test_create_user_requires_admin(app_client):
     _login(app_client, "editor4@co.com", "editor")
     resp = app_client.post(
         "/api/v1/admin/users",
-        json={"email": "new@co.com", "name": "New", "role": "viewer"},
+        json={"email": "new@co.com", "first_name": "New", "role": "viewer"},
     )
     assert resp.status_code == 403
 
@@ -78,7 +78,7 @@ def test_create_user_as_admin_generates_password(app_client):
     _login(app_client, "admin4@co.com", "admin")
     resp = app_client.post(
         "/api/v1/admin/users",
-        json={"email": "created@co.com", "name": "Created", "role": "editor"},
+        json={"email": "created@co.com", "first_name": "Created", "role": "editor"},
     )
     assert resp.status_code == 201
     body = resp.json()
@@ -89,9 +89,9 @@ def test_create_user_as_admin_generates_password(app_client):
 
 def test_create_user_duplicate_email_409(app_client):
     _login(app_client, "admin5@co.com", "admin")
-    UserRepo().create(email="dup5@co.com", name="D", password_hash=hash_password("pw12345"), role="viewer")
+    UserRepo().create(email="dup5@co.com", first_name="D", password_hash=hash_password("pw12345"), role="viewer")
     resp = app_client.post(
-        "/api/v1/admin/users", json={"email": "dup5@co.com", "name": "Dup", "role": "viewer"},
+        "/api/v1/admin/users", json={"email": "dup5@co.com", "first_name": "Dup", "role": "viewer"},
     )
     assert resp.status_code == 409
 
@@ -99,16 +99,17 @@ def test_create_user_duplicate_email_409(app_client):
 def test_patch_user_updates_role_and_active(app_client):
     _login(app_client, "admin6@co.com", "admin")
     target_id = UserRepo().create(
-        email="target6@co.com", name="Target", password_hash=hash_password("pw12345"), role="viewer"
+        email="target6@co.com", first_name="Target", password_hash=hash_password("pw12345"), role="viewer"
     )
     resp = app_client.patch(
-        f"/api/v1/admin/users/{target_id}", json={"role": "editor", "is_active": False, "name": "Renamed"},
+        f"/api/v1/admin/users/{target_id}",
+        json={"role": "editor", "is_active": False, "first_name": "Renamed"},
     )
     assert resp.status_code == 200
     body = resp.json()
     assert body["role"] == "editor"
     assert body["is_active"] is False
-    assert body["name"] == "Renamed"
+    assert body["first_name"] == "Renamed"
 
 
 def test_patch_user_404_for_unknown_id(app_client):
@@ -122,7 +123,7 @@ def test_patch_user_404_for_unknown_id(app_client):
 def test_reset_password_returns_new_password(app_client):
     _login(app_client, "admin8@co.com", "admin")
     target_id = UserRepo().create(
-        email="target8@co.com", name="Target", password_hash=hash_password("pw12345"), role="viewer"
+        email="target8@co.com", first_name="Target", password_hash=hash_password("pw12345"), role="viewer"
     )
     resp = app_client.post(f"/api/v1/admin/users/{target_id}/reset-password")
     assert resp.status_code == 200

@@ -5,3 +5,14 @@ body {
 #root {
   min-height: 100vh;
 }
+
+/* Hover-reveal row actions (UX package, section 5) — Superset-style: action
+   buttons in a table row are invisible until the row is hovered. */
+.hover-actions {
+  opacity: 0;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.ant-table-tbody > tr:hover .hover-actions {
+  opacity: 1;
+}

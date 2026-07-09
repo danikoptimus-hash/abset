@@ -17,7 +17,8 @@ class ChangePasswordRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     email: str
-    name: str
+    first_name: str
+    last_name: str = ""
     password: str
 
 

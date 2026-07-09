@@ -23,7 +23,7 @@ export function useJobPolling<TResult = Record<string, unknown>>() {
     for (;;) {
       const { data } = await apiClient.GET('/api/v1/jobs/{job_id}', { params: { path: { job_id: jobId } } })
       if (!data) {
-        setState({ phase: 'failed', stage: null, error: 'Не удалось получить статус задачи', result: null })
+        setState({ phase: 'failed', stage: null, error: 'Failed to get job status', result: null })
         return null
       }
       setState((prev) => ({ ...prev, stage: data.progress?.stage ?? null }))
@@ -33,7 +33,7 @@ export function useJobPolling<TResult = Record<string, unknown>>() {
         return result
       }
       if (data.status === 'failed') {
-        setState({ phase: 'failed', stage: null, error: data.error ?? 'Задача завершилась с ошибкой', result: null })
+        setState({ phase: 'failed', stage: null, error: data.error ?? 'Job failed', result: null })
         return null
       }
       if (data.status === 'requires_confirmation') {

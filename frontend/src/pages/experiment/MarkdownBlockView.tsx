@@ -11,9 +11,9 @@ export interface BlockDraft {
 }
 
 const KIND_TITLES: Record<string, string> = {
-  hypothesis: 'Гипотеза',
-  conclusion: 'Выводы',
-  decision: 'Решение',
+  hypothesis: 'Hypothesis',
+  conclusion: 'Conclusions',
+  decision: 'Decision',
 }
 
 interface Props {
@@ -24,7 +24,7 @@ interface Props {
 }
 
 export function MarkdownBlockView({ block, editing, onChange, onRemove }: Props) {
-  const title = block.kind === 'custom' ? block.title || 'Custom-блок' : KIND_TITLES[block.kind]
+  const title = block.kind === 'custom' ? block.title || 'Custom block' : KIND_TITLES[block.kind]
 
   if (!editing) {
     return (
@@ -33,7 +33,7 @@ export function MarkdownBlockView({ block, editing, onChange, onRemove }: Props)
         {block.content_md.trim() ? (
           <ReactMarkdown>{block.content_md}</ReactMarkdown>
         ) : (
-          <Typography.Text type="secondary">Не заполнено.</Typography.Text>
+          <Typography.Text type="secondary">Not filled in.</Typography.Text>
         )}
       </div>
     )
@@ -47,7 +47,7 @@ export function MarkdownBlockView({ block, editing, onChange, onRemove }: Props)
         block.kind === 'custom' ? (
           <Input
             value={block.title}
-            placeholder="Заголовок custom-блока"
+            placeholder="Custom block title"
             onChange={(e) => onChange({ title: e.target.value })}
           />
         ) : (
@@ -66,7 +66,7 @@ export function MarkdownBlockView({ block, editing, onChange, onRemove }: Props)
           style={{ flex: 1 }}
         />
         <div style={{ flex: 1, background: '#F7F7F7', padding: 8, borderRadius: 4, overflow: 'auto' }}>
-          <ReactMarkdown>{block.content_md || '*Превью появится здесь*'}</ReactMarkdown>
+          <ReactMarkdown>{block.content_md || '*Preview will appear here*'}</ReactMarkdown>
         </div>
       </div>
     </Card>

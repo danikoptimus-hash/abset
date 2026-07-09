@@ -21,7 +21,7 @@ class CUPED(Step):
 
     def apply(self, ctx: MetricContext) -> MetricContext:
         if ctx.covariate is None:
-            raise ValueError("CUPED требует ctx.covariate (pre_col); он не задан")
+            raise ValueError("CUPED requires ctx.covariate (pre_col); it is not set")
 
         covariate = ctx.covariate.copy()
         n_missing = int(covariate.isna().sum())
@@ -30,14 +30,14 @@ class CUPED(Step):
             covariate = covariate.fillna(mean_impute)
             frac = n_missing / len(covariate)
             ctx.warnings.append(
-                f"CUPED: {n_missing} пропусков в ковариате ({frac:.1%}) заполнены средним"
+                f"CUPED: {n_missing} missing covariate values ({frac:.1%}) filled with the mean"
             )
 
         values = ctx.values
         mean_x = float(covariate.mean())
         var_x = float(covariate.var(ddof=1))
         if var_x == 0:
-            ctx.warnings.append("CUPED: дисперсия ковариаты равна нулю, поправка не применена")
+            ctx.warnings.append("CUPED: covariate variance is zero, correction not applied")
             return ctx
 
         cov_xy = float(np.cov(values.to_numpy(), covariate.to_numpy(), ddof=1)[0, 1])
@@ -64,7 +64,7 @@ class PostStratification(Step):
 
     def apply(self, ctx: MetricContext) -> MetricContext:
         if ctx.stratum is None:
-            raise ValueError("PostStratification требует ctx.stratum; он не задан")
+            raise ValueError("PostStratification requires ctx.stratum; it is not set")
 
         df = pd.DataFrame({"value": ctx.values, "group": ctx.group, "stratum": ctx.stratum})
         control_df = df[df["group"] == ctx.control_name]
@@ -93,7 +93,7 @@ class PostStratification(Step):
 
         if skipped:
             ctx.warnings.append(
-                f"PostStratification: {skipped} страт(ы) пропущены (меньше 2 наблюдений в группе)"
+                f"PostStratification: {skipped} stratum/strata skipped (fewer than 2 observations per group)"
             )
 
         se = variance**0.5

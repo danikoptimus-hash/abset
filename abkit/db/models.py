@@ -38,7 +38,8 @@ class User(Base):
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
     email: Mapped[str] = mapped_column(CITEXT, unique=True, nullable=False)
-    name: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    first_name: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    last_name: Mapped[str] = mapped_column(Text, nullable=False, default="")
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     role: Mapped[str] = mapped_column(Text, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -49,6 +50,10 @@ class User(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    @property
+    def full_name(self) -> str:
+        return f"{self.first_name} {self.last_name}".strip()
 
 
 class Experiment(Base):
@@ -71,6 +76,11 @@ class Experiment(Base):
     # Редакционный статус (FRONTEND.md §1/§3.3) — независим от операционного
     # status выше; draft видят владелец+admin, published — все роли.
     publication_status: Mapped[str] = mapped_column(Text, nullable=False, default="draft")
+    # Ограничение видимости по ролям (Properties modal) — null означает
+    # дефолтные draft/published-правила выше; список ролей ["editor","admin"]
+    # сужает видимость published-эксперимента до этих ролей (плюс owners/
+    # editors/admin всегда видят, см. abkit/auth/experiment_access.py).
+    visible_roles: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     config: Mapped[dict] = mapped_column(JSONB, nullable=False)
     design_summary: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -79,6 +89,35 @@ class Experiment(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ExperimentAccess(Base):
+    """Дополнительные владельцы/редакторы эксперимента поверх Experiment.owner_id
+    (Edit Properties modal, как в Superset) — FRONTEND.md, UX-пакет. access='owner'
+    дает те же права редактирования, что и оригинальный owner_id; access='editor'
+    дает права редактирования без прав владельца (пока это различие не используется
+    отдельно — обе роли трактуются одинаково в require_experiment_edit_access)."""
+
+    __tablename__ = "experiment_access"
+    __table_args__ = (
+        CheckConstraint("access IN ('owner','editor')", name="ck_experiment_access_access"),
+        Index("ix_experiment_access_experiment", "experiment_id"),
+        Index("ix_experiment_access_user", "user_id"),
+        Index(
+            "ux_experiment_access_experiment_user", "experiment_id", "user_id", unique=True
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    experiment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("experiments.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    access: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class Assignment(Base):

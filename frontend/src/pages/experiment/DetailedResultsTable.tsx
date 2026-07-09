@@ -4,9 +4,9 @@ import type { TestResultOut } from './analyzeTypes'
 import { verdict } from './analyzeTypes'
 
 const VERDICT_LABELS: Record<string, string> = {
-  significant_positive: 'значимо позитивный',
-  significant_negative: 'значимо негативный',
-  no_effect_detected: 'эффект не обнаружен',
+  significant_positive: 'significant positive',
+  significant_negative: 'significant negative',
+  no_effect_detected: 'no effect detected',
 }
 const VERDICT_COLORS: Record<string, string> = {
   significant_positive: 'success',
@@ -56,9 +56,9 @@ function toRows(results: TestResultOut[], controlName: string, correction: strin
 
 function toCsv(rows: Row[]): string {
   const headers = [
-    'Метрика', 'Группа сравнения', 'Метод', 'Designed', 'Эффект (абс)', 'Эффект (отн, %)',
-    '95% ДИ (отн., %)', 'p-value', 'p-adj', 'Коррекция', 'n (control)', 'n (test)',
-    'Снижение дисперсии', 'Вердикт',
+    'Metric', 'Comparison group', 'Method', 'Designed', 'Effect (abs)', 'Effect (rel, %)',
+    '95% CI (rel., %)', 'p-value', 'p-adj', 'Correction', 'n (control)', 'n (test)',
+    'Variance reduction', 'Verdict',
   ]
   const lines = [headers.join(',')]
   for (const r of rows) {
@@ -103,7 +103,7 @@ export function DetailedResultsTable({
         onClick={() => downloadCsv(toCsv(rows), `${experimentName}_detailed_results.csv`)}
         style={{ marginBottom: 12 }}
       >
-        Экспорт CSV
+        Export CSV
       </Button>
       <Table
         size="small"
@@ -112,27 +112,27 @@ export function DetailedResultsTable({
         pagination={false}
         scroll={{ x: true }}
         columns={[
-          { title: 'Метрика', dataIndex: 'metric' },
-          { title: 'Группа сравнения', dataIndex: 'comparison' },
-          { title: 'Метод', dataIndex: 'method' },
+          { title: 'Metric', dataIndex: 'metric' },
+          { title: 'Comparison group', dataIndex: 'comparison' },
+          { title: 'Method', dataIndex: 'method' },
           { title: 'Designed', dataIndex: 'designed', render: (v: boolean) => (v ? '✓' : '') },
-          { title: 'Эффект (абс)', dataIndex: 'effect_abs', render: (v: number) => v.toFixed(4) },
-          { title: 'Эффект (отн, %)', dataIndex: 'effect_rel', render: (v: number) => `${(v * 100).toFixed(2)}%` },
+          { title: 'Effect (abs)', dataIndex: 'effect_abs', render: (v: number) => v.toFixed(4) },
+          { title: 'Effect (rel, %)', dataIndex: 'effect_rel', render: (v: number) => `${(v * 100).toFixed(2)}%` },
           {
-            title: '95% ДИ (отн.)', dataIndex: 'ci_rel',
+            title: '95% CI (rel.)', dataIndex: 'ci_rel',
             render: (v: [number, number]) => `[${(v[0] * 100).toFixed(2)}%, ${(v[1] * 100).toFixed(2)}%]`,
           },
           { title: 'p-value', dataIndex: 'p_value', render: (v: number) => v.toFixed(4) },
           { title: 'p-adj', dataIndex: 'p_value_adjusted', render: (v: number | null) => (v === null ? '—' : v.toFixed(4)) },
-          { title: 'Коррекция', dataIndex: 'correction' },
+          { title: 'Correction', dataIndex: 'correction' },
           { title: 'n (control)', dataIndex: 'n_control' },
           { title: 'n (test)', dataIndex: 'n_test' },
           {
-            title: 'Снижение дисперсии', dataIndex: 'variance_reduction',
+            title: 'Variance reduction', dataIndex: 'variance_reduction',
             render: (v: number | null) => (v === null ? '—' : `${(v * 100).toFixed(1)}%`),
           },
           {
-            title: 'Вердикт', dataIndex: 'verdictKey',
+            title: 'Verdict', dataIndex: 'verdictKey',
             render: (v: string) => <Tag color={VERDICT_COLORS[v]}>{VERDICT_LABELS[v]}</Tag>,
           },
         ]}

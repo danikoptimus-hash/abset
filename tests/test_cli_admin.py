@@ -33,7 +33,7 @@ def test_create_admin_without_password_prints_generated_one(db_url, tmp_path, mo
 
     result = runner.invoke(app, ["create-admin", "--email", "gen@co.com"])
     assert result.exit_code == 0
-    assert "Временный пароль" in result.stdout
+    assert "Temporary password" in result.stdout
 
 
 def test_create_user_rejects_unknown_role(db_url, tmp_path, monkeypatch):
@@ -41,7 +41,7 @@ def test_create_user_rejects_unknown_role(db_url, tmp_path, monkeypatch):
 
     result = runner.invoke(app, ["create-user", "--email", "u@co.com", "--role", "superuser"])
     assert result.exit_code == 1
-    assert "неизвестная роль" in result.stdout
+    assert "unknown role" in result.stdout
 
 
 def test_create_user_then_reset_password(db_url, tmp_path, monkeypatch):
@@ -54,8 +54,8 @@ def test_create_user_then_reset_password(db_url, tmp_path, monkeypatch):
 
     result = runner.invoke(app, ["reset-password", "--email", "editor@co.com"])
     assert result.exit_code == 0
-    assert "Пароль сброшен" in result.stdout
-    assert "Временный пароль" in result.stdout
+    assert "Password reset" in result.stdout
+    assert "Temporary password" in result.stdout
 
 
 def test_reset_password_unknown_user_fails(db_url, tmp_path, monkeypatch):
@@ -95,14 +95,14 @@ def test_import_legacy_via_cli(db_url, tmp_path, monkeypatch):
     )
     assert result.exit_code == 0
     assert "cli_import_exp" in result.stdout
-    assert "Импортировано" in result.stdout
+    assert "Imported" in result.stdout
 
     # повторный запуск — идемпотентно, без ошибок
     result2 = runner.invoke(
         app, ["import-legacy", "--dir", str(legacy_dir), "--owner", "importer@co.com"]
     )
     assert result2.exit_code == 0
-    assert "пропущены" in result2.stdout
+    assert "skipped" in result2.stdout
 
 
 def test_import_legacy_unknown_owner_fails(db_url, tmp_path, monkeypatch):
@@ -115,4 +115,4 @@ def test_import_legacy_unknown_owner_fails(db_url, tmp_path, monkeypatch):
         app, ["import-legacy", "--dir", str(empty_dir), "--owner", "nobody@co.com"]
     )
     assert result.exit_code == 1
-    assert "не найден" in result.stdout
+    assert "not found" in result.stdout

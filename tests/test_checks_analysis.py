@@ -22,7 +22,7 @@ def test_check_no_duplicates_passes_on_clean_data():
 
 def test_check_no_duplicates_raises_on_dupes():
     data = pd.DataFrame({"user_id": ["a", "b", "a"]})
-    with pytest.raises(AnalysisError, match="дублирующихся"):
+    with pytest.raises(AnalysisError, match="duplicate"):
         check_no_duplicates(data, "user_id")
 
 

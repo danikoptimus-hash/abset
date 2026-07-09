@@ -14,7 +14,7 @@ const CORRECTION_OPTIONS = [
   { value: 'holm', label: 'holm' },
   { value: 'bonferroni', label: 'bonferroni' },
   { value: 'fdr_bh', label: 'fdr_bh (Benjamini-Hochberg)' },
-  { value: 'none', label: 'без поправки' },
+  { value: 'none', label: 'no correction' },
 ]
 
 export function AnalyzeSection({ experimentName, hasAssignments }: { experimentName: string; hasAssignments: boolean }) {
@@ -42,8 +42,8 @@ export function AnalyzeSection({ experimentName, hasAssignments }: { experimentN
     },
   })
 
-  // Существующие результаты (например, после перезагрузки страницы) — если
-  // анализ уже проводился раньше, показываем их сразу без повторного запуска.
+  // Existing results (e.g. after a page reload) — if analysis was already
+  // run before, show it immediately without re-running.
   useQuery({
     queryKey: ['experiment-results-initial', experimentName],
     queryFn: async () => {
@@ -76,7 +76,7 @@ export function AnalyzeSection({ experimentName, hasAssignments }: { experimentN
         setPostColumns(data.columns)
         options.onSuccess?.(data)
       } catch (e) {
-        setUploadError(e instanceof Error ? e.message : 'Не удалось загрузить файл')
+        setUploadError(e instanceof Error ? e.message : 'Failed to upload file')
         options.onError?.(e as Error)
       } finally {
         setUploading(false)
@@ -114,7 +114,7 @@ export function AnalyzeSection({ experimentName, hasAssignments }: { experimentN
 
   return (
     <div>
-      <Typography.Title level={4}>Анализ</Typography.Title>
+      <Typography.Title level={4}>Analysis</Typography.Title>
 
       {uploadError && <Alert type="error" showIcon message={uploadError} style={{ marginBottom: 16 }} closable onClose={() => setUploadError(null)} />}
 
@@ -125,11 +125,11 @@ export function AnalyzeSection({ experimentName, hasAssignments }: { experimentN
               <p className="ant-upload-drag-icon">
                 <InboxOutlined />
               </p>
-              <p>Загрузить пост-данные (CSV)</p>
+              <p>Upload post-period data (CSV)</p>
             </Dragger>
-            <Tooltip title={hasAssignments ? '' : 'Нет назначений (assignments) для этого эксперимента'}>
+            <Tooltip title={hasAssignments ? '' : 'No assignments for this experiment'}>
               <Button icon={<ThunderboltOutlined />} disabled={!hasAssignments} onClick={runAnalyzeDemo}>
-                Сгенерировать демо пост-данные (+3% эффект)
+                Generate demo post-period data (+3% effect)
               </Button>
             </Tooltip>
           </Space>
@@ -140,15 +140,15 @@ export function AnalyzeSection({ experimentName, hasAssignments }: { experimentN
               value={correction}
               onChange={setCorrection}
               options={CORRECTION_OPTIONS}
-              placeholder="Поправка на множественность"
+              placeholder="Multiple-testing correction"
             />
             <Checkbox checked={compareMethods} onChange={(e) => setCompareMethods(e.target.checked)}>
-              Сравнить альтернативные методы
+              Compare alternative methods
             </Checkbox>
             {postColumns.length > 0 && (
               <Select
                 style={{ width: 220 }}
-                placeholder="Колонка даты (для кумулятивного лифта)"
+                placeholder="Date column (for cumulative lift)"
                 allowClear
                 value={dateCol}
                 onChange={setDateCol}
@@ -158,14 +158,14 @@ export function AnalyzeSection({ experimentName, hasAssignments }: { experimentN
           </Space>
           {postColumns.length > 0 && (
             <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
-              Если в данных несколько строк на юзера (разбивка по дням), укажите колонку даты — программа
-              автоматически агрегирует их для основного анализа и построит кумулятивный лифт по дням.
+              If the data has multiple rows per user (broken down by day), specify the date column — the app
+              will automatically aggregate them for the main analysis and build a daily cumulative lift chart.
             </Typography.Paragraph>
           )}
 
           {datasetId && (
             <Button type="primary" onClick={runAnalyze} style={{ marginBottom: 24 }}>
-              Запустить анализ
+              Run Analysis
             </Button>
           )}
         </>
@@ -174,7 +174,7 @@ export function AnalyzeSection({ experimentName, hasAssignments }: { experimentN
       {phase === 'running' && (
         <div style={{ marginBottom: 24 }}>
           <Progress percent={undefined} status="active" showInfo={false} />
-          <Typography.Text>{stage ?? 'Запускаем анализ...'}</Typography.Text>
+          <Typography.Text>{stage ?? 'Starting analysis...'}</Typography.Text>
         </div>
       )}
 
@@ -185,7 +185,7 @@ export function AnalyzeSection({ experimentName, hasAssignments }: { experimentN
       {results && (
         <>
           <Button icon={<DownloadOutlined />} href={`/api/v1/experiments/${experimentName}/reports/report.html`} target="_blank" style={{ marginBottom: 24 }}>
-            Скачать HTML-отчет
+            Download HTML Report
           </Button>
           <AnalyzeResults data={results} experimentName={experimentName} />
         </>

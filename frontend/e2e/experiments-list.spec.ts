@@ -8,12 +8,12 @@ test('experiments list shows a seeded experiment and search filters it', async (
   await loginViaUi(page)
   await expect(page.getByRole('link', { name })).toBeVisible()
 
-  await page.getByPlaceholder('Поиск по названию').fill('does-not-exist-xyz')
-  await page.getByPlaceholder('Поиск по названию').press('Enter')
+  await page.getByPlaceholder('Search by name').fill('does-not-exist-xyz')
+  await page.getByPlaceholder('Search by name').press('Enter')
   await expect(page.getByRole('link', { name })).not.toBeVisible()
 
-  await page.getByPlaceholder('Поиск по названию').fill(name)
-  await page.getByPlaceholder('Поиск по названию').press('Enter')
+  await page.getByPlaceholder('Search by name').fill(name)
+  await page.getByPlaceholder('Search by name').press('Enter')
   await expect(page.getByRole('link', { name })).toBeVisible()
 })
 
@@ -25,5 +25,5 @@ test('clicking an experiment name opens its detail page', async ({ page, request
   await page.getByRole('link', { name }).click()
 
   await expect(page).toHaveURL(new RegExp(`/experiments/${name}$`))
-  await expect(page.getByText('Конфигурация')).toBeVisible()
+  await expect(page.getByText('Configuration')).toBeVisible()
 })

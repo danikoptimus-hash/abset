@@ -10,7 +10,7 @@ from abkit.db.repositories import JobRepo, UserRepo
 
 
 def _login(app_client, email="viewer@co.com", role="viewer"):
-    UserRepo().create(email=email, name="V", password_hash=hash_password("pw12345"), role=role)
+    UserRepo().create(email=email, first_name="V", password_hash=hash_password("pw12345"), role=role)
     app_client.post("/api/v1/auth/login", json={"email": email, "password": "pw12345"})
 
 

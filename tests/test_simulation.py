@@ -101,7 +101,7 @@ def test_run_ab_low_power_scenario_flags_discrepancy_or_matches():
     m = report.methods[0]
     assert 0 <= m.empirical_power <= 1
     if m.discrepancy_warning:
-        assert "расходится" in m.discrepancy_warning
+        assert "diverges" in m.discrepancy_warning
 
 
 def test_run_aa_reproducible_with_same_seed():

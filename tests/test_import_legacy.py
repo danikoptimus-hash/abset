@@ -22,7 +22,7 @@ def db_env(db_url, tmp_path, monkeypatch):
 
 @pytest.fixture
 def owner(db_env):
-    UserRepo().create(email="owner@co.com", name="Owner", password_hash="x", role="admin")
+    UserRepo().create(email="owner@co.com", first_name="Owner", password_hash="x", role="admin")
     return "owner@co.com"
 
 
@@ -67,7 +67,7 @@ def _build_legacy_experiment(tmp_path, name="legacy_exp", n=300, seed=0, analyze
 
 def test_import_unknown_owner_raises(db_env, tmp_path):
     legacy_dir = _build_legacy_experiment(tmp_path)
-    with pytest.raises(LegacyImportError, match="не найден"):
+    with pytest.raises(LegacyImportError, match="not found"):
         import_legacy_dir(legacy_dir, "nobody@co.com")
 
 

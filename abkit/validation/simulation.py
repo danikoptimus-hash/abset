@@ -196,14 +196,14 @@ class AAReport:
 
     def summary(self) -> None:
         console = Console(legacy_windows=False)
-        table = Table(title="A/A валидация: эмпирический FPR")
-        table.add_column("Метрика")
-        table.add_column("Группа")
-        table.add_column("Метод")
+        table = Table(title="A/A validation: empirical FPR")
+        table.add_column("Metric")
+        table.add_column("Group")
+        table.add_column("Method")
         table.add_column("n_sims")
         table.add_column("FPR")
-        table.add_column("ДИ (95%)")
-        table.add_column("Статус")
+        table.add_column("CI (95%)")
+        table.add_column("Status")
         for m in self.methods:
             table.add_row(
                 m.metric,
@@ -212,7 +212,7 @@ class AAReport:
                 str(m.n_sims),
                 f"{m.fpr:.2%}",
                 f"[{m.ci_low:.2%}, {m.ci_high:.2%}]",
-                "ок" if m.passed else "ПРОВАЛ",
+                "ok" if m.passed else "FAIL",
             )
         console.print(table)
 
@@ -242,7 +242,7 @@ def run_aa(
 
     rounds = _run_rounds(
         data, config, control_name, treatment_names, chains_by_metric, seeds,
-        effect=None, n_jobs=n_jobs, show_progress=show_progress, description="A/A симуляции",
+        effect=None, n_jobs=n_jobs, show_progress=show_progress, description="A/A simulations",
         progress_callback=progress_callback,
     )
 
@@ -291,13 +291,13 @@ class ABReport:
 
     def summary(self) -> None:
         console = Console(legacy_windows=False)
-        table = Table(title="A/B валидация: эмпирическая мощность")
-        table.add_column("Метрика")
-        table.add_column("Группа")
-        table.add_column("Метод")
+        table = Table(title="A/B validation: empirical power")
+        table.add_column("Metric")
+        table.add_column("Group")
+        table.add_column("Method")
         table.add_column("n_sims")
-        table.add_column("Мощность (эмп.)")
-        table.add_column("Мощность (аналит.)")
+        table.add_column("Power (empirical)")
+        table.add_column("Power (analytical)")
         for m in self.methods:
             table.add_row(
                 m.metric,
@@ -310,7 +310,7 @@ class ABReport:
         console.print(table)
         warnings = [m.discrepancy_warning for m in self.methods if m.discrepancy_warning]
         if warnings:
-            console.print("[yellow]Предупреждения:[/yellow]")
+            console.print("[yellow]Warnings:[/yellow]")
             for w in warnings:
                 console.print(f"  - {w}")
 
@@ -340,7 +340,7 @@ def run_ab(
 
     rounds = _run_rounds(
         data, config, control_name, treatment_names, chains_by_metric, seeds,
-        effect=effect, n_jobs=n_jobs, show_progress=show_progress, description="A/B симуляции",
+        effect=effect, n_jobs=n_jobs, show_progress=show_progress, description="A/B simulations",
         progress_callback=progress_callback,
     )
 
@@ -382,9 +382,9 @@ def run_ab(
         discrepancy_warning = None
         if analytical_power is not None and abs(empirical_power - analytical_power) > 0.05:
             discrepancy_warning = (
-                f"{metric_name} ({chain_name}, {treat_name}): эмпирическая мощность "
-                f"{empirical_power:.1%} расходится с аналитической {analytical_power:.1%} "
-                "больше чем на 5 п.п."
+                f"{metric_name} ({chain_name}, {treat_name}): empirical power "
+                f"{empirical_power:.1%} diverges from the analytical {analytical_power:.1%} "
+                "by more than 5pp"
             )
 
         methods_report.append(

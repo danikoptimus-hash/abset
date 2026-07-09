@@ -11,7 +11,7 @@ import pandas as pd
 import yaml
 from markupsafe import Markup
 
-from abkit import __version__ as abkit_version
+from abkit import PRODUCT_NAME, __version__ as abkit_version
 from abkit.viz.help_texts import get_warning, render_help_html
 from abkit.viz.plots import (
     cumulative_lift_plot,
@@ -80,9 +80,9 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
                 threshold, n_above, pct_above = p99_clip_stats(combined)
                 if n_above > 0:
                     caption = (
-                        f"Для наглядности ось ограничена 99-м перцентилем ({threshold:.4g}). "
-                        f"{n_above} наблюдений ({pct_above:.1f}%) выше порога собраны в "
-                        "последний столбец."
+                        f"For clarity the axis is clipped at the 99th percentile ({threshold:.4g}). "
+                        f"{n_above} observations ({pct_above:.1f}%) above the threshold are "
+                        "collected into the last bin."
                     )
             distribution_htmls.append((treat_name, fig_to_html_div(fig), caption))
 
@@ -91,7 +91,7 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
             if not seg_list:
                 continue
             fig = segment_forest_plot(
-                seg_list, title=f"{metric_name} по стратам: {control_name} vs {treat_name}"
+                seg_list, title=f"{metric_name} by stratum: {control_name} vs {treat_name}"
             )
             segment_htmls.append((treat_name, fig_to_html_div(fig)))
 
@@ -100,7 +100,7 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
             if daily_df is None or daily_df.empty:
                 continue
             fig = cumulative_lift_plot(
-                daily_df, title=f"{metric_name}: кумулятивный лифт {control_name} vs {treat_name}"
+                daily_df, title=f"{metric_name}: cumulative lift {control_name} vs {treat_name}"
             )
             daily_htmls.append((treat_name, fig_to_html_div(fig)))
 
@@ -142,6 +142,7 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
         detailed_columns=detailed_columns,
         detailed_rows=detailed_rows,
         abkit_version=abkit_version,
+        product_name=PRODUCT_NAME,
         seed=config.seed,
         config_yaml=yaml.safe_dump(config.model_dump(mode="json"), allow_unicode=True, sort_keys=False),
     )
@@ -193,5 +194,6 @@ def render_design_report(experiment: Any) -> str:
         nan_strategy=config.nan_strategy,
         warnings=report.warnings,
         abkit_version=abkit_version,
+        product_name=PRODUCT_NAME,
         seed=config.seed,
     )
