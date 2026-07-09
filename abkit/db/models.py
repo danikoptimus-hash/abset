@@ -277,3 +277,39 @@ class Job(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+
+
+class DatabaseConnection(Base):
+    """Admin-managed подключение к внешней БД (Database Connections
+    feature, CLAUDE.md) — источник для датасетов из SQL (DB2).
+    password_encrypted — Fernet-шифротекст (abkit/db_connections/crypto.py),
+    никогда не plaintext и никогда не возвращается из API (write-only)."""
+
+    __tablename__ = "database_connections"
+    __table_args__ = (
+        CheckConstraint(
+            "engine IN ('postgresql','clickhouse','mssql')", name="ck_database_connections_engine"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    engine: Mapped[str] = mapped_column(Text, nullable=False)
+    host: Mapped[str] = mapped_column(Text, nullable=False)
+    port: Mapped[int] = mapped_column(Integer, nullable=False)
+    database: Mapped[str] = mapped_column(Text, nullable=False)
+    username: Mapped[str] = mapped_column(Text, nullable=False)
+    password_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    extra_params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    ssl: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )

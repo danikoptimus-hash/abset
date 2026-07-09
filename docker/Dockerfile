@@ -14,8 +14,11 @@ WORKDIR /app
 # тянет все зависимости) кэшировался, пока не меняется код/зависимости.
 COPY pyproject.toml ./
 COPY abkit ./abkit
+# [db-connectors]: clickhouse-connect + pymssql (Database Connections
+# feature) — pymssql ships prebuilt manylinux wheels (bundled FreeTDS), no
+# system ODBC driver/EULA needed in the image, unlike pyodbc.
 RUN pip install --no-cache-dir --upgrade pip \
- && pip wheel --no-cache-dir --wheel-dir /wheels .
+ && pip wheel --no-cache-dir --wheel-dir /wheels ".[db-connectors]"
 
 FROM python:3.12-slim
 

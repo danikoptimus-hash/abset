@@ -29,6 +29,8 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "python-multipart>=0.0.9",
+    "cryptography>=42.0",
+    "sqlglot>=25.0",
 ]
 
 [project.optional-dependencies]
@@ -38,6 +40,15 @@ dev = [
     "testcontainers[postgres]>=4.0",
     "pyflakes>=3.4",
     "httpx>=0.27",
+]
+# Database Connections feature (CLAUDE.md): drivers for the non-Postgres
+# engines. PostgreSQL connections reuse psycopg (core dependency, already
+# used for abkit's own DB) — no extra needed for that engine alone.
+db-connectors = [
+    "clickhouse-connect>=0.7",
+    # pymssql (FreeTDS), not pyodbc: no system ODBC driver / Microsoft EULA
+    # to install in the image, ships prebuilt manylinux wheels.
+    "pymssql>=2.3",
 ]
 
 [project.scripts]

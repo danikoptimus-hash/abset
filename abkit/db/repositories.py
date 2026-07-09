@@ -20,6 +20,7 @@ from abkit.db.models import (
     AnalysisResult,
     AuditLog,
     Assignment,
+    DatabaseConnection,
     Dataset,
     Experiment,
     ExperimentAccess,
@@ -779,3 +780,99 @@ class JobRepo:
             for r in rows:
                 s.expunge(r)
             return rows
+
+
+class DatabaseConnectionRepo:
+    """Admin-managed подключения к внешним БД (DB1) — CRUD только по id
+    (список для UI короткий, страничность не нужна, как и у users)."""
+
+    def create(
+        self,
+        *,
+        display_name: str,
+        engine: str,
+        host: str,
+        port: int,
+        database: str,
+        username: str,
+        password_encrypted: str,
+        extra_params: dict[str, Any] | None = None,
+        ssl: bool = False,
+        created_by: uuid_mod.UUID | None = None,
+    ) -> DatabaseConnection:
+        with session_scope() as s:
+            conn = DatabaseConnection(
+                display_name=display_name, engine=engine, host=host, port=port,
+                database=database, username=username, password_encrypted=password_encrypted,
+                extra_params=extra_params, ssl=ssl, created_by=created_by,
+            )
+            s.add(conn)
+            s.flush()
+            s.refresh(conn)
+            s.expunge(conn)
+            return conn
+
+    def get_by_id(self, conn_id: uuid_mod.UUID) -> DatabaseConnection | None:
+        with session_scope() as s:
+            conn = s.get(DatabaseConnection, conn_id)
+            if conn is not None:
+                s.expunge(conn)
+            return conn
+
+    def list_all(self) -> list[DatabaseConnection]:
+        with session_scope() as s:
+            rows = list(s.scalars(select(DatabaseConnection).order_by(DatabaseConnection.display_name)))
+            for r in rows:
+                s.expunge(r)
+            return rows
+
+    def update(
+        self,
+        conn_id: uuid_mod.UUID,
+        *,
+        display_name: str | None = None,
+        engine: str | None = None,
+        host: str | None = None,
+        port: int | None = None,
+        database: str | None = None,
+        username: str | None = None,
+        password_encrypted: str | None = None,
+        extra_params: dict[str, Any] | None = None,
+        ssl: bool | None = None,
+    ) -> DatabaseConnection:
+        with session_scope() as s:
+            conn = s.get(DatabaseConnection, conn_id)
+            if conn is None:
+                raise RepoError(f"Database connection {conn_id} not found")
+            if display_name is not None:
+                conn.display_name = display_name
+            if engine is not None:
+                conn.engine = engine
+            if host is not None:
+                conn.host = host
+            if port is not None:
+                conn.port = port
+            if database is not None:
+                conn.database = database
+            if username is not None:
+                conn.username = username
+            # password_encrypted: only overwritten when a new password was
+            # actually provided (write-only field, "unchanged" placeholder
+            # in the UI means "keep the existing encrypted value").
+            if password_encrypted is not None:
+                conn.password_encrypted = password_encrypted
+            if extra_params is not None:
+                conn.extra_params = extra_params
+            if ssl is not None:
+                conn.ssl = ssl
+            s.flush()
+            s.refresh(conn)
+            s.expunge(conn)
+            return conn
+
+    def delete(self, conn_id: uuid_mod.UUID) -> None:
+        with session_scope() as s:
+            conn = s.get(DatabaseConnection, conn_id)
+            if conn is None:
+                raise RepoError(f"Database connection {conn_id} not found")
+            s.delete(conn)

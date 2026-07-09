@@ -17,6 +17,7 @@ from backend.routers import admin as admin_router
 from backend.routers import audit as audit_router
 from backend.routers import auth as auth_router
 from backend.routers import datasets as datasets_router
+from backend.routers import db_connections as db_connections_router
 from backend.routers import design as design_router
 from backend.routers import experiments as experiments_router
 from backend.routers import jobs as jobs_router
@@ -83,6 +84,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router.router, prefix="/api/v1")
     app.include_router(experiments_router.router, prefix="/api/v1")
     app.include_router(datasets_router.router, prefix="/api/v1")
+    app.include_router(db_connections_router.router, prefix="/api/v1")
     app.include_router(admin_router.router, prefix="/api/v1")
     app.include_router(audit_router.router, prefix="/api/v1")
     app.include_router(design_router.router, prefix="/api/v1")
