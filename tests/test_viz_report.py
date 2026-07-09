@@ -130,6 +130,15 @@ def test_analysis_report_shows_p99_clip_caption_for_continuous_metric(tmp_path):
     assert "last bin" in html
 
 
+def test_design_report_embeds_logo_as_inline_base64(tmp_path):
+    """Brand п.4: the header logo is inlined (base64), not an external <img
+    src> — design_report.html must stay a single self-contained file."""
+    experiment = _demo_design(tmp_path)
+    html = (experiment.path / "design_report.html").read_text(encoding="utf-8")
+    assert 'class="report-brand"' in html
+    assert '<img src="data:image/png;base64,' in html
+
+
 def test_analysis_report_opens_offline_plotly_inline(tmp_path):
     experiment = _demo_design(tmp_path)
     rng = np.random.default_rng(3)
@@ -143,6 +152,16 @@ def test_analysis_report_opens_offline_plotly_inline(tmp_path):
     assert '<script src="https://cdn.plot.ly' not in html
     assert '<script src="https://cdnjs' not in html
     assert "Plotly.newPlot" in html  # встроенный plotly.js реально присутствует
+
+
+def test_analysis_report_embeds_logo_as_inline_base64(tmp_path):
+    experiment = _demo_design(tmp_path)
+    rng = np.random.default_rng(3)
+    post_data = _demo_post_data(experiment, len(experiment.assignments), rng)
+    results = experiment.analyze(post_data)
+    html = results.report().read_text(encoding="utf-8")
+    assert 'class="report-brand"' in html
+    assert '<img src="data:image/png;base64,' in html
 
 
 def test_analysis_report_shows_cumulative_lift_when_date_col_given(tmp_path):

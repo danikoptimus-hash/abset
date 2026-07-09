@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import functools
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -32,6 +34,20 @@ _env.globals["help_details"] = lambda chart_type, table=False: Markup(
     render_help_html(chart_type, table=table)
 )
 _env.globals["chart_warning"] = get_warning
+
+
+@functools.lru_cache(maxsize=1)
+def _logo_data_uri() -> str | None:
+    """Whale logo (brand п.4), inlined as base64 so report.html/design_report.html
+    stay single self-contained files — reports get emailed/shared as one .html,
+    an external <img src> would break as soon as it leaves the machine that
+    generated it. None if the asset is missing (report still renders, just
+    without the logo in the header) rather than failing the whole report."""
+    logo_path = _TEMPLATES_DIR / "logo.png"
+    if not logo_path.exists():
+        return None
+    encoded = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
 
 # Column-header tooltips for the detailed results table (UX package, 5.2) —
 # keep the wording in sync with the React copy,
@@ -162,6 +178,7 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
         detailed_column_tooltips=DETAILED_COLUMN_TOOLTIPS,
         abkit_version=abkit_version,
         product_name=PRODUCT_NAME,
+        logo_data_uri=_logo_data_uri(),
         seed=config.seed,
         config_yaml=yaml.safe_dump(config.model_dump(mode="json"), allow_unicode=True, sort_keys=False),
     )
@@ -214,5 +231,6 @@ def render_design_report(experiment: Any) -> str:
         warnings=report.warnings,
         abkit_version=abkit_version,
         product_name=PRODUCT_NAME,
+        logo_data_uri=_logo_data_uri(),
         seed=config.seed,
     )

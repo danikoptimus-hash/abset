@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '../auth/AuthContext'
 import { apiClient, errorMessage } from '../api/client'
-import { PRODUCT_NAME } from '../branding'
+import logo from '../assets/logo.png'
 
 interface LoginFormValues {
   email: string
@@ -109,9 +109,7 @@ export function LoginPage() {
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#F7F7F7' }}>
       <Card style={{ width: 360 }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <Typography.Title level={3} style={{ color: '#2E8B6D', marginBottom: 0 }}>
-            {PRODUCT_NAME}
-          </Typography.Title>
+          <img src={logo} alt="ABKit" style={{ height: 88, width: 'auto', display: 'block', margin: '0 auto' }} />
           <Typography.Text type="secondary">Sign in</Typography.Text>
         </div>
         {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />}

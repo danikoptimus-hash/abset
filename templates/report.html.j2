@@ -30,12 +30,18 @@
   details { margin: 10px 0; background: #f7f7f7; border-radius: 6px; padding: 4px 12px; }
   details summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
   details p { margin: 8px 0; }
+  .report-brand { display: flex; align-items: center; gap: 10px; }
+  .report-brand img { height: 32px; width: auto; display: block; }
+  .report-brand h1 { margin: 0; }
 </style>
 </head>
 <body>
 
 <section id="section-header">
-  <h1>{{ experiment_name }}</h1>
+  <div class="report-brand">
+    {% if logo_data_uri %}<img src="{{ logo_data_uri }}" alt="{{ product_name }}">{% endif %}
+    <h1>{{ experiment_name }}</h1>
+  </div>
   <p>Generated: {{ generated_at }}</p>
   <p>Groups: {% for name, size in group_sizes.items() %}{{ name }} ({{ size }}){% if not loop.last %}, {% endif %}{% endfor %}</p>
   <p>Split method: {{ config.split_method }} · Multiple-testing correction: {{ correction }}</p>

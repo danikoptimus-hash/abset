@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '../auth/AuthContext'
 import { apiClient } from '../api/client'
 import { PRODUCT_NAME } from '../branding'
+import logo from '../assets/logo.png'
 
 const { Header, Content } = Layout
 
@@ -66,7 +67,17 @@ export function AppLayout() {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Header style={{ display: 'flex', alignItems: 'center', background: '#fff', borderBottom: '1px solid #E0E0E0' }}>
-        <div style={{ fontWeight: 700, fontSize: 18, color: '#2E8B6D', marginRight: 32 }}>{PRODUCT_NAME}</div>
+        <Link
+          to="/experiments"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            fontWeight: 700, fontSize: 18, color: '#2E8B6D', marginRight: 32,
+            textDecoration: 'none',
+          }}
+        >
+          <img src={logo} alt="" style={{ height: 30, width: 'auto', display: 'block' }} />
+          {PRODUCT_NAME}
+        </Link>
         <Menu mode="horizontal" selectedKeys={[selectedKey]} items={NAV_ITEMS} style={{ flex: 1, borderBottom: 'none' }} />
         {user && (
           <Dropdown menu={{ items: settingsItems, onClick: handleSettingsMenuClick }} trigger={['click']}>
