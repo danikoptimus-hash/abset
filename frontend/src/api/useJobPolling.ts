@@ -18,14 +18,36 @@ export function useJobPolling<TResult = Record<string, unknown>>() {
     phase: 'idle', stage: null, error: null, result: null,
   })
 
+  // A single failed poll can just be a transient blip (or the backend
+  // container restarting after a crash, e.g. an OOM-killed worker) —
+  // giving up immediately used to show a generic "Failed to get job
+  // status" even though the backend recovers a few seconds later with a
+  // real job.error (mark_unfinished_jobs_failed_on_startup / the job
+  // heartbeat timeout, see backend/jobs/runner.py). Retry a bounded number
+  // of times first; only give up (and stop polling for good) if the
+  // worker really seems gone.
+  const MAX_CONSECUTIVE_FAILURES = 5
+
   const poll = async (jobId: string): Promise<TResult | null> => {
     setState({ phase: 'running', stage: null, error: null, result: null })
+    let consecutiveFailures = 0
     for (;;) {
       const { data } = await apiClient.GET('/api/v1/jobs/{job_id}', { params: { path: { job_id: jobId } } })
       if (!data) {
-        setState({ phase: 'failed', stage: null, error: 'Failed to get job status', result: null })
-        return null
+        consecutiveFailures += 1
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+          setState({
+            phase: 'failed',
+            stage: null,
+            error: 'Analysis worker stopped unexpectedly. Check server logs or try again.',
+            result: null,
+          })
+          return null
+        }
+        await new Promise((r) => setTimeout(r, 1000))
+        continue
       }
+      consecutiveFailures = 0
       setState((prev) => ({ ...prev, stage: data.progress?.stage ?? null }))
       if (data.status === 'completed') {
         const result = (data.result ?? null) as TResult | null

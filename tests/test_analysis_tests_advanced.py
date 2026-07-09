@@ -88,6 +88,42 @@ def test_bootstrap_no_effect_gives_high_p_value():
     assert ctx.result.p_value > 0.05
 
 
+def test_bootstrap_batching_bounds_peak_memory(monkeypatch):
+    """Regression: Bootstrap used to materialize a full n_boot x n_units
+    resampling index matrix (two of them, plus two fancy-indexed value
+    matrices of the same shape) — at production scale (n_boot=10000,
+    ~150k users/group) that's ~45 GB peak and OOM-kills the process (see
+    tests/test_experiment_analyze.py::test_analyze_compare_methods_completes_at_300k_rows
+    for the full-scale repro). Batched resampling (ABKIT_BOOTSTRAP_BATCH)
+    should keep peak memory close to O(batch_size * n_units) rather than
+    O(n_boot * n_units)."""
+    import tracemalloc
+
+    n = 50_000
+    rng = np.random.default_rng(0)
+    control = rng.normal(100, 20, size=n)
+    treatment = rng.normal(100, 20, size=n)
+    values = np.concatenate([control, treatment])
+    group = ["control"] * n + ["treatment"] * n
+
+    n_boot = 2000
+    batch_size = 200
+    monkeypatch.setenv("ABKIT_BOOTSTRAP_BATCH", str(batch_size))
+
+    tracemalloc.start()
+    try:
+        Bootstrap(n_boot=n_boot, method="bca", seed=0).apply(make_ctx(values, group))
+        _current, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    # Unbatched, the two index matrices alone would need n_boot * n * 8
+    # bytes * 2 ~= 2000*50000*8*2 = 1.6 GB. Batched peak should stay well
+    # under half of that (generous margin against measurement noise).
+    unbatched_equivalent = n_boot * n * 8 * 2
+    assert peak < unbatched_equivalent / 2
+
+
 def test_bootstrap_rejects_invalid_method():
     with pytest.raises(ValueError, match="method"):
         Bootstrap(method="bogus")

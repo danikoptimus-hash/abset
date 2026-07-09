@@ -18,10 +18,26 @@ export function Step4Review({ state }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [confirmation, setConfirmation] = useState<{ overlap: number; by_experiment: Record<string, number> } | null>(null)
 
+  // A single failed poll can be a transient blip (or the backend container
+  // restarting after a crash) — give it a few retries before giving up, so
+  // a real job.error (surfaced once the backend recovers) wins over a
+  // generic message. See frontend/src/api/useJobPolling.ts for the same
+  // pattern used by Analyze/Validate.
+  const MAX_CONSECUTIVE_FAILURES = 5
+
   const pollJob = async (jobId: string): Promise<void> => {
+    let consecutiveFailures = 0
     for (;;) {
       const { data } = await apiClient.GET('/api/v1/jobs/{job_id}', { params: { path: { job_id: jobId } } })
-      if (!data) throw new Error('Failed to get job status')
+      if (!data) {
+        consecutiveFailures += 1
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+          throw new Error('Analysis worker stopped unexpectedly. Check server logs or try again.')
+        }
+        await new Promise((r) => setTimeout(r, 1000))
+        continue
+      }
+      consecutiveFailures = 0
       setStage(data.progress?.stage ?? null)
       if (data.status === 'completed') {
         const experimentName = (data.result as { experiment_name?: string } | null)?.experiment_name

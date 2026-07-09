@@ -269,3 +269,11 @@ class Job(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Стемпится на КАЖДОЙ мутации (onupdate — не нужно вручную трогать в
+    # каждом методе JobRepo) — heartbeat для sweeper'а (backend/jobs/runner.py
+    # ::JobRunner._sweep_stale_jobs), ловящего job, застрявшую в 'running' без
+    # прогресса дольше ABKIT_JOB_TIMEOUT_MINUTES (worker умер без исключения,
+    # например OOM-killed процесс).
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )

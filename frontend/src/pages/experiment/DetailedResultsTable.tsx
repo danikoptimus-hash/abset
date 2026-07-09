@@ -7,11 +7,13 @@ const VERDICT_LABELS: Record<string, string> = {
   significant_positive: 'significant positive',
   significant_negative: 'significant negative',
   no_effect_detected: 'no effect detected',
+  failed: 'failed',
 }
 const VERDICT_COLORS: Record<string, string> = {
   significant_positive: 'success',
   significant_negative: 'error',
   no_effect_detected: 'default',
+  failed: 'warning',
 }
 
 interface Row {
@@ -20,16 +22,24 @@ interface Row {
   comparison: string
   method: string
   designed: boolean
-  effect_abs: number
-  effect_rel: number
-  ci_rel: [number, number]
-  p_value: number
+  effect_abs: number | null
+  effect_rel: number | null
+  ci_rel: [number | null, number | null]
+  p_value: number | null
   p_value_adjusted: number | null
   correction: string
   n_control: number | undefined
   n_test: number | undefined
   variance_reduction: number | null
   verdictKey: string
+  // Set only for a failed alternative method (compare_methods=True) — see
+  // Experiment.analyze()'s extra_chains loop / _failed_method_result.
+  failureReason: string | null
+}
+
+function failureReasonOf(r: TestResultOut): string | null {
+  const failedWarning = r.warnings.find((w) => w.startsWith('failed: '))
+  return failedWarning ? failedWarning.slice('failed: '.length) : null
 }
 
 function toRows(results: TestResultOut[], controlName: string, correction: string): Row[] {
@@ -50,6 +60,7 @@ function toRows(results: TestResultOut[], controlName: string, correction: strin
       n_test: r.n[r.treatment_group],
       variance_reduction: r.variance_reduction,
       verdictKey: verdict(r),
+      failureReason: failureReasonOf(r),
     }))
     .sort((a, b) => a.metric.localeCompare(b.metric) || a.method.localeCompare(b.method))
 }
@@ -58,18 +69,24 @@ function toCsv(rows: Row[]): string {
   const headers = [
     'Metric', 'Comparison group', 'Method', 'Effect (abs.)', 'Lift %',
     '95% CI of lift', 'p-value', 'p-value (adj.)', 'Correction', 'n (control)', 'n (test)',
-    'Variance reduction', 'Verdict',
+    'Variance reduction', 'Verdict', 'Failure reason',
   ]
   const lines = [headers.join(',')]
   for (const r of rows) {
+    const ciRel = r.ci_rel[0] !== null && r.ci_rel[1] !== null
+      ? `"[${(r.ci_rel[0] * 100).toFixed(2)}%, ${(r.ci_rel[1] * 100).toFixed(2)}%]"`
+      : ''
     const cells = [
       r.metric, r.comparison, r.method,
-      String(r.effect_abs), String(r.effect_rel * 100),
-      `"[${(r.ci_rel[0] * 100).toFixed(2)}%, ${(r.ci_rel[1] * 100).toFixed(2)}%]"`,
-      String(r.p_value), r.p_value_adjusted !== null ? String(r.p_value_adjusted) : '',
+      r.effect_abs !== null ? String(r.effect_abs) : '',
+      r.effect_rel !== null ? String(r.effect_rel * 100) : '',
+      ciRel,
+      r.p_value !== null ? String(r.p_value) : '',
+      r.p_value_adjusted !== null ? String(r.p_value_adjusted) : '',
       r.correction, r.n_control ?? '', r.n_test ?? '',
       r.variance_reduction !== null ? String(r.variance_reduction) : '',
       VERDICT_LABELS[r.verdictKey],
+      r.failureReason ? `"${r.failureReason.replace(/"/g, '""')}"` : '',
     ]
     lines.push(cells.join(','))
   }
@@ -130,21 +147,32 @@ export function DetailedResultsTable({
         columns={[
           { title: 'Metric', dataIndex: 'metric' },
           { title: 'Comparison group', dataIndex: 'comparison' },
-          { title: 'Method', dataIndex: 'method' },
+          {
+            title: 'Method', dataIndex: 'method',
+            render: (v: string, record: Row) =>
+              record.failureReason ? (
+                <Tooltip title={record.failureReason}>
+                  <span>{v}</span>
+                </Tooltip>
+              ) : (
+                v
+              ),
+          },
           {
             title: <HeaderWithTooltip label="Effect (abs.)" tooltip="Absolute difference in metric units (test − control)" />,
-            dataIndex: 'effect_abs', render: (v: number) => v.toFixed(4),
+            dataIndex: 'effect_abs', render: (v: number | null) => (v === null ? '—' : v.toFixed(4)),
           },
           {
             title: <HeaderWithTooltip label="Lift %" tooltip="Relative effect: (test − control) / control" />,
-            dataIndex: 'effect_rel', render: (v: number) => `${(v * 100).toFixed(2)}%`,
+            dataIndex: 'effect_rel', render: (v: number | null) => (v === null ? '—' : `${(v * 100).toFixed(2)}%`),
           },
           {
             title: <HeaderWithTooltip label="95% CI of lift" tooltip="Confidence interval of the relative effect (lift), not of the metric itself" />,
             dataIndex: 'ci_rel',
-            render: (v: [number, number]) => `[${(v[0] * 100).toFixed(2)}%, ${(v[1] * 100).toFixed(2)}%]`,
+            render: (v: [number | null, number | null]) =>
+              v[0] === null || v[1] === null ? '—' : `[${(v[0] * 100).toFixed(2)}%, ${(v[1] * 100).toFixed(2)}%]`,
           },
-          { title: 'p-value', dataIndex: 'p_value', render: (v: number) => v.toFixed(4) },
+          { title: 'p-value', dataIndex: 'p_value', render: (v: number | null) => (v === null ? '—' : v.toFixed(4)) },
           {
             title: (
               <HeaderWithTooltip

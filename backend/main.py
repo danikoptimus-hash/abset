@@ -43,6 +43,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # FRONTEND.md §4: незавершенные (pending/running) jobs с прошлого запуска
     # процесса помечаются failed — их future-объекты потеряны вместе с ним.
     runner.mark_unfinished_jobs_failed_on_startup()
+    # В ТЕЧЕНИЕ жизни этого процесса: job, застрявшая в 'running' без
+    # прогресса дольше ABKIT_JOB_TIMEOUT_MINUTES (worker умер без исключения,
+    # например OOM-killed) — не ждем следующего рестарта backend'а.
+    runner.start_heartbeat_sweeper()
     app.state.job_runner = runner
     try:
         yield

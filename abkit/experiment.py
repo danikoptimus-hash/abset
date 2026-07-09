@@ -96,6 +96,43 @@ def compare_methods_chains(metric: MetricConfig, seed: int | None = None) -> lis
     return chains
 
 
+def _failed_method_result(
+    metric: MetricConfig,
+    pipeline: Pipeline,
+    control_name: str,
+    treat_name: str,
+    n_control: int,
+    n_treat: int,
+    exc: Exception,
+) -> TestResult:
+    """Строка-заглушка для альтернативного метода (compare_methods=True),
+    упавшего с исключением: designed-метод и остальные альтернативы все
+    равно досчитываются (см. цикл по extra_chains в analyze()) — падение
+    ОДНОГО сравнительного метода не должно валить весь анализ, только
+    пометить его результат как неудачный с краткой причиной."""
+    reason = str(exc).strip() or type(exc).__name__
+    if len(reason) > 200:
+        reason = reason[:200] + "..."
+    nan = float("nan")
+    return TestResult(
+        metric=metric.name,
+        method=f"{pipeline.method_name} (failed)",
+        effect_abs=nan,
+        effect_rel=nan,
+        ci_abs=(nan, nan),
+        ci_rel=(nan, nan),
+        p_value=nan,
+        p_value_adjusted=None,
+        n={control_name: n_control, treat_name: n_treat},
+        n_removed={},
+        variance_reduction=None,
+        warnings=[f"failed: {reason}"],
+        is_designed_method=False,
+        treatment_group=treat_name,
+        role=metric.role,
+    )
+
+
 @dataclass
 class DesignReport:
     """Сводка по этапу дизайна: доступность кандидатов, мощность, проверки сплита."""
@@ -810,8 +847,19 @@ class Experiment:
 
                 for chain in extra_chains:
                     extra_ctx = build_metric_context(metric, merged, control_name, treat_name, self.config.alpha, False)
-                    extra_ctx = Pipeline(chain).run(extra_ctx)
-                    all_results.append(extra_ctx.result)
+                    n_control_extra = int((extra_ctx.group == control_name).sum())
+                    n_treat_extra = int((extra_ctx.group == treat_name).sum())
+                    pipeline = Pipeline(chain)
+                    try:
+                        extra_ctx = pipeline.run(extra_ctx)
+                        all_results.append(extra_ctx.result)
+                    except Exception as e:
+                        all_results.append(
+                            _failed_method_result(
+                                metric, pipeline, control_name, treat_name,
+                                n_control_extra, n_treat_extra, e,
+                            )
+                        )
 
                 strata_values = merged["stratum"].unique() if "stratum" in merged.columns else []
                 if len(strata_values) > 1:

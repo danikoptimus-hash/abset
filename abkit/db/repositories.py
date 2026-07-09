@@ -765,3 +765,17 @@ class JobRepo:
             for r in rows:
                 s.expunge(r)
             return rows
+
+    def list_stale_running(self, older_than: datetime) -> list[Job]:
+        """'running' jobs whose updated_at heartbeat hasn't moved since
+        `older_than` — a worker that died without raising a catchable
+        exception (see JobRunner._sweep_stale_jobs)."""
+        with session_scope() as s:
+            rows = list(
+                s.scalars(
+                    select(Job).where(Job.status == "running", Job.updated_at < older_than)
+                )
+            )
+            for r in rows:
+                s.expunge(r)
+            return rows

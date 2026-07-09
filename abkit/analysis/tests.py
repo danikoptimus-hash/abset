@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Literal
 
 import numpy as np
@@ -192,8 +193,22 @@ def _bca_ci(
     return float(lo), float(hi)
 
 
+def _default_bootstrap_batch_size() -> int:
+    return int(os.environ.get("ABKIT_BOOTSTRAP_BATCH", "500"))
+
+
 class Bootstrap(Step):
-    """Векторизованный bootstrap разности средних (percentile или BCa)."""
+    """Векторизованный bootstrap разности средних (percentile или BCa).
+
+    Ресэмплы генерируются и агрегируются батчами (ABKIT_BOOTSTRAP_BATCH,
+    по умолчанию 500 итераций), а не единой матрицей n_boot x n_units:
+    при большом числе юзеров на группу (сотни тысяч) полная матрица индексов
+    ресэмплинга занимает гигабайты (n_boot * n_units * 8 байт на int64-
+    индексы, и еще столько же на fancy-indexed значения) и валит процесс
+    OOM — на 140k юзеров/группу и n_boot=10000 пик памяти без батчинга
+    ~45 GB. Батчинг ограничивает пик O(batch_size * n_units) вместо
+    O(n_boot * n_units); финальный boot_diffs (размера n_boot) — единственное,
+    что нужно для p-value и CI, и он тривиально мал."""
 
     stage = "test"
 
@@ -202,12 +217,14 @@ class Bootstrap(Step):
         n_boot: int = 10_000,
         method: Literal["bca", "percentile"] = "bca",
         seed: int | None = None,
+        batch_size: int | None = None,
     ):
         if method not in ("bca", "percentile"):
             raise ValueError("method must be 'bca' or 'percentile'")
         self.n_boot = n_boot
         self.method = method
         self.seed = seed
+        self.batch_size = batch_size
 
     def apply(self, ctx: MetricContext) -> MetricContext:
         control_vals = ctx.values[ctx.group == ctx.control_name].dropna().to_numpy()
@@ -221,9 +238,15 @@ class Bootstrap(Step):
         effect_abs = float(treat_vals.mean() - mean_control)
         effect_rel = effect_abs / mean_control if mean_control != 0 else float("nan")
 
-        control_idx = rng.integers(0, n_control, size=(self.n_boot, n_control))
-        treat_idx = rng.integers(0, n_treat, size=(self.n_boot, n_treat))
-        boot_diffs = treat_vals[treat_idx].mean(axis=1) - control_vals[control_idx].mean(axis=1)
+        batch_size = self.batch_size or _default_bootstrap_batch_size()
+        boot_diffs = np.empty(self.n_boot, dtype=np.float64)
+        for start in range(0, self.n_boot, batch_size):
+            n = min(batch_size, self.n_boot - start)
+            control_idx = rng.integers(0, n_control, size=(n, n_control))
+            treat_idx = rng.integers(0, n_treat, size=(n, n_treat))
+            boot_diffs[start : start + n] = (
+                treat_vals[treat_idx].mean(axis=1) - control_vals[control_idx].mean(axis=1)
+            )
 
         p_value = _bootstrap_p_value(boot_diffs)
 

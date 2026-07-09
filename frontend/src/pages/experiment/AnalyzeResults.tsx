@@ -10,11 +10,13 @@ export const VERDICT_LABELS: Record<string, string> = {
   significant_positive: 'significant positive',
   significant_negative: 'significant negative',
   no_effect_detected: 'no effect detected',
+  failed: 'failed',
 }
 export const VERDICT_COLORS: Record<string, string> = {
   significant_positive: 'success',
   significant_negative: 'error',
   no_effect_detected: 'default',
+  failed: 'warning',
 }
 
 export function VerdictCards({ results }: { results: TestResultOut[] }) {
@@ -36,7 +38,9 @@ export function VerdictCards({ results }: { results: TestResultOut[] }) {
                   {VERDICT_LABELS[v]}
                 </Tag>
                 <Typography.Paragraph style={{ marginTop: 4, marginBottom: 0 }}>
-                  {(r.effect_rel * 100).toFixed(1)}% [{(r.ci_rel[0] * 100).toFixed(1)}%, {(r.ci_rel[1] * 100).toFixed(1)}%]
+                  {r.effect_rel === null || r.ci_rel[0] === null || r.ci_rel[1] === null
+                    ? '—'
+                    : `${(r.effect_rel * 100).toFixed(1)}% [${(r.ci_rel[0] * 100).toFixed(1)}%, ${(r.ci_rel[1] * 100).toFixed(1)}%]`}
                 </Typography.Paragraph>
               </Card>
             </Col>
@@ -86,13 +90,18 @@ export function AnalyzeResults({ data }: { data: AnalysisResultsOut }) {
 
             <Typography.Title level={5}>Forest plot</Typography.Title>
             <ForestPlotChart
-              rows={metricResults.map((r) => ({
-                label: `${r.method} (${r.treatment_group})`,
-                effectRelPct: r.effect_rel * 100,
-                ciLoPct: r.ci_rel[0] * 100,
-                ciHiPct: r.ci_rel[1] * 100,
-                highlighted: r.is_designed_method,
-              }))}
+              rows={metricResults
+                // A failed alternative method (compare_methods=True) has no
+                // usable effect/CI to plot — it's shown as a "failed" row in
+                // the detailed table below instead.
+                .filter((r) => r.effect_rel !== null && r.ci_rel[0] !== null && r.ci_rel[1] !== null)
+                .map((r) => ({
+                  label: `${r.method} (${r.treatment_group})`,
+                  effectRelPct: r.effect_rel! * 100,
+                  ciLoPct: r.ci_rel[0]! * 100,
+                  ciHiPct: r.ci_rel[1]! * 100,
+                  highlighted: r.is_designed_method,
+                }))}
             />
             <HelpCollapse chartType="forest" />
 

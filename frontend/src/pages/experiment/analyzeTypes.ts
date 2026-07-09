@@ -7,11 +7,16 @@ export interface TestResultOut {
   metric: string
   method: string
   treatment_group: string
-  effect_abs: number
-  effect_rel: number
-  ci_abs: [number, number]
-  ci_rel: [number, number]
-  p_value: number
+  // null: a NaN result — a legitimate degenerate-segment outcome (zero
+  // variance in a stratum), or an alternative comparison method
+  // (compare_methods=True) that raised an exception (see
+  // Experiment.analyze()'s extra_chains loop / _failed_method_result) —
+  // the designed method and other alternatives still complete normally.
+  effect_abs: number | null
+  effect_rel: number | null
+  ci_abs: [number | null, number | null]
+  ci_rel: [number | null, number | null]
+  p_value: number | null
   p_value_adjusted: number | null
   n: Record<string, number>
   n_removed: Record<string, number>
@@ -105,8 +110,12 @@ export function resultsByMetric(results: TestResultOut[]): Record<string, TestRe
   return out
 }
 
-export function verdict(r: TestResultOut, alpha = 0.05): 'significant_positive' | 'significant_negative' | 'no_effect_detected' {
+export function verdict(
+  r: TestResultOut,
+  alpha = 0.05,
+): 'significant_positive' | 'significant_negative' | 'no_effect_detected' | 'failed' {
   const p = r.p_value_adjusted ?? r.p_value
+  if (p === null || r.effect_abs === null) return 'failed'
   if (p < alpha && r.effect_abs > 0) return 'significant_positive'
   if (p < alpha && r.effect_abs < 0) return 'significant_negative'
   return 'no_effect_detected'

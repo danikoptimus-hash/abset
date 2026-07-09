@@ -76,3 +76,112 @@ def test_job_runner_marks_unfinished_jobs_failed_on_startup(db_url):
         assert JobRepo().get_by_id(stale_running.id).status == "failed"
     finally:
         runner.shutdown(wait=True)
+
+
+def _wait_for_terminal_status(job_id, timeout: float = 5.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        fetched = JobRepo().get_by_id(job_id)
+        if fetched.status in ("completed", "failed", "requires_confirmation"):
+            return fetched
+        time.sleep(0.02)
+    raise AssertionError(f"Job {job_id} did not reach a terminal status within {timeout}s")
+
+
+def test_job_runner_marks_job_failed_on_raw_exception_with_generic_message(db_url):
+    """A raw/technical exception (not one of our human-readable domain
+    errors) must never leak str(e) to job.error — the job still ends up
+    failed (not stuck/lost), just with a generic message; full detail goes
+    to the log instead (backend/jobs/runner.py::_human_readable_message)."""
+    from backend.jobs.runner import JobRunner
+
+    runner = JobRunner(max_workers=1)
+    try:
+        def _fn(reporter):
+            raise ValueError("You are trying to merge on str and int64 columns for key 'unit_id'")
+
+        job = runner.submit("analyze", None, _fn)
+        fetched = _wait_for_terminal_status(job.id)
+        assert fetched.status == "failed"
+        assert fetched.error == "Internal processing error"
+    finally:
+        runner.shutdown(wait=True)
+
+
+def test_job_runner_marks_job_failed_with_domain_error_message_preserved(db_url):
+    """A known domain error (AnalysisError etc.) already carries a message
+    written for the user — it must pass through unchanged, not get
+    replaced by the generic fallback."""
+    from abkit.checks import AnalysisError
+    from backend.jobs.runner import JobRunner
+
+    runner = JobRunner(max_workers=1)
+    try:
+        def _fn(reporter):
+            raise AnalysisError("The data has 3 duplicate 'user_id' values — cannot analyze")
+
+        job = runner.submit("analyze", None, _fn)
+        fetched = _wait_for_terminal_status(job.id)
+        assert fetched.status == "failed"
+        assert fetched.error == "The data has 3 duplicate 'user_id' values — cannot analyze"
+    finally:
+        runner.shutdown(wait=True)
+
+
+def test_job_runner_marks_job_failed_on_base_exception_not_just_exception(db_url):
+    """Job wrapper must catch BaseException, not just Exception — a job must
+    never disappear or hang in 'running' regardless of what it raises."""
+    from backend.jobs.runner import JobRunner
+
+    runner = JobRunner(max_workers=1)
+    try:
+        def _fn(reporter):
+            raise SystemExit("simulated abrupt worker exit")
+
+        job = runner.submit("analyze", None, _fn)
+        fetched = _wait_for_terminal_status(job.id)
+        assert fetched.status == "failed"
+        assert fetched.error == "Internal processing error"
+    finally:
+        runner.shutdown(wait=True)
+
+
+def test_job_runner_heartbeat_sweep_fails_stale_running_job(db_url):
+    """A job stuck in 'running' whose heartbeat (updated_at) hasn't moved in
+    longer than the timeout is a dead/hung worker (e.g. the process was
+    OOM-killed without raising a catchable exception) — the periodic sweep
+    must mark it failed instead of leaving it running forever."""
+    from datetime import datetime, timedelta, timezone
+
+    from abkit.db.engine import session_scope
+    from abkit.db.models import Job
+    from backend.jobs.runner import JobRunner
+
+    stale = JobRepo().create(type="analyze")
+    JobRepo().mark_running(stale.id)
+    with session_scope() as s:
+        row = s.get(Job, stale.id)
+        row.updated_at = datetime.now(timezone.utc) - timedelta(minutes=31)
+
+    runner = JobRunner(max_workers=1)
+    try:
+        runner._sweep_stale_jobs()
+        fetched = JobRepo().get_by_id(stale.id)
+        assert fetched.status == "failed"
+        assert fetched.error == "Job timed out or worker died"
+    finally:
+        runner.shutdown(wait=True)
+
+
+def test_job_runner_heartbeat_sweep_leaves_recent_running_job_alone(db_url):
+    fresh = JobRepo().create(type="analyze")
+    JobRepo().mark_running(fresh.id)
+
+    from backend.jobs.runner import JobRunner
+
+    runner = JobRunner(max_workers=1)
+    try:
+        runner._sweep_stale_jobs()
+        assert JobRepo().get_by_id(fresh.id).status == "running"
+    finally:
+        runner.shutdown(wait=True)

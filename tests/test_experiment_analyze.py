@@ -2,9 +2,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import abkit.experiment as experiment_module
 from abkit.checks import AnalysisError
 from abkit.config import DesignConfig, MetricConfig
 from abkit.experiment import DesignError, Experiment
+from abkit.pipeline import MetricContext, Step
 
 
 def design_simple_experiment(tmp_path, n=4000, metrics=None, name="analyze_exp", seed=42):
@@ -90,6 +92,97 @@ def test_analyze_handles_int64_post_data_unit_id(tmp_path):
     results = experiment.analyze(post_data)
     revenue_result = results["revenue"][0]
     assert sum(revenue_result.n.values()) == n
+
+
+def test_analyze_compare_methods_completes_at_300k_rows(tmp_path):
+    """Regression for a real crash: compare_methods=True unconditionally adds
+    Bootstrap (abkit/experiment.py::compare_methods_chains) for continuous
+    metrics — Bootstrap.apply() used to materialize a full n_boot x n_units
+    resampling index matrix (~45 GB at n_boot=10000, 150k users/group),
+    which OOM-killed the whole backend process. Batched resampling
+    (ABKIT_BOOTSTRAP_BATCH) must keep this within reach on the exact scale
+    that used to crash (~300k total rows, ~150k per group) without lowering
+    n_boot from its production default."""
+    n = 300_000
+    rng = np.random.default_rng(0)
+    design_data = pd.DataFrame(
+        {"user_id": [f"u{i}" for i in range(n)], "revenue": rng.normal(100, 20, size=n)}
+    )
+    config = DesignConfig(
+        name="compare_methods_scale_exp",
+        unit_col="user_id",
+        groups={"control": 0.5, "treatment": 0.5},
+        metrics=[MetricConfig(name="revenue", type="continuous")],
+        sample_size=n,
+        split_method="simple",
+        seed=42,
+    )
+    experiment = Experiment.design(config, design_data, experiments_dir=tmp_path)
+    post_data = pd.DataFrame(
+        {"user_id": experiment.assignments["unit_id"], "revenue": rng.normal(100, 20, size=n)}
+    )
+
+    results = experiment.analyze(post_data, compare_methods=True)
+
+    bootstrap_results = [r for r in results["revenue"] if r.method.startswith("Bootstrap")]
+    assert len(bootstrap_results) == 1
+    assert "(failed)" not in bootstrap_results[0].method
+    assert not np.isnan(bootstrap_results[0].p_value)
+
+
+class _AlwaysFailStep(Step):
+    stage = "test"
+
+    @property
+    def name(self):
+        return "AlwaysFail"
+
+    def apply(self, ctx: MetricContext) -> MetricContext:
+        raise ValueError("synthetic failure for test")
+
+
+def test_analyze_single_failed_comparison_method_does_not_kill_others(tmp_path, monkeypatch):
+    """A single alternative method (compare_methods=True) raising must not
+    take down the designed method or the other alternatives — it shows up
+    as its own 'failed' result instead (see
+    abkit/experiment.py::_failed_method_result and the extra_chains loop in
+    analyze())."""
+    experiment = design_simple_experiment(tmp_path)
+    rng = np.random.default_rng(9)
+    assignments = experiment.assignments
+    n = len(assignments)
+    post_data = pd.DataFrame(
+        {
+            "user_id": assignments["unit_id"],
+            "revenue": rng.normal(100, 20, size=n),
+            "clicks": rng.binomial(1, 0.10, size=n),
+        }
+    )
+
+    from abkit.analysis.tests import WelchTTest
+
+    def fake_chains(metric, seed=None):
+        if metric.type != "continuous":
+            return []
+        return [[_AlwaysFailStep()], [WelchTTest()]]
+
+    monkeypatch.setattr(experiment_module, "compare_methods_chains", fake_chains)
+
+    results = experiment.analyze(post_data, compare_methods=True)
+    revenue_results = results["revenue"]
+
+    designed = [r for r in revenue_results if r.is_designed_method]
+    assert len(designed) == 1  # designed method still computed normally
+
+    failed = [r for r in revenue_results if "(failed)" in r.method]
+    assert len(failed) == 1
+    assert np.isnan(failed[0].p_value)
+    assert failed[0].warnings and failed[0].warnings[0].startswith("failed: synthetic failure")
+
+    succeeded_extra = [
+        r for r in revenue_results if not r.is_designed_method and "(failed)" not in r.method
+    ]
+    assert len(succeeded_extra) == 1  # the other alternative (WelchTTest) still completed
 
 
 def test_analyze_no_effect_gives_no_effect_verdict(tmp_path):
