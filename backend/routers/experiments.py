@@ -500,7 +500,7 @@ def put_blocks(
     ]
 
 
-def _load_dataset_df(dataset_id: str) -> pd.DataFrame:
+def _load_dataset_df(dataset_id: str, unit_col: str | None = None) -> pd.DataFrame:
     try:
         parsed_id = uuid_mod.UUID(dataset_id)
     except ValueError as e:
@@ -508,7 +508,10 @@ def _load_dataset_df(dataset_id: str) -> pd.DataFrame:
     dataset = DatasetRepo().get_by_id(parsed_id)
     if dataset is None:
         raise APIError(404, "not_found", f"Dataset '{dataset_id}' not found")
-    return pd.read_csv(dataset.storage_path)
+    # unit_col как str: иначе числовой ID с ведущими нулями ("007123")
+    # необратимо теряет их при авто-парсинге pandas в int64.
+    dtype = {unit_col: str} if unit_col else None
+    return pd.read_csv(dataset.storage_path, dtype=dtype)
 
 
 def _save_analysis(
@@ -550,7 +553,10 @@ def start_analyze(
     runner: JobRunner = Depends(get_job_runner),
 ) -> JobAccepted:
     _visible_or_404(_get_experiment_or_404(name), user)
-    data = _load_dataset_df(body.dataset_id)
+    from abkit.experiment import Experiment
+
+    unit_col = Experiment.load(name).config.unit_col
+    data = _load_dataset_df(body.dataset_id, unit_col=unit_col)
 
     def _run(reporter) -> dict[str, Any]:
         from abkit.experiment import Experiment
@@ -618,8 +624,11 @@ def start_validate(
 ) -> JobAccepted:
     import dataclasses
 
+    from abkit.experiment import Experiment
+
     _visible_or_404(_get_experiment_or_404(name), user)
-    data = _load_dataset_df(body.dataset_id)
+    unit_col = Experiment.load(name).config.unit_col
+    data = _load_dataset_df(body.dataset_id, unit_col=unit_col)
     used_dataset = DatasetRepo().get_by_id(uuid_mod.UUID(body.dataset_id))
 
     def _run(reporter) -> dict[str, Any]:

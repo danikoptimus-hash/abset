@@ -72,6 +72,50 @@ def _design_experiment(app_client, name: str) -> None:
     assert job["status"] == "completed", job
 
 
+def _zero_pad_design_csv(n=200) -> str:
+    lines = ["user_id,revenue"] + [f"{i:05d},{100 + i % 10}.5" for i in range(n)]
+    return "\n".join(lines)
+
+
+def _zero_pad_post_csv(n=200) -> str:
+    lines = ["user_id,revenue"] + [f"{i:05d},{95 + i % 15}" for i in range(n)]
+    return "\n".join(lines)
+
+
+def test_analyze_purely_numeric_unit_id_joins_without_losing_leading_zeros(
+    app_client, tmp_path, monkeypatch
+):
+    """Regression for the unit_id dtype-mismatch bug: a post-analysis CSV
+    whose unit_id column is purely numeric with leading zeros (e.g. "00007")
+    must join fully against assignments. Without the dtype=str read-time
+    hint pandas auto-parses it as int64 first, which both strips the leading
+    zeros irrecoverably AND used to crash the merge with a str-vs-int64
+    dtype error."""
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+
+    dataset_id = _upload_csv(app_client, _zero_pad_design_csv())
+    resp = app_client.post(
+        "/api/v1/design", json={"config": _design_config("zero_pad_exp"), "dataset_id": dataset_id},
+    )
+    job = _poll_job(app_client, resp.json()["job_id"])
+    assert job["status"] == "completed", job
+
+    post_dataset_id = _upload_csv(
+        app_client, _zero_pad_post_csv(), kind="post_analysis", experiment_name="zero_pad_exp"
+    )
+    resp = app_client.post(
+        "/api/v1/experiments/zero_pad_exp/analyze", json={"dataset_id": post_dataset_id},
+    )
+    assert resp.status_code == 202
+    job = _poll_job(app_client, resp.json()["job_id"])
+    assert job["status"] == "completed", job
+
+    results = app_client.get("/api/v1/experiments/zero_pad_exp/results").json()
+    revenue_result = next(r for r in results["results"] if r["metric"] == "revenue")
+    assert sum(revenue_result["n"].values()) == 200
+
+
 def test_analyze_requires_dataset_and_populates_results_endpoint(app_client, tmp_path, monkeypatch):
     monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
     _login(app_client)

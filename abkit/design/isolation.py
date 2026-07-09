@@ -9,6 +9,7 @@ from typing import Literal, Protocol
 import pandas as pd
 
 from abkit import storage
+from abkit.idnorm import normalize_id_series
 
 _ACTIVE_STATUSES = ("designed", "running")
 
@@ -133,7 +134,12 @@ def apply_isolation(
             active.pop(current_experiment_name, None)
         occupied = _collect_occupied_units(active)
 
-    candidate_units = set(data[unit_col])
+    # unit_id — идентификатор, не число: приводим обе стороны к str перед
+    # сравнением, иначе dtype-рассинхрон (эта функция vs. другой эксперимент
+    # / другой источник данных) молча даст пустое пересечение вместо ошибки.
+    occupied = {name: set(normalize_id_series(pd.Series(list(units)))) for name, units in occupied.items()}
+    normalized_col = normalize_id_series(data[unit_col])
+    candidate_units = set(normalized_col)
 
     excluded_by_experiment: dict[str, int] = {}
     excluded_units: set = set()
@@ -144,7 +150,7 @@ def apply_isolation(
             excluded_units |= overlap
 
     if mode in ("exclude", "exclude_selected") and excluded_units:
-        candidates = data[~data[unit_col].isin(excluded_units)]
+        candidates = data[~normalized_col.isin(excluded_units)]
     else:
         candidates = data
 

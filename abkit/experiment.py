@@ -19,6 +19,7 @@ from abkit.config import DesignConfig, MetricConfig
 from abkit.design import isolation, power
 from abkit.design.splitter import split as run_split
 from abkit.design.stratification import build_strata, nan_counts_by_column
+from abkit.idnorm import normalize_id_series
 from abkit.pipeline import MetricContext, Pipeline, Step
 from abkit.preprocessing.outliers import RemoveOutliers, Winsorize
 
@@ -542,7 +543,7 @@ class Experiment:
 
         assignments = pd.DataFrame(
             {
-                "unit_id": candidates[config.unit_col].to_numpy(),
+                "unit_id": normalize_id_series(candidates[config.unit_col]).to_numpy(),
                 "group": split_result.group.to_numpy(),
                 "stratum": stratum.to_numpy(),
                 "assigned_at": pd.Timestamp.now(tz="UTC"),
@@ -660,7 +661,13 @@ class Experiment:
         (без разбивки по дням), агрегация — no-op, и это в точности воспроизводит
         "кумулятивное включение юзеров по дате их события".
         """
-        joined = self.assignments.merge(
+        assignments = self.assignments.assign(
+            unit_id=normalize_id_series(self.assignments["unit_id"])
+        )
+        data = data.assign(
+            **{self.config.unit_col: normalize_id_series(data[self.config.unit_col])}
+        )
+        joined = assignments.merge(
             data, left_on="unit_id", right_on=self.config.unit_col, how="inner"
         )
         joined = joined[joined["group"].isin([control_name, treat_name])].copy()

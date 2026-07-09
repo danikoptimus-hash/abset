@@ -53,6 +53,45 @@ def test_analyze_detects_injected_positive_effect(tmp_path):
     assert results.verdict("revenue") == "significant_positive"
 
 
+def test_analyze_handles_int64_post_data_unit_id(tmp_path):
+    """Regression: a post-data CSV with a purely-numeric unit_id column is
+    auto-parsed by pandas as int64. assignments.unit_id is normalized to str
+    at design time — the join must still match every unit, not crash or
+    silently drop everyone."""
+    n = 4000
+    rng = np.random.default_rng(0)
+    design_data = pd.DataFrame(
+        {
+            "user_id": np.arange(n),
+            "revenue": rng.normal(100, 20, size=n),
+            "clicks": rng.binomial(1, 0.10, size=n),
+        }
+    )
+    config = DesignConfig(
+        name="analyze_int64_exp",
+        unit_col="user_id",
+        groups={"control": 0.5, "treatment": 0.5},
+        metrics=[MetricConfig(name="revenue", type="continuous"), MetricConfig(name="clicks", type="binary")],
+        sample_size=n,
+        split_method="simple",
+        seed=42,
+    )
+    experiment = Experiment.design(config, design_data, experiments_dir=tmp_path)
+    assert isinstance(experiment.assignments["unit_id"].iloc[0], str)
+
+    rng2 = np.random.default_rng(7)
+    post_data = pd.DataFrame(
+        {
+            "user_id": pd.array(range(n), dtype="int64"),
+            "revenue": rng2.normal(100, 20, size=n),
+            "clicks": rng2.binomial(1, 0.10, size=n),
+        }
+    )
+    results = experiment.analyze(post_data)
+    revenue_result = results["revenue"][0]
+    assert sum(revenue_result.n.values()) == n
+
+
 def test_analyze_no_effect_gives_no_effect_verdict(tmp_path):
     experiment = design_simple_experiment(tmp_path)
     rng = np.random.default_rng(6)

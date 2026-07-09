@@ -66,10 +66,12 @@ def start_design(
     dataset = DatasetRepo().get_by_id(dataset_uuid)
     if dataset is None:
         raise APIError(404, "not_found", f"Dataset '{body.dataset_id}' not found")
-    data = pd.read_csv(dataset.storage_path)
 
     config = body.config
     confirmed = body.confirmed
+    # unit_col как str: иначе числовой ID с ведущими нулями ("007123")
+    # необратимо теряет их при авто-парсинге pandas в int64.
+    data = pd.read_csv(dataset.storage_path, dtype={config.unit_col: str})
 
     def _run(reporter: ProgressReporter) -> dict[str, Any]:
         from abkit.jobs import run_design

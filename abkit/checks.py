@@ -10,6 +10,7 @@ import pandas as pd
 from scipy import stats as sp_stats
 
 from abkit.config import MetricConfig
+from abkit.idnorm import normalize_id_series
 
 
 @dataclass
@@ -136,9 +137,14 @@ def join_with_assignments(
     """Inner join фактических данных с назначениями групп по unit_col.
 
     Перед джойном проверяет отсутствие дублей в данных (assignments по построению
-    уникальны — гарантируется storage/splitter).
+    уникальны — гарантируется storage/splitter). Ключ с обеих сторон
+    приводится к str (astype+strip) перед merge — ID это идентификатор, а не
+    число, и старые assignments.parquet (файловый режим, до этой правки)
+    могут все еще хранить unit_id числовым.
     """
     check_no_duplicates(data, unit_col)
+    assignments = assignments.assign(unit_id=normalize_id_series(assignments["unit_id"]))
+    data = data.assign(**{unit_col: normalize_id_series(data[unit_col])})
     return assignments.merge(data, left_on="unit_id", right_on=unit_col, how="inner")
 
 
@@ -164,8 +170,8 @@ def check_data_loss(
     — красный флаг: например, группа treatment теряет данные иначе, чем control.
     """
     assigned_counts = assignments["group"].value_counts().to_dict()
-    present_set = set(present_unit_ids)
-    present_mask = assignments["unit_id"].isin(present_set)
+    present_set = set(normalize_id_series(pd.Series(present_unit_ids)))
+    present_mask = normalize_id_series(assignments["unit_id"]).isin(present_set)
     present_counts = assignments.loc[present_mask, "group"].value_counts().to_dict()
 
     names = list(assigned_counts.keys())

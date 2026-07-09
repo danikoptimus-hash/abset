@@ -83,5 +83,5 @@ def register_exception_handlers(app: FastAPI) -> None:
         get_logger("backend.errors").error("unhandled_exception", exc_info=True, path=str(request.url))
         return JSONResponse(
             status_code=500,
-            content=_error_body("internal_error", "Internal server error"),
+            content=_error_body("internal_error", "Internal processing error"),
         )

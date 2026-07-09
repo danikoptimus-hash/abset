@@ -81,3 +81,51 @@ def test_check_data_loss_reports_assigned_and_present_counts():
     assert sum(result.assigned.values()) == 100
     assert sum(result.present.values()) == 80
     assert sum(result.missing.values()) == 20
+
+
+def make_numeric_assignments(n=10):
+    return pd.DataFrame(
+        {
+            "unit_id": [str(i) for i in range(n)],
+            "group": ["control"] * (n // 2) + ["treatment"] * (n // 2),
+            "stratum": ["_all_"] * n,
+            "assigned_at": pd.Timestamp.now(),
+        }
+    )
+
+
+def test_join_with_assignments_handles_int64_data_unit_id():
+    """Regression: assignments.unit_id is str (file-mode storage), but a
+    post-analysis CSV with a purely-numeric id column is auto-parsed by
+    pandas as int64 — merging used to crash with "You are trying to merge
+    on str and int64 columns for key 'unit_id'". Both sides must be coerced
+    to str before the merge, and matching data rows join successfully."""
+    assignments = make_numeric_assignments(10)
+    data = pd.DataFrame({"user_id": pd.array(range(10), dtype="int64"), "revenue": range(10)})
+    merged = join_with_assignments(assignments, data, "user_id")
+    assert len(merged) == 10
+
+
+def test_join_with_assignments_preserves_leading_zeros():
+    """IDs like '007' must not be mangled by the join-time str coercion."""
+    assignments = pd.DataFrame(
+        {
+            "unit_id": ["007", "008", "009"],
+            "group": ["control", "treatment", "control"],
+            "stratum": ["_all_"] * 3,
+            "assigned_at": pd.Timestamp.now(),
+        }
+    )
+    data = pd.DataFrame({"user_id": ["007", "008", "009"], "revenue": [1, 2, 3]})
+    merged = join_with_assignments(assignments, data, "user_id")
+    assert set(merged["unit_id"]) == {"007", "008", "009"}
+
+
+def test_check_data_loss_handles_int64_present_ids():
+    """Regression: present_unit_ids (e.g. merged["unit_id"] from an int64
+    source) compared via .isin() against str assignments used to silently
+    mismatch (no exception, but 100% false 'missing') instead of matching."""
+    assignments = make_numeric_assignments(10)
+    present_ids = pd.Series(pd.array(range(10), dtype="int64"))
+    result = check_data_loss(assignments, present_ids)
+    assert result.missing == {"control": 0, "treatment": 0}

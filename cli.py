@@ -30,7 +30,7 @@ app = typer.Typer(add_completion=False, help=f"{PRODUCT_NAME} — A/B test desig
 console = Console(legacy_windows=False)
 
 
-def _load_data(path: str) -> pd.DataFrame:
+def _load_data(path: str, unit_col: str | None = None) -> pd.DataFrame:
     file_path = Path(path)
     if not file_path.exists():
         console.print(f"[red]Error:[/red] file '{path}' not found")
@@ -39,7 +39,10 @@ def _load_data(path: str) -> pd.DataFrame:
     if suffix == ".parquet":
         return pd.read_parquet(file_path)
     if suffix == ".csv":
-        return pd.read_csv(file_path)
+        # unit_col как str: иначе числовой ID с ведущими нулями ("007123")
+        # необратимо теряет их при авто-парсинге pandas в int64.
+        dtype = {unit_col: str} if unit_col else None
+        return pd.read_csv(file_path, dtype=dtype)
     console.print(f"[red]Error:[/red] unsupported file format '{suffix}' (need .csv or .parquet)")
     raise typer.Exit(code=1)
 
@@ -229,7 +232,7 @@ def analyze(
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(code=1)
 
-    analyze_data = _load_data(data)
+    analyze_data = _load_data(data, unit_col=experiment.config.unit_col)
     try:
         results = experiment.analyze(
             analyze_data, correction=correction, compare_methods=compare, date_col=date_col
@@ -259,7 +262,7 @@ def validate(
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(code=1)
 
-    sim_data = _load_data(data)
+    sim_data = _load_data(data, unit_col=experiment.config.unit_col)
 
     console.print(f"Running A/A validation ({n_sims} simulations)...")
     try:

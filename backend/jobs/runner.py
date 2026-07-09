@@ -18,6 +18,22 @@ from abkit.logging_config import get_logger
 log = get_logger("backend.jobs")
 
 
+def _human_readable_message(exc: Exception) -> str:
+    """job.error долетает до UI как есть (GET /jobs/{id}) — доменные исключения
+    (AnalysisError/DesignError/PipelineError/StorageError) уже несут
+    сообщение, написанное для пользователя, пробрасываем его. Все прочее
+    (сырые pandas/Python-исключения вроде ValueError на merge несовместимых
+    dtype) технического вида и никогда не должно долетать до UI — полная
+    трассировка уже ушла в лог (см. вызов ниже), сюда — только общая фраза."""
+    from abkit import checks, storage
+    from abkit.experiment import DesignError
+    from abkit.pipeline import PipelineError
+
+    if isinstance(exc, (checks.AnalysisError, DesignError, PipelineError, storage.StorageError)):
+        return str(exc)
+    return "Internal processing error"
+
+
 class RequiresConfirmation(Exception):
     """Job-функция бросает это, если нужно подтверждение пользователя (напр.
     isolation=warn с непустым пересечением, FRONTEND.md §3.2) — JobRunner
@@ -74,7 +90,7 @@ class JobRunner:
             self._repo.mark_requires_confirmation(job_id, e.payload)
         except Exception as e:
             log.error("job.failed", job_id=str(job_id), exc_info=True)
-            self._repo.mark_failed(job_id, str(e))
+            self._repo.mark_failed(job_id, _human_readable_message(e))
         else:
             self._repo.mark_completed(job_id, result)
 

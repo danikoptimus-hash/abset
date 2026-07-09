@@ -1,5 +1,8 @@
-import { Typography, Table, Tag, Space, Button, Alert, Descriptions } from 'antd'
+import { Typography, Table, Tag, Space, Button, Alert, Descriptions, Collapse, Spin } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
+import { useQuery } from '@tanstack/react-query'
+import { apiClient } from '../../api/client'
+import { RelativeTime } from '../../components/RelativeTime'
 import { getComputed } from './types'
 import type { ComputedDesignSummary } from './types'
 
@@ -131,6 +134,76 @@ function mdeTable(computed: ComputedDesignSummary) {
   return <Table size="small" dataSource={rows} columns={columns} pagination={false} />
 }
 
+function DesignDataSection({ name }: { name: string }) {
+  const { data: dataset, isFetching: datasetLoading } = useQuery({
+    queryKey: ['experiment-design-dataset', name],
+    queryFn: async () => {
+      const { data, error } = await apiClient.GET('/api/v1/experiments/{name}/design-dataset', {
+        params: { path: { name } },
+      })
+      if (error) return null
+      return data
+    },
+  })
+
+  const { data: preview, isFetching: previewLoading } = useQuery({
+    queryKey: ['experiment-design-dataset-preview', dataset?.id],
+    enabled: !!dataset,
+    queryFn: async () => {
+      const { data } = await apiClient.GET('/api/v1/datasets/{dataset_id}/preview', {
+        params: { path: { dataset_id: dataset!.id }, query: { rows: 10 } },
+      })
+      return data?.rows ?? []
+    },
+  })
+
+  return (
+    <>
+      <Typography.Title level={5} style={{ marginTop: 24 }}>Design Data</Typography.Title>
+      {datasetLoading ? (
+        <Spin size="small" />
+      ) : dataset ? (
+        <>
+          <Descriptions bordered column={1} size="small" style={{ marginBottom: 16, maxWidth: 640 }}>
+            <Descriptions.Item label="File">{dataset.filename}</Descriptions.Item>
+            <Descriptions.Item label="Rows">{dataset.n_rows}</Descriptions.Item>
+            <Descriptions.Item label="Columns">{dataset.columns.length}</Descriptions.Item>
+            <Descriptions.Item label="Uploaded">
+              <RelativeTime iso={dataset.uploaded_at} />
+            </Descriptions.Item>
+          </Descriptions>
+          <Collapse
+            size="small"
+            style={{ marginBottom: 16 }}
+            items={[
+              {
+                key: 'preview',
+                label: 'Preview data',
+                children: previewLoading ? (
+                  <Spin size="small" />
+                ) : preview && preview.length > 0 ? (
+                  <Table
+                    size="small"
+                    dataSource={preview}
+                    rowKey={(_, i) => String(i)}
+                    pagination={false}
+                    scroll={{ x: true }}
+                    columns={Object.keys(preview[0]).map((k) => ({ title: k, dataIndex: k }))}
+                  />
+                ) : (
+                  <Typography.Text type="secondary">No rows to preview.</Typography.Text>
+                ),
+              },
+            ]}
+          />
+        </>
+      ) : (
+        <Alert type="info" showIcon message="No stored design data" style={{ marginBottom: 16 }} />
+      )}
+    </>
+  )
+}
+
 export function DesignSection({ name, config, availableReports }: Props) {
   const computed = getComputed(config)
 
@@ -138,6 +211,8 @@ export function DesignSection({ name, config, availableReports }: Props) {
     <div>
       <Typography.Title level={5}>Configuration</Typography.Title>
       <ConfigSummary config={config} />
+
+      <DesignDataSection name={name} />
 
       {computed ? (
         <>
