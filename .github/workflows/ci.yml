@@ -8,6 +8,13 @@ on:
 permissions:
   contents: read
 
+# Отменяет предыдущий незавершенный прогон для той же ветки при новом push —
+# без этого несколько быстрых коммитов подряд ставят в очередь несколько
+# полных прогонов и жгут Actions-квоту на уже устаревшие ревизии.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -116,6 +123,12 @@ jobs:
       - name: npm ci
         working-directory: frontend
         run: npm ci
+
+      - name: Кэш браузеров Playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
 
       - name: Установить браузеры Playwright
         working-directory: frontend
