@@ -109,7 +109,7 @@ export function LoginPage() {
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#F7F7F7' }}>
       <Card style={{ width: 360 }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <img src={logo} alt="ABKit" style={{ height: 88, width: 'auto', display: 'block', margin: '0 auto' }} />
+          <img src={logo} alt="ABKit" style={{ height: 120, width: 'auto', display: 'block', margin: '0 auto' }} />
           <Typography.Text type="secondary">Sign in</Typography.Text>
         </div>
         {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />}

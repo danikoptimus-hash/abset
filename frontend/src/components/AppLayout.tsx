@@ -69,14 +69,10 @@ export function AppLayout() {
       <Header style={{ display: 'flex', alignItems: 'center', background: '#fff', borderBottom: '1px solid #E0E0E0' }}>
         <Link
           to="/experiments"
-          style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            fontWeight: 700, fontSize: 18, color: '#2E8B6D', marginRight: 32,
-            textDecoration: 'none',
-          }}
+          className="navbar-logo-link"
+          style={{ display: 'flex', alignItems: 'center', marginRight: 32 }}
         >
-          <img src={logo} alt="" style={{ height: 30, width: 'auto', display: 'block' }} />
-          {PRODUCT_NAME}
+          <img src={logo} alt={PRODUCT_NAME} style={{ height: 42, width: 'auto', display: 'block' }} />
         </Link>
         <Menu mode="horizontal" selectedKeys={[selectedKey]} items={NAV_ITEMS} style={{ flex: 1, borderBottom: 'none' }} />
         {user && (
