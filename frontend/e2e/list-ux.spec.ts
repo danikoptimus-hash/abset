@@ -14,6 +14,17 @@ test('owner avatar tooltip, relative last-modified time, and hover-reveal action
   const row = page.getByRole('row', { name: new RegExp(name) })
   await expect(row).toBeVisible()
 
+  // Actions are hover-reveal: opacity 0 until the row is hovered. Checked
+  // BEFORE any other hover in this test (moving the mouse onto the avatar
+  // below also puts the row into :hover). Regression guard for a real bug
+  // (fixed alongside the navbar logo work): index.css was never imported
+  // anywhere, so this opacity rule silently never applied and the buttons
+  // were always visible — toBeVisible() alone doesn't catch that
+  // (Playwright doesn't treat opacity:0 as hidden), so this checks the
+  // computed style directly.
+  const actions = row.locator('.hover-actions')
+  await expect(actions).toHaveCSS('opacity', '0')
+
   // Owner avatar shows initials and a full-name/email tooltip on hover.
   await row.locator('.ant-avatar').first().hover()
   await expect(page.getByRole('tooltip')).toContainText('@')
@@ -21,8 +32,8 @@ test('owner avatar tooltip, relative last-modified time, and hover-reveal action
   // Last Modified shows a relative time (freshly seeded, so "... ago").
   await expect(row.getByText(/ago|few seconds/)).toBeVisible()
 
-  // Actions are hover-reveal: hovering the row makes Edit/Delete clickable.
   await row.hover()
+  await expect(actions).toHaveCSS('opacity', '1')
   await expect(row.getByRole('button', { name: 'Edit' })).toBeVisible()
   await expect(row.getByRole('button', { name: 'Delete' })).toBeVisible()
 })
