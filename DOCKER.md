@@ -3,6 +3,8 @@
 Техническое задание для реализации поверх текущего (на момент написания) состояния проекта abkit (Streamlit-приложение + библиотека). Цель — превратить локальный инструмент в командный сервис, который разворачивается так же просто, как Apache Superset: `git clone` → `docker compose up` → работает.
 
 > **Примечание (после R8 FRONTEND.md):** сервис `app` (Streamlit) ниже по документу — историческая архитектура на момент написания этого ТЗ. Streamlit удален, интерфейс — React-UI + FastAPI backend (сервисы `backend`/`frontend`), см. [FRONTEND.md](FRONTEND.md) и актуальные [docker-compose.yml](docker-compose.yml) / [docker/README.md](docker/README.md). Модель ролей/аутентификации/аудита/БД (разделы 3-6, 9-11) не менялась и остается актуальной — только транспорт (UI) сменился.
+>
+> **Примечание (Database Connections, DB1-DB5):** схема раздела 5 ниже не включает таблицы, добавленные позже — `database_connections` (подключения к внешним БД, пароль зашифрован Fernet) и `experiment_datasets` (связь эксперимент↔датасет many-to-many с `kind`); таблица `datasets` дополнена полями `source` (upload|sql|demo), `connection_id`, `sql_text`, `fetched_at`. Новые env: `ABKIT_SQL_MAX_ROWS`, `ABKIT_SQL_TIMEOUT_SEC` (см. `.env.example`). Архитектура и мотивация — [CLAUDE.md](CLAUDE.md) §«Database Connections + датасет-центричная модель», настройка — [docker/README.md](docker/README.md) §«Подключения к базам данных».
 
 Референс по UX учетных записей — Apache Superset: администратор создает пользователей через веб-интерфейс или CLI, назначает роли, пользователи логинятся по email/паролю. Повторяем эту модель.
 
