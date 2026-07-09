@@ -146,7 +146,10 @@ def get_experiment(name: str, user: CurrentUser = Depends(get_current_user)) -> 
     )
     return ExperimentDetail(
         name=exp.name, status=exp.status, publication_status=exp.publication_status,
-        owner_email=owner.email if owner else None, owner_name=owner.full_name if owner else None,
+        owner_id=str(exp.owner_id) if exp.owner_id else None,
+        owner_email=owner.email if owner else None,
+        owner_first_name=owner.first_name if owner else None,
+        owner_last_name=owner.last_name if owner else None,
         can_edit=user.role in ("editor", "admin") and is_owner_or_granted(user, exp),
         config=exp.config, design_summary=exp.design_summary,
         created_at=exp.created_at, started_at=exp.started_at,

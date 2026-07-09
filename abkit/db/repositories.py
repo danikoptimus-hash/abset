@@ -202,11 +202,15 @@ class ExperimentRepo:
             return exp
 
     def list_all(self, *, active_only: bool = False) -> list[Experiment]:
+        """Newest first — the default (unfiltered, unsearched) list view is
+        meant to surface recent activity, same as "Last Modified" sorting
+        implies; oldest-first was hiding brand new experiments off the first
+        page entirely once the table passed page_size rows."""
         with session_scope() as s:
             stmt = select(Experiment)
             if active_only:
                 stmt = stmt.where(Experiment.status.in_(_ACTIVE_STATUSES))
-            exps = list(s.scalars(stmt.order_by(Experiment.created_at)))
+            exps = list(s.scalars(stmt.order_by(Experiment.created_at.desc())))
             for e in exps:
                 s.expunge(e)
             return exps

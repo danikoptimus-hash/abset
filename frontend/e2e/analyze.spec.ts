@@ -13,7 +13,7 @@ test('analyze with demo post-data shows verdicts and forest plot, then exports t
   await loginViaUi(page)
 
   await page.goto(`/experiments/${name}`)
-  await expect(page.getByRole('heading', { name: 'Analysis' })).toBeVisible()
+  await page.getByRole('tab', { name: 'Analysis' }).click()
 
   await page.getByRole('button', { name: /Generate demo post-period data/ }).click()
   await expect(
@@ -25,6 +25,9 @@ test('analyze with demo post-data shows verdicts and forest plot, then exports t
   // text locator, but the container must exist and be visible.
   await expect(page.locator('canvas').first()).toBeVisible()
 
+  // Detailed table and CSV export live on the Results tab (UX package,
+  // section 2: Analysis has verdicts+charts, Results has the table).
+  await page.getByRole('tab', { name: 'Results' }).click()
   await expect(page.getByText('Detailed Results Table')).toBeVisible()
   const downloadPromise = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Export CSV' }).click()

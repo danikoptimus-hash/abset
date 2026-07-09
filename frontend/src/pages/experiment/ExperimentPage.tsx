@@ -1,22 +1,85 @@
 import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Typography, Tag, Select, Button, Space, Spin, Result, message, Input, Dropdown } from 'antd'
-import { EditOutlined, SaveOutlined, CloseOutlined, DownloadOutlined, MoreOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons'
+import { Typography, Tag, Button, Spin, Result, message, Input, Dropdown, Tooltip, Tabs } from 'antd'
+import { EditOutlined, SaveOutlined, CloseOutlined, MoreOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons'
 import { apiClient, errorMessage } from '../../api/client'
 import { DeleteExperimentModal } from '../../components/DeleteExperimentModal'
 import { ExperimentPropertiesModal } from '../../components/ExperimentPropertiesModal'
+import { UserAvatar } from '../../components/UserAvatar'
 import { DesignSection } from './DesignSection'
 import { AnalyzeSection } from './AnalyzeSection'
+import { ResultsSection } from './ResultsSection'
 import { HistorySection } from './HistorySection'
 import { MarkdownBlockView } from './MarkdownBlockView'
 import type { BlockDraft } from './MarkdownBlockView'
 
-const STATUS_OPTIONS = ['designed', 'running', 'completed', 'archived']
+// Forward-only lifecycle with an "archived" escape hatch from anywhere, and
+// unarchiving back to any state — the backend doesn't enforce a state
+// machine (any status can be set to any other), this is just what the
+// status-badge dropdown offers as sensible next steps (UX package, 1.2).
+const STATUS_TRANSITIONS: Record<string, string[]> = {
+  designed: ['running', 'archived'],
+  running: ['completed', 'archived'],
+  completed: ['archived'],
+  archived: ['designed', 'running', 'completed'],
+}
+
+function PublicationBadge({
+  status, canEdit, onToggle,
+}: {
+  status: string
+  canEdit: boolean
+  onToggle: () => void
+}) {
+  const isPublished = status === 'published'
+  const tag = (
+    <Tag
+      color={isPublished ? 'success' : 'default'}
+      style={canEdit ? { cursor: 'pointer' } : undefined}
+      onClick={canEdit ? onToggle : undefined}
+    >
+      {status}
+    </Tag>
+  )
+  if (!canEdit) return tag
+  return <Tooltip title={isPublished ? 'Click to unpublish' : 'Click to publish'}>{tag}</Tooltip>
+}
+
+function StatusBadge({
+  status, canEdit, onChange,
+}: {
+  status: string
+  canEdit: boolean
+  onChange: (to: string) => void
+}) {
+  const tag = <Tag style={canEdit ? { cursor: 'pointer' } : undefined}>{status}</Tag>
+  if (!canEdit) return tag
+  const transitions = STATUS_TRANSITIONS[status] ?? []
+  return (
+    <Dropdown
+      trigger={['click']}
+      menu={{
+        items: transitions.length
+          ? transitions.map((s) => ({ key: s, label: `Move to ${s}` }))
+          : [{ key: 'none', label: 'No transitions available', disabled: true }],
+        onClick: ({ key }) => {
+          if (transitions.includes(key)) onChange(key)
+        },
+      }}
+    >
+      {tag}
+    </Dropdown>
+  )
+}
+
+const TAB_KEYS = ['design', 'analysis', 'results', 'history'] as const
+type TabKey = (typeof TAB_KEYS)[number]
 
 export function ExperimentPage() {
   const { name } = useParams<{ name: string }>()
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [editing, setEditing] = useState(false)
   const [draftBlocks, setDraftBlocks] = useState<BlockDraft[]>([])
@@ -24,6 +87,20 @@ export function ExperimentPage() {
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [propertiesTarget, setPropertiesTarget] = useState<string | null>(null)
+
+  const rawTab = searchParams.get('tab')
+  const activeTab: TabKey = TAB_KEYS.includes(rawTab as TabKey) ? (rawTab as TabKey) : 'design'
+  const setActiveTab = (key: string) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (key === 'design') next.delete('tab')
+        else next.set('tab', key)
+        return next
+      },
+      { replace: true },
+    )
+  }
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['experiment', name],
@@ -137,106 +214,114 @@ export function ExperimentPage() {
 
   return (
     <div>
-      <Space align="center" style={{ marginBottom: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
         {editing ? (
-          <Input value={draftName} onChange={(e) => setDraftName(e.target.value)} style={{ width: 300 }} />
+          <Input value={draftName} onChange={(e) => setDraftName(e.target.value)} style={{ width: 260 }} />
         ) : (
           <Typography.Title level={3} style={{ margin: 0 }}>
             {data.name}
           </Typography.Title>
         )}
-        <Tag color={data.publication_status === 'published' ? 'success' : 'default'}>{data.publication_status}</Tag>
-        <Tag>{data.status}</Tag>
-        {canEdit && !editing && (
-          <Dropdown
-            menu={{
-              items: [
-                { key: 'properties', icon: <SettingOutlined />, label: 'Edit Properties', onClick: () => setPropertiesTarget(name) },
-                { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true, onClick: () => setDeleteTarget(name) },
-              ],
-            }}
-            trigger={['click']}
-          >
-            <Button icon={<MoreOutlined />} aria-label="More actions" />
-          </Dropdown>
-        )}
-      </Space>
-      <Typography.Paragraph type="secondary">Owner: {data.owner_email}</Typography.Paragraph>
-
-      <Space style={{ marginBottom: 24 }} wrap>
-        {canEdit && !editing && (
-          <Button icon={<EditOutlined />} onClick={startEditing}>
-            Edit
-          </Button>
-        )}
-        {editing && (
-          <>
-            <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={saveEditing}>
-              Save
-            </Button>
-            <Button icon={<CloseOutlined />} onClick={discardEditing} disabled={saving}>
-              Discard
-            </Button>
-          </>
-        )}
-        {canEdit && !editing && (
-          <Button onClick={handleTogglePublication}>
-            {data.publication_status === 'published' ? 'Unpublish' : 'Publish'}
-          </Button>
-        )}
-        {canEdit && !editing && (
-          <Select value={data.status} style={{ width: 160 }} onChange={handleStatusChange} options={STATUS_OPTIONS.map((s) => ({ value: s, label: s }))} />
-        )}
-        <Button icon={<DownloadOutlined />} href={`/api/v1/experiments/${name}/samples.zip`}>
-          Download Samples
-        </Button>
-      </Space>
-
-      {hypothesisBlock && (
-        <MarkdownBlockView
-          block={hypothesisBlock}
-          editing={editing}
-          onChange={(patch) => updateDraftBlock(hypothesisBlock.id, patch)}
+        <PublicationBadge
+          status={data.publication_status}
+          canEdit={canEdit && !editing}
+          onToggle={handleTogglePublication}
         />
-      )}
+        <StatusBadge status={data.status} canEdit={canEdit && !editing} onChange={handleStatusChange} />
+        {data.owner_id && (
+          <UserAvatar
+            user={{
+              id: data.owner_id,
+              firstName: data.owner_first_name ?? '',
+              lastName: data.owner_last_name ?? '',
+              email: data.owner_email ?? '',
+            }}
+          />
+        )}
 
-      <DesignSection name={name} config={data.config} availableReports={data.available_reports} />
-
-      <div style={{ marginTop: 32 }}>
-        <AnalyzeSection experimentName={name} hasAssignments />
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          {canEdit && !editing && (
+            <Dropdown
+              menu={{
+                items: [
+                  { key: 'properties', icon: <SettingOutlined />, label: 'Edit Properties', onClick: () => setPropertiesTarget(name) },
+                  { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true, onClick: () => setDeleteTarget(name) },
+                ],
+              }}
+              trigger={['click']}
+            >
+              <Button icon={<MoreOutlined />} aria-label="More actions" />
+            </Dropdown>
+          )}
+          {canEdit && !editing && (
+            <Button type="primary" icon={<EditOutlined />} onClick={startEditing}>
+              Edit
+            </Button>
+          )}
+          {editing && (
+            <>
+              <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={saveEditing}>
+                Save
+              </Button>
+              <Button icon={<CloseOutlined />} onClick={discardEditing} disabled={saving}>
+                Discard
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
-      <Typography.Title level={4} style={{ marginTop: 32 }}>
-        Conclusions and Decision
-      </Typography.Title>
-      {otherBlocks.map((b) => (
-        <MarkdownBlockView
-          key={b.id ?? `new-${b.position}`}
-          block={b}
-          editing={editing}
-          onChange={(patch) => updateDraftBlock(b.id, patch)}
-          onRemove={
-            b.kind === 'custom'
-              ? () => setDraftBlocks((prev) => prev.filter((x) => x.id !== b.id))
-              : undefined
-          }
-        />
-      ))}
-      {editing && (
-        <Button
-          onClick={() =>
-            setDraftBlocks((prev) => [
-              ...prev,
-              { id: null, kind: 'custom', title: '', content_md: '', position: prev.length + 1 },
-            ])
-          }
-          style={{ marginBottom: 24 }}
-        >
-          + Add Block
-        </Button>
-      )}
-
-      <HistorySection name={name} />
+      <Tabs
+        activeKey={activeTab}
+        onChange={setActiveTab}
+        items={[
+          {
+            key: 'design',
+            label: 'Design',
+            children: (
+              <div>
+                {hypothesisBlock && (
+                  <MarkdownBlockView
+                    block={hypothesisBlock}
+                    editing={editing}
+                    onChange={(patch) => updateDraftBlock(hypothesisBlock.id, patch)}
+                  />
+                )}
+                <DesignSection name={name} config={data.config} availableReports={data.available_reports} />
+              </div>
+            ),
+          },
+          {
+            key: 'analysis',
+            label: 'Analysis',
+            children: <AnalyzeSection experimentName={name} hasAssignments />,
+          },
+          {
+            key: 'results',
+            label: 'Results',
+            children: (
+              <ResultsSection
+                experimentName={name}
+                blocks={otherBlocks}
+                editing={editing}
+                onChangeBlock={updateDraftBlock}
+                onAddBlock={() =>
+                  setDraftBlocks((prev) => [
+                    ...prev,
+                    { id: null, kind: 'custom', title: '', content_md: '', position: prev.length + 1 },
+                  ])
+                }
+                onRemoveBlock={(id) => setDraftBlocks((prev) => prev.filter((x) => x.id !== id))}
+              />
+            ),
+          },
+          {
+            key: 'history',
+            label: 'History',
+            children: <HistorySection name={name} />,
+          },
+        ]}
+      />
 
       <DeleteExperimentModal
         name={deleteTarget}

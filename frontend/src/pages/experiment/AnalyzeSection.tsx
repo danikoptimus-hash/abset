@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { Upload, Button, Space, Select, Checkbox, Typography, Alert, Progress, Tooltip } from 'antd'
-import { InboxOutlined, ThunderboltOutlined, DownloadOutlined } from '@ant-design/icons'
+import { InboxOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { UploadProps } from 'antd'
 import { apiClient, errorMessage, toFormData } from '../../api/client'
 import { useJobPolling } from '../../api/useJobPolling'
 import { AnalyzeResults } from './AnalyzeResults'
-import type { AnalysisResultsOut } from './analyzeTypes'
+import { experimentResultsQueryKey, fetchExperimentResults } from './resultsQuery'
 
 const { Dragger } = Upload
 
@@ -30,30 +30,12 @@ export function AnalyzeSection({ experimentName, hasAssignments }: { experimentN
 
   const { phase, stage, error, poll, reset } = useJobPolling<{ experiment_name: string }>()
 
-  const { data: results, refetch: refetchResults } = useQuery({
-    queryKey: ['experiment-results', experimentName],
-    enabled: false,
-    queryFn: async () => {
-      const { data, error } = await apiClient.GET('/api/v1/experiments/{name}/results', {
-        params: { path: { name: experimentName } },
-      })
-      if (error) throw new Error(errorMessage(error))
-      return data as unknown as AnalysisResultsOut
-    },
-  })
-
-  // Existing results (e.g. after a page reload) — if analysis was already
-  // run before, show it immediately without re-running.
-  useQuery({
-    queryKey: ['experiment-results-initial', experimentName],
-    queryFn: async () => {
-      const { data, error } = await apiClient.GET('/api/v1/experiments/{name}/results', {
-        params: { path: { name: experimentName } },
-      })
-      if (error) return null
-      queryClient.setQueryData(['experiment-results', experimentName], data)
-      return data
-    },
+  // Same query key as ResultsSection (Results tab) — shares one cache entry,
+  // so whichever tab mounts first fetches and invalidateQueries below
+  // refreshes both at once (including one that isn't currently mounted).
+  const { data: results } = useQuery({
+    queryKey: experimentResultsQueryKey(experimentName),
+    queryFn: () => fetchExperimentResults(experimentName),
   })
 
   const uploadProps: UploadProps = {
@@ -95,7 +77,7 @@ export function AnalyzeSection({ experimentName, hasAssignments }: { experimentN
       return
     }
     await poll(data.job_id)
-    refetchResults()
+    queryClient.invalidateQueries({ queryKey: experimentResultsQueryKey(experimentName) })
   }
 
   const runAnalyzeDemo = async () => {
@@ -109,13 +91,11 @@ export function AnalyzeSection({ experimentName, hasAssignments }: { experimentN
       return
     }
     await poll(data.job_id)
-    refetchResults()
+    queryClient.invalidateQueries({ queryKey: experimentResultsQueryKey(experimentName) })
   }
 
   return (
     <div>
-      <Typography.Title level={4}>Analysis</Typography.Title>
-
       {uploadError && <Alert type="error" showIcon message={uploadError} style={{ marginBottom: 16 }} closable onClose={() => setUploadError(null)} />}
 
       {phase !== 'running' && (
@@ -182,14 +162,7 @@ export function AnalyzeSection({ experimentName, hasAssignments }: { experimentN
         <Alert type="error" showIcon message={error} style={{ marginBottom: 24 }} />
       )}
 
-      {results && (
-        <>
-          <Button icon={<DownloadOutlined />} href={`/api/v1/experiments/${experimentName}/reports/report.html`} target="_blank" style={{ marginBottom: 24 }}>
-            Download HTML Report
-          </Button>
-          <AnalyzeResults data={results} experimentName={experimentName} />
-        </>
-      )}
+      {results && <AnalyzeResults data={results} />}
     </div>
   )
 }

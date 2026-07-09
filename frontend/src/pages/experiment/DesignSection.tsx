@@ -1,4 +1,4 @@
-import { Typography, Table, Tag, Space, Button, Alert } from 'antd'
+import { Typography, Table, Tag, Space, Button, Alert, Descriptions, Collapse } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
 import { getComputed } from './types'
 import type { ComputedDesignSummary } from './types'
@@ -9,6 +9,15 @@ interface Props {
   availableReports: string[]
 }
 
+interface RawMetric {
+  name: string
+  type: string
+  role: string
+  pre_col?: string | null
+  num?: string | null
+  den?: string | null
+}
+
 function CheckBadge({ label, passed, detail }: { label: string; passed: boolean; detail: string }) {
   return (
     <Space direction="vertical" size={0} style={{ marginRight: 24 }}>
@@ -17,6 +26,95 @@ function CheckBadge({ label, passed, detail }: { label: string; passed: boolean;
         {detail}
       </Typography.Text>
     </Space>
+  )
+}
+
+function formatGroups(config: Record<string, unknown>): string {
+  const groups = config.groups as Record<string, number> | undefined
+  if (!groups || Object.keys(groups).length === 0) return '—'
+  return Object.entries(groups)
+    .map(([n, p]) => `${n} ${(p * 100).toFixed(0)}%`)
+    .join(' / ')
+}
+
+function formatMetric(m: RawMetric): string {
+  if (m.type === 'ratio') {
+    return `${m.name} — ${m.type}, ${m.role}, ${m.num ?? '?'}/${m.den ?? '?'}`
+  }
+  return `${m.name} — ${m.type}, ${m.role}${m.pre_col ? `, pre-period: ${m.pre_col}` : ''}`
+}
+
+function formatSizeMode(config: Record<string, unknown>): string {
+  const mdeAbsInput = config.mde_abs_input as number | null | undefined
+  const mdeSourceMetric = config.mde_source_metric as string | null | undefined
+  const mde = config.mde as number | null | undefined
+  const sampleSize = config.sample_size as number | null | undefined
+  if (mdeAbsInput != null) {
+    return `Target absolute MDE ${mdeAbsInput}${mdeSourceMetric ? ` (on ${mdeSourceMetric})` : ''}`
+  }
+  if (mde != null) return `Target relative MDE ${(mde * 100).toFixed(1)}%`
+  if (sampleSize != null) return `Sample size ${sampleSize}`
+  return 'All available data'
+}
+
+function formatIsolation(config: Record<string, unknown>): string {
+  const isolation = config.isolation as string | undefined
+  if (isolation === 'exclude') return 'exclude (all active experiments)'
+  if (isolation === 'exclude_selected') {
+    const selected = (config.isolation_selected_experiments as string[] | undefined) ?? []
+    return `exclude selected: ${selected.join(', ') || '—'}`
+  }
+  if (isolation === 'warn') return 'warn (show overlap, ask for confirmation)'
+  if (isolation === 'off') return 'off (no exclusion)'
+  return isolation ?? '—'
+}
+
+function ConfigSummary({ config }: { config: Record<string, unknown> }) {
+  const strata = (config.strata as string[] | undefined) ?? []
+  const metrics = (config.metrics as RawMetric[] | undefined) ?? []
+  const seed = config.seed as number | null | undefined
+
+  return (
+    <>
+      <Descriptions bordered column={1} size="small" style={{ marginBottom: 12 }}>
+        <Descriptions.Item label="Groups">{formatGroups(config)}</Descriptions.Item>
+        <Descriptions.Item label="Metrics">
+          <Space direction="vertical" size={2}>
+            {metrics.length ? metrics.map((m, i) => <div key={i}>{formatMetric(m)}</div>) : '—'}
+          </Space>
+        </Descriptions.Item>
+        <Descriptions.Item label="Split method">
+          {String(config.split_method ?? '—')}
+          {strata.length > 0 ? ` (strata: ${strata.join(', ')})` : ''}
+        </Descriptions.Item>
+        <Descriptions.Item label="Sample size mode">{formatSizeMode(config)}</Descriptions.Item>
+        <Descriptions.Item label="Isolation">{formatIsolation(config)}</Descriptions.Item>
+        <Descriptions.Item label="Parameters">
+          Missing values: {String(config.nan_strategy ?? '—')} · α={String(config.alpha ?? '—')} · power={String(config.power ?? '—')}
+        </Descriptions.Item>
+      </Descriptions>
+      {seed != null && (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          Seed: {seed}
+        </Typography.Text>
+      )}
+      <Collapse
+        ghost
+        size="small"
+        style={{ marginTop: 8, marginBottom: 24 }}
+        items={[
+          {
+            key: 'raw',
+            label: 'Raw config (JSON)',
+            children: (
+              <pre style={{ background: '#F7F7F7', padding: 12, borderRadius: 4, overflow: 'auto', fontSize: 12 }}>
+                {JSON.stringify(config, (k, v) => (k === 'computed' ? undefined : v), 2)}
+              </pre>
+            ),
+          },
+        ]}
+      />
+    </>
   )
 }
 
@@ -54,12 +152,8 @@ export function DesignSection({ name, config, availableReports }: Props) {
 
   return (
     <div>
-      <Typography.Title level={4}>Design</Typography.Title>
-
       <Typography.Title level={5}>Configuration</Typography.Title>
-      <pre style={{ background: '#F7F7F7', padding: 12, borderRadius: 4, overflow: 'auto', fontSize: 12, marginBottom: 24 }}>
-        {JSON.stringify(config, (k, v) => (k === 'computed' ? undefined : v), 2)}
-      </pre>
+      <ConfigSummary config={config} />
 
       {computed ? (
         <>

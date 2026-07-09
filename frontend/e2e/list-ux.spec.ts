@@ -42,8 +42,10 @@ test('Edit Properties modal renames the experiment from the list', async ({ page
   await modal.getByLabel('Name').fill(newName)
   await modal.getByRole('button', { name: 'Save' }).click()
 
-  await expect(page.getByRole('link', { name })).not.toBeVisible()
-  await expect(page.getByRole('link', { name: newName })).toBeVisible()
+  // exact: true matters here — the old name is a prefix of newName, so a
+  // substring match would (wrongly) still match the renamed row's link too.
+  await expect(page.getByRole('link', { name, exact: true })).not.toBeVisible()
+  await expect(page.getByRole('link', { name: newName, exact: true })).toBeVisible()
 })
 
 test('Edit Properties modal is also reachable from the "..." menu on the experiment page', async ({

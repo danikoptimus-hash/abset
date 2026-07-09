@@ -925,10 +925,14 @@ export interface components {
             status: string;
             /** Publication Status */
             publication_status: string;
+            /** Owner Id */
+            owner_id: string | null;
             /** Owner Email */
             owner_email: string | null;
-            /** Owner Name */
-            owner_name: string | null;
+            /** Owner First Name */
+            owner_first_name: string | null;
+            /** Owner Last Name */
+            owner_last_name: string | null;
             /** Can Edit */
             can_edit: boolean;
             /** Config */

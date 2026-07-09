@@ -15,7 +15,7 @@ test('user with temp password is forced to change it before accessing the app', 
 
   // Any navigation (not just a direct visit) redirects to /profile.
   await expect(page).toHaveURL(/\/profile$/)
-  await expect(page.getByText('Change Password')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Change Password' })).toBeVisible()
 
   await page.goto('/experiments')
   await expect(page).toHaveURL(/\/profile$/)

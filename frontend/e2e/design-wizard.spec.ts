@@ -32,13 +32,15 @@ test('create experiment via wizard on demo data, then publish and edit hypothesi
   await page.getByRole('button', { name: 'Design' }).click()
   await expect(page).toHaveURL(new RegExp(`/experiments/${expName}$`), { timeout: 20_000 })
 
-  // Experiment page: configuration and MDE table are visible
-  await expect(page.getByRole('heading', { name: 'Design', exact: true })).toBeVisible()
+  // Experiment page: lands on the Design tab, configuration and MDE table visible
+  await expect(page.getByRole('tab', { name: 'Design', selected: true })).toBeVisible()
   await expect(page.getByText('MDE Table')).toBeVisible()
 
-  // Publish
-  await expect(page.getByText('draft', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Publish' }).click()
+  // Publish — click the Draft/Published status badge itself (UX package,
+  // section 1.1: it's both indicator and toggle, no separate button anymore)
+  const draftBadge = page.getByText('draft', { exact: true })
+  await expect(draftBadge).toBeVisible()
+  await draftBadge.click()
   await expect(page.getByText('published', { exact: true })).toBeVisible()
 
   // Edit -> change the "Hypothesis" block -> Save
@@ -47,5 +49,9 @@ test('create experiment via wizard on demo data, then publish and edit hypothesi
   await hypothesisTextarea.fill('New hypothesis from the e2e test')
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByText('Saved')).toBeVisible()
+  // Wait for edit mode to fully tear down (textarea unmounted) before
+  // checking the read-only render — otherwise there's a brief window where
+  // both exist and a plain getByText match is ambiguous (strict mode).
+  await expect(page.locator('textarea')).toHaveCount(0)
   await expect(page.getByText('New hypothesis from the e2e test')).toBeVisible()
 })

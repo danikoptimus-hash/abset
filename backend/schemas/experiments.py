@@ -48,8 +48,10 @@ class ExperimentDetail(BaseModel):
     name: str
     status: str
     publication_status: str
+    owner_id: str | None
     owner_email: str | None
-    owner_name: str | None
+    owner_first_name: str | None
+    owner_last_name: str | None
     can_edit: bool
     config: dict[str, Any]
     # Реальная колонка Experiment.design_summary — сегодня всегда None

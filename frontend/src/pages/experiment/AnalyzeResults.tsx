@@ -3,22 +3,21 @@ import { ForestPlotChart } from '../../charts/ForestPlotChart'
 import { DistributionChart } from '../../charts/DistributionChart'
 import { CumulativeLiftChart } from '../../charts/CumulativeLiftChart'
 import { HelpCollapse } from './HelpCollapse'
-import { DetailedResultsTable } from './DetailedResultsTable'
 import type { AnalysisResultsOut, TestResultOut } from './analyzeTypes'
 import { resultsByMetric, verdict } from './analyzeTypes'
 
-const VERDICT_LABELS: Record<string, string> = {
+export const VERDICT_LABELS: Record<string, string> = {
   significant_positive: 'significant positive',
   significant_negative: 'significant negative',
   no_effect_detected: 'no effect detected',
 }
-const VERDICT_COLORS: Record<string, string> = {
+export const VERDICT_COLORS: Record<string, string> = {
   significant_positive: 'success',
   significant_negative: 'error',
   no_effect_detected: 'default',
 }
 
-function VerdictCards({ results }: { results: TestResultOut[] }) {
+export function VerdictCards({ results }: { results: TestResultOut[] }) {
   const designed = results.filter((r) => r.is_designed_method)
   const byMetric = resultsByMetric(designed)
   return (
@@ -48,7 +47,7 @@ function VerdictCards({ results }: { results: TestResultOut[] }) {
   )
 }
 
-export function AnalyzeResults({ data, experimentName }: { data: AnalysisResultsOut; experimentName: string }) {
+export function AnalyzeResults({ data }: { data: AnalysisResultsOut }) {
   const byMetric = resultsByMetric(data.results)
   const { checks } = data.chart_data
 
@@ -141,17 +140,6 @@ export function AnalyzeResults({ data, experimentName }: { data: AnalysisResults
           </div>
         )
       })}
-
-      <Typography.Title level={4} style={{ marginTop: 32 }}>
-        Detailed Results Table
-      </Typography.Title>
-      <DetailedResultsTable
-        results={data.results}
-        controlName={Object.values(data.chart_data.metrics)[0]?.control_name ?? 'control'}
-        correction={data.correction ?? 'none'}
-        experimentName={experimentName}
-      />
-      <HelpCollapse chartType="verdicts_table" table />
     </div>
   )
 }
