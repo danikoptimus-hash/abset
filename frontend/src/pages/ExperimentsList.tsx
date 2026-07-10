@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Table, Input, Select, Button, Tag, Space, message, Tooltip, Modal } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, CheckSquareOutlined, CloseOutlined } from '@ant-design/icons'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { apiClient, errorMessage } from '../api/client'
 import { useAuth, hasMinRole } from '../auth/AuthContext'
 import { DeleteExperimentModal } from '../components/DeleteExperimentModal'
@@ -11,6 +11,9 @@ import { BulkDeleteModal } from '../components/BulkDeleteModal'
 import type { BulkDeleteResult } from '../components/BulkDeleteModal'
 import { UserAvatarGroup } from '../components/UserAvatar'
 import { RelativeTime } from '../components/RelativeTime'
+import { TagList } from '../components/TagBadge'
+import type { TagLike } from '../components/TagBadge'
+import { useDebouncedValue } from '../hooks/useDebouncedValue'
 
 const STATUS_COLORS: Record<string, string> = {
   designed: 'default',
@@ -31,21 +34,57 @@ export function ExperimentsListPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  // Initial tag filter can arrive via URL (?tag=<id>, repeatable) — how a
+  // tag badge click on the experiment page (a different route) hands off
+  // "filter the list by this tag" (UX package, Tags §3.5).
+  const [searchParams] = useSearchParams()
   const [q, setQ] = useState('')
+  const debouncedQ = useDebouncedValue(q, 300)
   const [status, setStatus] = useState<string | undefined>(undefined)
+  const [tagIds, setTagIds] = useState<string[]>(() => searchParams.getAll('tag'))
   const [page, setPage] = useState(1)
   const pageSize = 20
 
+  // Reset to page 1 whenever a filter narrows the result set — matches the
+  // same rule Datasets.tsx follows for its own live search.
+  useEffect(() => {
+    setPage(1)
+  }, [debouncedQ, status, tagIds])
+
   const { data, isLoading } = useQuery({
-    queryKey: ['experiments', { q, status, page }],
+    queryKey: ['experiments', { q: debouncedQ, status, tagIds, page }],
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/api/v1/experiments', {
-        params: { query: { q: q || undefined, status, page, page_size: pageSize } },
+        params: {
+          query: {
+            q: debouncedQ || undefined, status, tag: tagIds.length > 0 ? tagIds : undefined, page, page_size: pageSize,
+          },
+        },
       })
       if (error) throw new Error(errorMessage(error))
       return data
     },
   })
+
+  // Tag filter (UX package, Tags §3.5) — typeahead options, AND logic when
+  // more than one is selected (enforced server-side, GET /experiments?tag=).
+  const [tagFilterSearch, setTagFilterSearch] = useState('')
+  const { data: tagFilterOptions } = useQuery({
+    queryKey: ['tags-typeahead', tagFilterSearch],
+    queryFn: async () => {
+      const { data, error } = await apiClient.GET('/api/v1/tags', {
+        params: { query: { q: tagFilterSearch || undefined } },
+      })
+      if (error) throw new Error(errorMessage(error))
+      return data.items
+    },
+  })
+
+  // Click a tag badge anywhere in the list -> filter to just that tag.
+  const filterByTag = (tag: TagLike) => {
+    setTagIds([tag.id])
+    setPage(1)
+  }
 
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [editTarget, setEditTarget] = useState<string | null>(null)
@@ -102,14 +141,12 @@ export function ExperimentsListPage() {
     <div>
       <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}>
         <Space>
-          <Input.Search
-            placeholder="Search by name"
+          <Input
             allowClear
+            placeholder="Search by name or tag..."
             style={{ width: 260 }}
-            onSearch={(value) => {
-              setQ(value)
-              setPage(1)
-            }}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
           />
           <Select
             placeholder="Status"
@@ -121,10 +158,19 @@ export function ExperimentsListPage() {
               { value: 'completed', label: 'completed' },
               { value: 'archived', label: 'archived' },
             ]}
-            onChange={(value) => {
-              setStatus(value)
-              setPage(1)
-            }}
+            onChange={setStatus}
+          />
+          <Select
+            mode="multiple"
+            aria-label="Tags filter"
+            placeholder="Tags"
+            allowClear
+            style={{ minWidth: 160, maxWidth: 320 }}
+            value={tagIds}
+            onSearch={setTagFilterSearch}
+            filterOption={false}
+            options={(tagFilterOptions ?? []).map((t) => ({ value: t.id, label: t.name }))}
+            onChange={setTagIds}
           />
         </Space>
         <Space>
@@ -212,6 +258,11 @@ export function ExperimentsListPage() {
             title: 'Publication',
             dataIndex: 'publication_status',
             render: (s: string) => <PublicationBadge status={s} />,
+          },
+          {
+            title: 'Tags',
+            key: 'tags',
+            render: (_, record) => <TagList tags={record.tags} onTagClick={filterByTag} />,
           },
           {
             title: 'Last Modified',

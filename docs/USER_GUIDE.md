@@ -52,6 +52,40 @@ Validation anymore — everything reads from a **dataset**, created once on the
 Both kinds show up identically in every dataset picker across the app.
 `[Screenshot: Datasets page with a mix of Upload and SQL-source rows]`
 
+On the Datasets page, **Bulk select** (next to **+ Dataset**) turns on a
+checkbox column — select several datasets and **Delete** removes all of them
+after one typed `DELETE` confirmation. Datasets already in use by an
+experiment are listed with "used by: ..." right in the confirmation dialog
+(deleting them is still allowed — it doesn't affect those experiments'
+existing analysis results, only their "current data" link). If you don't
+have permission to delete some of the selected rows (you're not their owner
+or an Admin), those are skipped and reported separately — "Deleted N,
+skipped M (no permission)" — instead of silently failing the whole batch.
+
+### Tags: organizing and finding experiments
+
+Any experiment can carry any number of **tags** — free-form labels for
+product, team, feature, or whatever grouping makes sense to your
+organization (the same idea as tags on a Superset dashboard). Add them from
+the **Edit Properties** modal's Tags field: pick an existing tag from the
+typeahead, or type a new name and press Enter to create it on the spot — no
+separate "manage tags" screen needed for day-to-day use. Each tag gets a
+consistent color derived from its name, so the same tag always looks the
+same wherever it shows up.
+
+Tags appear as small badges in the experiments list (a row with more than a
+couple collapses the rest into a "+N" badge — hover it to see the full list)
+and under the title on the experiment page. Click any tag badge — in the
+list or on an experiment page — to jump straight to the list filtered to
+that tag. The list also has its own **Tags** filter (select more than one to
+narrow to experiments that have *all* of them, not just any), and the search
+box matches tag names as well as experiment names, so typing a tag finds
+every experiment tagged with it without opening the filter at all.
+
+Only an Admin can delete a tag outright (removing it from every experiment
+that had it) — anyone with edit access to a given experiment can add or
+remove tags on that one experiment through its own Properties modal.
+
 ### Roles
 
 | Role | Can do |

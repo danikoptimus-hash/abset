@@ -14,6 +14,7 @@ interface FormValues {
   owner_ids: string[]
   editor_ids: string[]
   visible_roles: string[] | null
+  tags: string[]
 }
 
 const ROLE_OPTIONS = [
@@ -53,6 +54,22 @@ export function ExperimentPropertiesModal({ name, onCancel, onSaved }: Props) {
     },
   })
 
+  // Tags typeahead (UX package, Tags §3.3) — options refresh as the user
+  // types; mode="tags" lets them also just type a brand-new name and hit
+  // Enter, which becomes a plain string in the form value either way. What
+  // "is this new or existing" resolves to is decided at Save time (below),
+  // not here — this Select only ever deals in tag NAMES.
+  const [tagSearch, setTagSearch] = useState('')
+  const { data: tagOptions } = useQuery({
+    queryKey: ['tags-typeahead', tagSearch],
+    enabled: name !== null,
+    queryFn: async () => {
+      const { data, error } = await apiClient.GET('/api/v1/tags', { params: { query: { q: tagSearch || undefined } } })
+      if (error) throw new Error(errorMessage(error))
+      return data.items
+    },
+  })
+
   useEffect(() => {
     if (!properties) return
     form.setFieldsValue({
@@ -60,6 +77,7 @@ export function ExperimentPropertiesModal({ name, onCancel, onSaved }: Props) {
       owner_ids: properties.owners.map((u) => u.id),
       editor_ids: properties.editors.map((u) => u.id),
       visible_roles: properties.visible_roles,
+      tags: properties.tags.map((t) => t.name),
     })
   }, [properties, form])
 
@@ -86,6 +104,26 @@ export function ExperimentPropertiesModal({ name, onCancel, onSaved }: Props) {
         },
       })
       if (error) throw new Error(errorMessage(error))
+
+      // Tags are a separate PUT (backend/routers/experiments.py) — resolve
+      // every name in the field to a real tag id first (POST /tags is
+      // get-or-create, so this is safe to call even for names that already
+      // exist), THEN send the full id list. Runs against values.name, the
+      // possibly-just-renamed name, not the original `name` prop.
+      const tagNames = values.tags ?? []
+      const resolvedTags = await Promise.all(
+        tagNames.map(async (tagName) => {
+          const { data, error } = await apiClient.POST('/api/v1/tags', { body: { name: tagName } })
+          if (error) throw new Error(errorMessage(error))
+          return data.id
+        }),
+      )
+      const { error: tagsError } = await apiClient.PUT('/api/v1/experiments/{name}/tags', {
+        params: { path: { name: values.name } },
+        body: { tag_ids: resolvedTags },
+      })
+      if (tagsError) throw new Error(errorMessage(tagsError))
+
       onSaved(values.name)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save')
@@ -134,6 +172,17 @@ export function ExperimentPropertiesModal({ name, onCancel, onSaved }: Props) {
             extra="Empty = default visibility rules (draft: owners/editors/admin only; published: everyone)"
           >
             <Select mode="multiple" allowClear options={ROLE_OPTIONS} placeholder="Everyone (default)" />
+          </Form.Item>
+          <Form.Item name="tags" label="Tags" extra="Pick an existing tag or type a new name and press Enter">
+            <Select
+              mode="tags"
+              allowClear
+              aria-label="Tags"
+              placeholder="No tags"
+              filterOption={false}
+              onSearch={setTagSearch}
+              options={(tagOptions ?? []).map((t) => ({ value: t.name, label: t.name }))}
+            />
           </Form.Item>
         </Form>
       )}

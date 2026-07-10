@@ -178,6 +178,29 @@ export interface paths {
         patch: operations["patch_experiment_api_v1_experiments__name__patch"];
         trace?: never;
     };
+    "/api/v1/experiments/{name}/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Experiment Tags
+         * @description Edit Properties modal's Tags field (UX package, Tags §3.3) — same
+         *     edit-access gate as the rest of Properties (owner/access-editor/Admin,
+         *     enforced in abkit/jobs.py::run_set_experiment_tags). Always a full
+         *     replace: the frontend sends the complete desired tag list.
+         */
+        put: operations["put_experiment_tags_api_v1_experiments__name__tags_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/experiments/{name}/reports/{report_name}": {
         parameters: {
             query?: never;
@@ -636,6 +659,33 @@ export interface paths {
         patch: operations["patch_dataset_api_v1_datasets__dataset_id__patch"];
         trace?: never;
     };
+    "/api/v1/datasets/bulk-delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bulk Delete Datasets
+         * @description Bulk select + Delete on the Datasets list (mirrors
+         *     /experiments/bulk-delete) — permission (owner-or-admin) is checked PER
+         *     dataset on the server; rows the user can't delete are skipped, not
+         *     silently dropped. One typed-DELETE confirmation covers the whole batch,
+         *     including datasets in use by experiments (confirm="DELETE" always passed
+         *     through to run_delete_dataset, same as the single-item flow's "used"
+         *     branch) — the frontend has already shown their used-by info before this
+         *     request is ever sent.
+         */
+        post: operations["bulk_delete_datasets_api_v1_datasets_bulk_delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/db-connections": {
         parameters: {
             query?: never;
@@ -864,6 +914,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search Tags */
+        get: operations["search_tags_api_v1_tags_get"];
+        put?: never;
+        /**
+         * Create Tag
+         * @description Get-or-create (abkit/jobs.py::run_create_tag) — typing an existing
+         *     name (case-insensitively) reuses it instead of erroring.
+         */
+        post: operations["create_tag_api_v1_tags_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tags/{tag_id}/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Tag Usage
+         * @description The frontend calls this before showing the delete-tag confirmation,
+         *     so the affected-experiment count is visible up front.
+         */
+        get: operations["get_tag_usage_api_v1_tags__tag_id__usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tags/{tag_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Tag
+         * @description Admin-only (enforced in abkit/jobs.py::run_delete_tag) — detaches from
+         *     every experiment via ON DELETE CASCADE, not a separate step.
+         */
+        delete: operations["delete_tag_api_v1_tags__tag_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users": {
         parameters: {
             query?: never;
@@ -1027,6 +1141,34 @@ export interface components {
             /** File */
             file: string;
         };
+        /**
+         * BulkDeleteDatasetsRequest
+         * @description Bulk select + Delete on the Datasets list (mirrors experiments'
+         *     /experiments/bulk-delete): one typed-DELETE confirmation for the whole
+         *     batch — unlike the single-dataset flow's two-tier confirm (plain vs
+         *     DELETE-typed depending on usage), since the frontend already lists
+         *     used-by info per row before this is ever sent.
+         */
+        BulkDeleteDatasetsRequest: {
+            /** Dataset Ids */
+            dataset_ids: string[];
+            /** Confirm */
+            confirm: string;
+        };
+        /** BulkDeleteDatasetsResult */
+        BulkDeleteDatasetsResult: {
+            /** Deleted */
+            deleted: string[];
+            /** Skipped */
+            skipped: components["schemas"]["BulkDeleteDatasetsSkipped"][];
+        };
+        /** BulkDeleteDatasetsSkipped */
+        BulkDeleteDatasetsSkipped: {
+            /** Dataset Id */
+            dataset_id: string;
+            /** Reason */
+            reason: string;
+        };
         /** BulkDeleteRequest */
         BulkDeleteRequest: {
             /** Names */
@@ -1083,6 +1225,11 @@ export interface components {
              * @default false
              */
             ssl: boolean;
+        };
+        /** CreateTagRequest */
+        CreateTagRequest: {
+            /** Name */
+            name: string;
         };
         /** CreateUserRequest */
         CreateUserRequest: {
@@ -1246,6 +1393,11 @@ export interface components {
             /** Confirm */
             confirm: string;
         };
+        /** DeleteTagResponse */
+        DeleteTagResponse: {
+            /** Affected Experiments */
+            affected_experiments: number;
+        };
         /** DeletionSummary */
         DeletionSummary: {
             /** Assignments */
@@ -1403,6 +1555,11 @@ export interface components {
             available_reports: string[];
             /** Files */
             files: components["schemas"]["FileInfo"][];
+            /**
+             * Tags
+             * @default []
+             */
+            tags: components["schemas"]["TagOut"][];
         };
         /** ExperimentPropertiesOut */
         ExperimentPropertiesOut: {
@@ -1415,6 +1572,11 @@ export interface components {
             editors: components["schemas"]["UserBrief"][];
             /** Visible Roles */
             visible_roles: string[] | null;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: components["schemas"]["TagOut"][];
         };
         /** ExperimentSummary */
         ExperimentSummary: {
@@ -1445,6 +1607,11 @@ export interface components {
             completed_at: string | null;
             /** Archived At */
             archived_at: string | null;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: components["schemas"]["TagOut"][];
         };
         /** FileInfo */
         FileInfo: {
@@ -1686,6 +1853,11 @@ export interface components {
             /** Schemas */
             schemas: string[];
         };
+        /** SetExperimentTagsRequest */
+        SetExperimentTagsRequest: {
+            /** Tag Ids */
+            tag_ids: string[];
+        };
         /** SqlPreviewRequest */
         SqlPreviewRequest: {
             /** Sql */
@@ -1713,6 +1885,25 @@ export interface components {
         TablesResponse: {
             /** Tables */
             tables: string[];
+        };
+        /** TagOut */
+        TagOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Color */
+            color?: string | null;
+        };
+        /** TagUsageResponse */
+        TagUsageResponse: {
+            /** Count */
+            count: number;
+        };
+        /** TagsResponse */
+        TagsResponse: {
+            /** Items */
+            items: components["schemas"]["TagOut"][];
         };
         /** TestConnectionResult */
         TestConnectionResult: {
@@ -2051,6 +2242,8 @@ export interface operations {
                 owner?: string | null;
                 pub?: string | null;
                 q?: string | null;
+                /** @description Tag id(s) — AND logic across multiple */
+                tag?: string[] | null;
                 page?: number;
                 page_size?: number;
             };
@@ -2213,6 +2406,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExperimentSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_experiment_tags_api_v1_experiments__name__tags_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetExperimentTagsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagOut"][];
                 };
             };
             /** @description Validation Error */
@@ -3134,6 +3364,41 @@ export interface operations {
             };
         };
     };
+    bulk_delete_datasets_api_v1_datasets_bulk_delete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkDeleteDatasetsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkDeleteDatasetsResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_db_connections_api_v1_admin_db_connections_get: {
         parameters: {
             query?: never;
@@ -3672,6 +3937,141 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_tags_api_v1_tags_get: {
+        parameters: {
+            query?: {
+                /** @description Typeahead substring match */
+                q?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_tag_api_v1_tags_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTagRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_tag_usage_api_v1_tags__tag_id__usage_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tag_id: string;
+            };
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagUsageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_tag_api_v1_tags__tag_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tag_id: string;
+            };
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeleteTagResponse"];
                 };
             };
             /** @description Validation Error */

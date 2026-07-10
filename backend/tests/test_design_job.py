@@ -5,8 +5,11 @@ from __future__ import annotations
 
 import time
 
+import uuid
+from pathlib import Path
+
 from abkit.auth.passwords import hash_password
-from abkit.db.repositories import ExperimentRepo, UserRepo
+from abkit.db.repositories import DatasetRepo, ExperimentRepo, UserRepo
 
 
 def _login(app_client, email="editor@co.com", role="editor"):
@@ -93,6 +96,37 @@ def test_design_happy_path_creates_experiment_and_attaches_dataset(app_client, t
     datasets_resp = app_client.get("/api/v1/datasets")
     linked = next(d for d in datasets_resp.json()["items"] if d["id"] == dataset_id)
     assert linked["experiment_name"] == "design_happy"
+
+
+def test_delete_experiment_unlinks_its_pre_design_dataset_file(app_client, tmp_path, monkeypatch):
+    """Regression (found via abkit-admin cleanup-dev's root-cause dig, CLAUDE.md
+    "Правило: гигиена dev-артефактов"): datasets.experiment_id is ON DELETE
+    CASCADE, so the DB row vanishes automatically when the experiment is
+    deleted — but cascade never touches the file on disk. run_delete_experiment
+    must unlink it explicitly BEFORE the cascade fires, or every experiment
+    delete leaks its pre_design dataset's parquet/csv into _uploads/ forever
+    (~900 such orphans had accumulated on the live dev stack before this fix)."""
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+    dataset_id = _upload_csv(app_client, _design_csv())
+
+    ds = DatasetRepo().get_by_id(uuid.UUID(dataset_id))
+    storage_path = Path(ds.storage_path)
+    assert storage_path.exists()
+
+    resp = app_client.post(
+        "/api/v1/design", json={"config": _design_config("design_delete_unlink"), "dataset_id": dataset_id},
+    )
+    job = _poll_job(app_client, resp.json()["job_id"])
+    assert job["status"] == "completed"
+
+    delete_resp = app_client.request(
+        "DELETE", "/api/v1/experiments/design_delete_unlink", json={"confirm": "DELETE"},
+    )
+    assert delete_resp.status_code == 200, delete_resp.text
+
+    assert DatasetRepo().get_by_id(uuid.UUID(dataset_id)) is None
+    assert not storage_path.exists()
 
 
 def test_design_isolation_warn_requires_confirmation_then_confirmed_continues(

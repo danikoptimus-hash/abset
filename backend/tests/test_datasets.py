@@ -316,3 +316,85 @@ def test_patch_dataset_rejects_sql_fields_for_upload_source(app_client, tmp_path
 
     patch_resp = app_client.patch(f"/api/v1/datasets/{dataset_id}", json={"sql_text": "SELECT 1"})
     assert patch_resp.status_code == 404  # StorageError -> not_found, per backend/errors.py
+
+
+def _upload_owned(app_client, filename: str) -> str:
+    resp = app_client.post(
+        "/api/v1/datasets", data={"kind": "pre_design"},
+        files={"file": (filename, "a,b\n1,2\n", "text/csv")},
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+def test_bulk_delete_datasets_requires_typed_delete(app_client, tmp_path, monkeypatch):
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+    dataset_id = _upload_owned(app_client, "bulk1.csv")
+
+    resp = app_client.post("/api/v1/datasets/bulk-delete", json={"dataset_ids": [dataset_id], "confirm": "nope"})
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "confirmation_required"
+
+
+def test_bulk_delete_datasets_happy_path(app_client, tmp_path, monkeypatch):
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+    id1 = _upload_owned(app_client, "bulk_a.csv")
+    id2 = _upload_owned(app_client, "bulk_b.csv")
+
+    resp = app_client.post("/api/v1/datasets/bulk-delete", json={"dataset_ids": [id1, id2], "confirm": "DELETE"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert set(body["deleted"]) == {id1, id2}
+    assert body["skipped"] == []
+    assert app_client.get(f"/api/v1/datasets/{id1}/preview").status_code == 404
+    assert app_client.get(f"/api/v1/datasets/{id2}/preview").status_code == 404
+
+
+def test_bulk_delete_datasets_skips_no_permission_and_deletes_the_rest(app_client, tmp_path, monkeypatch):
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    UserRepo().create(email="bulk_owner@co.com", first_name="O", password_hash=hash_password("pw12345"), role="editor")
+    app_client.post("/api/v1/auth/login", json={"email": "bulk_owner@co.com", "password": "pw12345"})
+    owned_id = _upload_owned(app_client, "owned_bulk.csv")
+    app_client.post("/api/v1/auth/logout")
+
+    UserRepo().create(email="bulk_other@co.com", first_name="OT", password_hash=hash_password("pw12345"), role="editor")
+    app_client.post("/api/v1/auth/login", json={"email": "bulk_other@co.com", "password": "pw12345"})
+    other_id = _upload_owned(app_client, "other_bulk.csv")
+
+    resp = app_client.post(
+        "/api/v1/datasets/bulk-delete", json={"dataset_ids": [owned_id, other_id], "confirm": "DELETE"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["deleted"] == [other_id]
+    assert len(body["skipped"]) == 1
+    assert body["skipped"][0]["dataset_id"] == owned_id
+    assert body["skipped"][0]["reason"] == "no permission"
+    # the skipped dataset must survive untouched
+    assert app_client.get(f"/api/v1/datasets/{owned_id}/preview").status_code == 200
+
+
+def test_bulk_delete_datasets_used_by_experiment_deletes_anyway_with_confirm(app_client, tmp_path):
+    UserRepo().create(email="bulk_admin@co.com", first_name="A", password_hash=hash_password("pw12345"), role="admin")
+    app_client.post("/api/v1/auth/login", json={"email": "bulk_admin@co.com", "password": "pw12345"})
+    dataset_id = str(_make_dataset(tmp_path))  # tied to experiment "exp_ds"
+
+    resp = app_client.post("/api/v1/datasets/bulk-delete", json={"dataset_ids": [dataset_id], "confirm": "DELETE"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["deleted"] == [dataset_id]
+    assert body["skipped"] == []
+
+
+def test_bulk_delete_datasets_reports_not_found(app_client, tmp_path, monkeypatch):
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+    fake_id = "00000000-0000-0000-0000-000000000000"
+
+    resp = app_client.post("/api/v1/datasets/bulk-delete", json={"dataset_ids": [fake_id], "confirm": "DELETE"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["deleted"] == []
+    assert body["skipped"] == [{"dataset_id": fake_id, "reason": "not found"}]

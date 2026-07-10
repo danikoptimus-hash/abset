@@ -26,7 +26,9 @@ from abkit.db.models import (
     ExperimentAccess,
     ExperimentBlock,
     ExperimentDataset,
+    ExperimentTag,
     Job,
+    Tag,
     User,
 )
 
@@ -1015,3 +1017,121 @@ class DatabaseConnectionRepo:
             if conn is None:
                 raise RepoError(f"Database connection {conn_id} not found")
             s.delete(conn)
+
+
+class TagRepo:
+    """Tags (Superset-style A/B test tags, CLAUDE.md). name is CITEXT
+    (case-insensitive unique) — get_or_create() leans on that: "type to
+    create" from the UI should never error just because someone already made
+    "Checkout" and this user typed "checkout"; it should silently reuse it."""
+
+    def get_or_create(self, name: str, *, created_by: uuid_mod.UUID | None = None) -> Tag:
+        with session_scope() as s:
+            existing = s.scalar(select(Tag).where(Tag.name == name))
+            if existing is not None:
+                s.expunge(existing)
+                return existing
+            tag = Tag(name=name, created_by=created_by)
+            s.add(tag)
+            s.flush()
+            s.refresh(tag)
+            s.expunge(tag)
+            return tag
+
+    def get_by_id(self, tag_id: uuid_mod.UUID) -> Tag | None:
+        with session_scope() as s:
+            tag = s.get(Tag, tag_id)
+            if tag is not None:
+                s.expunge(tag)
+            return tag
+
+    def search(self, q: str | None, *, limit: int = 20) -> list[Tag]:
+        """Typeahead (GET /tags?q=) — substring match, case-insensitive
+        (CITEXT ILIKE-equivalent via plain `like` since the column type
+        itself is already case-insensitive)."""
+        with session_scope() as s:
+            stmt = select(Tag).order_by(Tag.name).limit(limit)
+            if q:
+                stmt = stmt.where(Tag.name.like(f"%{q}%"))
+            rows = list(s.scalars(stmt))
+            for r in rows:
+                s.expunge(r)
+            return rows
+
+    def delete(self, tag_id: uuid_mod.UUID) -> None:
+        """Admin-only (enforced by the caller) — ON DELETE CASCADE on
+        experiment_tags removes it from every experiment automatically."""
+        with session_scope() as s:
+            tag = s.get(Tag, tag_id)
+            if tag is None:
+                raise RepoError(f"Tag {tag_id} not found")
+            s.delete(tag)
+
+
+class ExperimentTagRepo:
+    def set_for_experiment(self, experiment_id: uuid_mod.UUID, tag_ids: list[uuid_mod.UUID]) -> None:
+        """PUT /experiments/{name}/tags — full replace: the caller always
+        sends the COMPLETE desired tag list, not a delta."""
+        with session_scope() as s:
+            current = set(
+                s.scalars(
+                    select(ExperimentTag.tag_id).where(ExperimentTag.experiment_id == experiment_id)
+                )
+            )
+            desired = set(tag_ids)
+            for tag_id in current - desired:
+                s.execute(
+                    ExperimentTag.__table__.delete().where(
+                        ExperimentTag.experiment_id == experiment_id, ExperimentTag.tag_id == tag_id,
+                    )
+                )
+            for tag_id in desired - current:
+                s.add(ExperimentTag(experiment_id=experiment_id, tag_id=tag_id))
+
+    def list_for_experiment(self, experiment_id: uuid_mod.UUID) -> list[Tag]:
+        with session_scope() as s:
+            rows = list(
+                s.scalars(
+                    select(Tag)
+                    .join(ExperimentTag, ExperimentTag.tag_id == Tag.id)
+                    .where(ExperimentTag.experiment_id == experiment_id)
+                    .order_by(Tag.name)
+                )
+            )
+            for r in rows:
+                s.expunge(r)
+            return rows
+
+    def list_for_experiments(self, experiment_ids: list[uuid_mod.UUID]) -> dict[uuid_mod.UUID, list[Tag]]:
+        """Bulk fetch for the experiments list page's Tags column — one
+        query for a whole page instead of N+1."""
+        if not experiment_ids:
+            return {}
+        with session_scope() as s:
+            rows = list(
+                s.execute(
+                    select(ExperimentTag.experiment_id, Tag)
+                    .join(Tag, Tag.id == ExperimentTag.tag_id)
+                    .where(ExperimentTag.experiment_id.in_(experiment_ids))
+                    .order_by(Tag.name)
+                )
+            )
+            # A tag used by more than one experiment comes back as the SAME
+            # Tag object (identity map) across multiple rows — expunge it
+            # only once, or the second expunge raises (already removed).
+            expunged: set[int] = set()
+            result: dict[uuid_mod.UUID, list[Tag]] = {eid: [] for eid in experiment_ids}
+            for experiment_id, tag in rows:
+                if id(tag) not in expunged:
+                    s.expunge(tag)
+                    expunged.add(id(tag))
+                result[experiment_id].append(tag)
+            return result
+
+    def count_for_tag(self, tag_id: uuid_mod.UUID) -> int:
+        """How many experiments use this tag — DELETE /tags/{id}
+        confirmation (UX package, Tags §3.2)."""
+        with session_scope() as s:
+            return s.scalar(
+                select(func.count()).select_from(ExperimentTag).where(ExperimentTag.tag_id == tag_id)
+            )

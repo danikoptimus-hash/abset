@@ -3,29 +3,22 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Table, Drawer, Table as PreviewTable, Typography, Button, Space, message, Modal, Alert, Tooltip, Input, Select,
 } from 'antd'
-import { PlusOutlined, ReloadOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
+import {
+  PlusOutlined, ReloadOutlined, EditOutlined, DeleteOutlined, CheckSquareOutlined, CloseOutlined,
+} from '@ant-design/icons'
 import { Link } from 'react-router-dom'
 import { apiClient, errorMessage } from '../api/client'
 import { RelativeTime } from '../components/RelativeTime'
 import { SourceTag } from '../components/DatasetSelect'
 import { CreateDatasetModal } from './datasets/CreateDatasetModal'
 import { EditDatasetModal } from './datasets/EditDatasetModal'
+import { BulkDeleteDatasetsModal } from '../components/datasets/BulkDeleteDatasetsModal'
+import type { BulkDeleteDatasetsResult } from '../components/datasets/BulkDeleteDatasetsModal'
 import { useAuth, hasMinRole } from '../auth/AuthContext'
+import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import type { components } from '../api/schema'
 
 type DatasetOut = components['schemas']['DatasetOut']
-
-// Live search (UX package, Datasets §3): filters as you type, no Enter
-// needed — a small local debounce since this codebase has no existing
-// shared debounce hook.
-function useDebouncedValue<T>(value: T, delayMs: number): T {
-  const [debounced, setDebounced] = useState(value)
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delayMs)
-    return () => clearTimeout(t)
-  }, [value, delayMs])
-  return debounced
-}
 
 // Shared by the table row's icon action and the preview drawer's labeled
 // button (UX-package, Datasets п.1.1a/1.1b) — same confirm+run+poll flow,
@@ -262,13 +255,56 @@ export function DatasetsPage() {
     if (previewId) setPreviewId(null)
   }
 
+  // Bulk select (mirrors ExperimentsList.tsx's pattern, reused not duplicated
+  // in spirit — same toggle + checkbox-column + action-bar shape, adapted for
+  // dataset ids instead of experiment names).
+  const [bulkMode, setBulkMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [bulkDeleteTargets, setBulkDeleteTargets] = useState<DatasetOut[] | null>(null)
+
+  const exitBulkMode = () => {
+    setBulkMode(false)
+    setSelectedIds([])
+  }
+
+  const handleBulkDeleteDone = (result: BulkDeleteDatasetsResult) => {
+    setBulkDeleteTargets(null)
+    exitBulkMode()
+    invalidateAfterDelete()
+    if (result.skipped.length === 0) {
+      message.success(`Deleted ${result.deleted.length} dataset${result.deleted.length === 1 ? '' : 's'}`)
+    } else {
+      const skippedNames = result.skipped
+        .map((s) => data?.items.find((d) => d.id === s.dataset_id)?.filename ?? s.dataset_id)
+        .join(', ')
+      Modal.info({
+        title: 'Bulk delete finished',
+        content: (
+          <p>
+            Deleted {result.deleted.length}, skipped {result.skipped.length} (no permission): {skippedNames}
+          </p>
+        ),
+      })
+    }
+  }
+
   return (
     <div>
       <Space style={{ marginBottom: 16, justifyContent: 'space-between', width: '100%' }}>
         <Typography.Title level={4} style={{ margin: 0 }}>Datasets</Typography.Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-          Dataset
-        </Button>
+        <Space>
+          {canRefresh && (
+            <Button
+              icon={bulkMode ? <CloseOutlined /> : <CheckSquareOutlined />}
+              onClick={() => (bulkMode ? exitBulkMode() : setBulkMode(true))}
+            >
+              {bulkMode ? 'Cancel' : 'Bulk select'}
+            </Button>
+          )}
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+            Dataset
+          </Button>
+        </Space>
       </Space>
       <Space style={{ marginBottom: 16 }}>
         <Input
@@ -292,10 +328,37 @@ export function DatasetsPage() {
           ]}
         />
       </Space>
+
+      {bulkMode && selectedIds.length > 0 && (
+        <Space style={{ marginBottom: 12, padding: '8px 12px', background: '#F0F5F3', borderRadius: 6 }}>
+          <span>{selectedIds.length} selected</span>
+          <Button
+            size="small"
+            danger
+            icon={<DeleteOutlined />}
+            aria-label="Delete selected"
+            onClick={() => setBulkDeleteTargets((data?.items ?? []).filter((d) => selectedIds.includes(d.id)))}
+          >
+            Delete
+          </Button>
+          <Button size="small" onClick={exitBulkMode}>
+            Deselect all
+          </Button>
+        </Space>
+      )}
+
       <Table
         rowKey="id"
         loading={isLoading}
         dataSource={data?.items ?? []}
+        rowSelection={
+          bulkMode
+            ? {
+                selectedRowKeys: selectedIds,
+                onChange: (keys) => setSelectedIds(keys as string[]),
+              }
+            : undefined
+        }
         pagination={{ current: page, pageSize, total: data?.total ?? 0, onChange: setPage, showSizeChanger: false }}
         onRow={(record) => ({ onClick: () => setPreviewId(record.id), style: { cursor: 'pointer' } })}
         columns={[
@@ -338,6 +401,12 @@ export function DatasetsPage() {
 
       <CreateDatasetModal open={createOpen} onClose={() => setCreateOpen(false)} />
       <EditDatasetModal dataset={editTarget} open={editTarget !== null} onClose={() => setEditTarget(null)} />
+
+      <BulkDeleteDatasetsModal
+        datasets={bulkDeleteTargets}
+        onCancel={() => setBulkDeleteTargets(null)}
+        onDone={handleBulkDeleteDone}
+      />
 
       <Drawer
         title={preview?.filename ?? 'Preview'}

@@ -120,3 +120,24 @@ class PatchDatasetResponse(BaseModel):
     # Set when connection_id/sql_text changed — a re-fetch job was submitted
     # (same mechanism as Refresh); None for a name-only edit (immediate).
     job_id: str | None = None
+
+
+class BulkDeleteDatasetsRequest(BaseModel):
+    """Bulk select + Delete on the Datasets list (mirrors experiments'
+    /experiments/bulk-delete): one typed-DELETE confirmation for the whole
+    batch — unlike the single-dataset flow's two-tier confirm (plain vs
+    DELETE-typed depending on usage), since the frontend already lists
+    used-by info per row before this is ever sent."""
+
+    dataset_ids: list[str]
+    confirm: str
+
+
+class BulkDeleteDatasetsSkipped(BaseModel):
+    dataset_id: str
+    reason: str
+
+
+class BulkDeleteDatasetsResult(BaseModel):
+    deleted: list[str]
+    skipped: list[BulkDeleteDatasetsSkipped]

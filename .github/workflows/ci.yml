@@ -147,6 +147,7 @@ jobs:
           POSTGRES_PASSWORD=$PG_PASSWORD
           ABKIT_ADMIN_EMAIL=admin@e2e.test
           ABKIT_ADMIN_PASSWORD=e2epass123
+          ABKIT_ADMIN_NAME=E2E Admin
           EOF
           # Database Connections feature (DB4, CLAUDE.md): datasets-page.spec.ts
           # self-references this same postgres (reachable as "postgres" from
@@ -160,7 +161,7 @@ jobs:
       - name: Создать viewer-пользователя для тестов прав доступа
         run: |
           docker compose exec -T backend abkit-admin create-user \
-            --email viewer@e2e.test --name "E2E Viewer" --role viewer --password e2epass123
+            --email viewer@e2e.test --first-name "E2E Viewer" --role viewer --password e2epass123
 
       - uses: actions/setup-node@v4
         with:

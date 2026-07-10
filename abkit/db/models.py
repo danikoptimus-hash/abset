@@ -379,3 +379,44 @@ class DatabaseConnection(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+
+
+class Tag(Base):
+    """Tags for A/B tests (Superset-style dashboard tags) — free-form
+    labeling for search/grouping (by product/team/feature/etc), not a
+    controlled vocabulary. `name` is CITEXT (same case-insensitive-unique
+    pattern as User.email) so "Checkout"/"checkout" collide instead of
+    silently creating two tags that mean the same thing. `color` exists for
+    a future manual color picker (out of scope v1) — the UI currently always
+    computes a deterministic color from a hash of the name instead of
+    reading this column; nullable and unused by any code path today."""
+
+    __tablename__ = "tags"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    name: Mapped[str] = mapped_column(CITEXT, unique=True, nullable=False)
+    color: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ExperimentTag(Base):
+    """experiment<->tag many-to-many — a plain link with no extra columns,
+    so (unlike ExperimentDataset, which carries a `kind`) a composite PK on
+    the pair is the whole story: no surrogate id, ON DELETE CASCADE both
+    ways so deleting either side cleans up the link automatically."""
+
+    __tablename__ = "experiment_tags"
+
+    experiment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("experiments.id", ondelete="CASCADE"), primary_key=True
+    )
+    tag_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True
+    )

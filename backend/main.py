@@ -21,6 +21,7 @@ from backend.routers import db_connections as db_connections_router
 from backend.routers import design as design_router
 from backend.routers import experiments as experiments_router
 from backend.routers import jobs as jobs_router
+from backend.routers import tags as tags_router
 from backend.routers import users as users_router
 
 
@@ -90,6 +91,7 @@ def create_app() -> FastAPI:
     app.include_router(audit_router.router, prefix="/api/v1")
     app.include_router(design_router.router, prefix="/api/v1")
     app.include_router(jobs_router.router, prefix="/api/v1")
+    app.include_router(tags_router.router, prefix="/api/v1")
     app.include_router(users_router.router, prefix="/api/v1")
 
     @app.get("/api/health")

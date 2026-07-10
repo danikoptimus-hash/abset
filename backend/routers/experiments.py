@@ -51,8 +51,13 @@ from backend.schemas.experiments import (
     UserBrief,
     ValidateRequest,
 )
+from backend.schemas.tags import SetExperimentTagsRequest, TagOut
 
 router = APIRouter(prefix="/experiments", tags=["experiments"])
+
+
+def _to_tag_out(t) -> TagOut:
+    return TagOut(id=str(t.id), name=t.name, color=t.color)
 
 
 def _artifact_dir(name: str) -> Path:
@@ -83,12 +88,13 @@ def list_experiments(
     owner: str | None = None,
     pub: str | None = None,
     q: str | None = None,
+    tag: list[str] | None = Query(default=None, description="Tag id(s) — AND logic across multiple"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
     user: CurrentUser = Depends(get_current_user),
 ) -> PaginatedExperiments:
     from abkit.access import can_view_experiment, is_owner_or_granted
-    from abkit.db.repositories import ExperimentAccessRepo
+    from abkit.db.repositories import ExperimentAccessRepo, ExperimentTagRepo
 
     # Резолвим владельца одним проходом по users вместо N+1 запроса на
     # эксперимент (FRONTEND.md §3.2: список фильтруется по owner, плюс avatar
@@ -111,11 +117,28 @@ def list_experiments(
             if needle in (getattr(user_by_id.get(e.owner_id), "email", "") or "").lower()
         ]
     if q:
+        # Datasets follow-up (Tags §3.5): live search matches by experiment
+        # name OR by any of its tag names — a single `q` box covers both,
+        # no separate "search tags" field.
         needle = q.lower()
-        all_exps = [e for e in all_exps if needle in e.name.lower()]
+        tags_by_exp_all = ExperimentTagRepo().list_for_experiments([e.id for e in all_exps])
+        all_exps = [
+            e for e in all_exps
+            if needle in e.name.lower() or any(needle in t.name.lower() for t in tags_by_exp_all.get(e.id, []))
+        ]
+    if tag:
+        # AND logic across multiple selected tags (UX package, Tags §3.5) —
+        # an experiment must carry EVERY selected tag, not just one of them.
+        wanted_tag_ids = {uuid_mod.UUID(t) for t in tag}
+        tags_by_exp_all = ExperimentTagRepo().list_for_experiments([e.id for e in all_exps])
+        all_exps = [
+            e for e in all_exps
+            if wanted_tag_ids.issubset({t.id for t in tags_by_exp_all.get(e.id, [])})
+        ]
     total = len(all_exps)
     start = (page - 1) * page_size
     page_items = all_exps[start : start + page_size]
+    tags_by_exp = ExperimentTagRepo().list_for_experiments([e.id for e in page_items])
     items = [
         ExperimentSummary(
             name=e.name, status=e.status, publication_status=e.publication_status,
@@ -126,6 +149,7 @@ def list_experiments(
             can_edit=can_edit_role and is_owner_or_granted(user, e, access_experiment_ids),
             created_at=e.created_at, started_at=e.started_at,
             completed_at=e.completed_at, archived_at=e.archived_at,
+            tags=[_to_tag_out(t) for t in tags_by_exp.get(e.id, [])],
         )
         for e in page_items
     ]
@@ -192,6 +216,7 @@ def _get_last_modified(exp) -> tuple:
 @router.get("/{name}", response_model=ExperimentDetail)
 def get_experiment(name: str, user: CurrentUser = Depends(get_current_user)) -> ExperimentDetail:
     from abkit.access import is_owner_or_granted
+    from abkit.db.repositories import ExperimentTagRepo
 
     exp = _visible_or_404(_get_experiment_or_404(name), user)
     owner = UserRepo().get_by_id(exp.owner_id)
@@ -223,7 +248,22 @@ def get_experiment(name: str, user: CurrentUser = Depends(get_current_user)) -> 
         created_at=exp.created_at, started_at=exp.started_at,
         completed_at=exp.completed_at, archived_at=exp.archived_at,
         available_reports=available_reports, files=files,
+        tags=[_to_tag_out(t) for t in ExperimentTagRepo().list_for_experiment(exp.id)],
     )
+
+
+@router.put("/{name}/tags", response_model=list[TagOut])
+def put_experiment_tags(
+    name: str, body: SetExperimentTagsRequest, user: CurrentUser = Depends(get_current_user),
+) -> list[TagOut]:
+    """Edit Properties modal's Tags field (UX package, Tags §3.3) — same
+    edit-access gate as the rest of Properties (owner/access-editor/Admin,
+    enforced in abkit/jobs.py::run_set_experiment_tags). Always a full
+    replace: the frontend sends the complete desired tag list."""
+    from abkit.jobs import run_set_experiment_tags
+
+    tags = run_set_experiment_tags(user, name, body.tag_ids)
+    return [_to_tag_out(t) for t in tags]
 
 
 @router.get("/{name}/reports/{report_name}", response_class=HTMLResponse)
@@ -432,7 +472,7 @@ def get_properties(name: str, user: CurrentUser = Depends(get_current_user)) -> 
     can even open the form (matches the "..." menu / hover Edit button being
     shown only to them, FRONTEND.md UX package sections 3 and 5)."""
     from abkit.access import require_experiment_edit_access
-    from abkit.db.repositories import ExperimentAccessRepo
+    from abkit.db.repositories import ExperimentAccessRepo, ExperimentTagRepo
 
     exp = _get_experiment_or_404(name)
     require_experiment_edit_access(user, exp)
@@ -445,6 +485,7 @@ def get_properties(name: str, user: CurrentUser = Depends(get_current_user)) -> 
     return ExperimentPropertiesOut(
         name=exp.name, owner=_to_user_brief(owner) if owner else None,
         owners=owners, editors=editors, visible_roles=exp.visible_roles,
+        tags=[_to_tag_out(t) for t in ExperimentTagRepo().list_for_experiment(exp.id)],
     )
 
 

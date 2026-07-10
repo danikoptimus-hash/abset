@@ -18,7 +18,7 @@
 
 - Backend/ядро: `python -m pytest -q` (из корня, venv `.venv`), lint — `python -m pyflakes abkit backend tests migrations cli.py cli_admin.py conftest.py`.
 - Frontend: `cd frontend && npm run typecheck && npm run lint && npm run build`.
-- E2E (Playwright, против реального docker-compose стека, НЕ dev-сервера): `cd frontend && npx playwright test` с `E2E_BASE_URL`/`E2E_API_BASE`, см. `.github/workflows/ci.yml` job `e2e`.
+- E2E (Playwright): **`bash scripts/e2e.sh`** из корня — ЕДИНСТВЕННЫЙ способ гонять e2e локально. Поднимает одноразовый стек под отдельным compose project name (свои volumes/сеть/порт :8090, `docker compose down -v` на выходе всегда), не трогает персистентный dev-стек на :8080. НИКОГДА не гонять `npx playwright test` вручную с `E2E_BASE_URL`, указывающим на dev-стек (:8080) — это и есть root cause накопления мусора в БД (см. `abkit/jobs.py::run_cleanup_dev` docstring, «Правило: гигиена dev-артефактов» ниже). CI (`.github/workflows/ci.yml` job `e2e`) достигает той же изоляции иначе — одноразовый раннер-VM + `docker compose down -v` в конце, поэтому там `npx playwright test` напрямую — нормально, это не тот контекст, где накапливается мусор.
 - После правок backend-роутов — перегенерировать типы фронта: `cd frontend && npm run gen:api`.
 - `scripts/*.sh` — `shellcheck scripts/*.sh` (локально `shellcheck` не стоит по умолчанию — ставится `pip install shellcheck-py`, либо `docker run --rm -v "$(pwd)/scripts:/scripts" koalaman/shellcheck:stable /scripts/*.sh`).
 
@@ -33,13 +33,65 @@
 
 Не применяется к пакетам, не трогающим `frontend/`/`backend/` (например, чисто `abkit/`-ядро без API-поверхности, только тесты, только документация) — в таких случаях пересборка ничего не меняет и не нужна.
 
-## Правило: сущности при отладке на живом стеке — префикс `_dev_` и самоуборка
+## Правило: гигиена dev-артефактов на живом стеке (жесткий чек-лист)
 
-Локальный docker-compose стек — персистентный (данные в volume переживают рестарты, см. `docker/README.md`), поэтому все, что создается ВРУЧНУЮ при отладке/проверке фичи на живом стеке (не через pytest/Playwright — у них свои изолированные/одноразовые окружения, это правило их не касается), накапливается в БД навсегда, если не убрать:
+Локальный docker-compose стек — персистентный (данные в volume переживают
+рестарты, см. `docker/README.md`). Мягкая версия этого правила ("используй
+префикс и убирай за собой") на практике не соблюдалась — на живом стеке
+накопилось 171 тестовый эксперимент, 247 датасетов, 10 подключений к БД и 73
+лишних пользователя за несколько сессий, прежде чем это заметили (разбор
+причин и разовая уборка — см. историю; корень — п. (а) ниже). Действующая
+версия — обязательный чек-лист, не рекомендация:
 
-- Имя любой такой сущности (эксперимент, пользователь, датасет, подключение к БД) — с префиксом `_dev_` (например `_dev_check_refresh_ui`, `_dev_test_user@example.com`).
-- Убирать за собой ПОСЛЕДНИМ шагом того же пакета работ, ПЕРЕД финальным отчетом — через штатные сервисные функции (`run_delete_experiment` и т.п.), не raw SQL. Отчет о завершении пакета — с строкой вида "cleanup: removed N dev artifacts".
-- Если удаление невозможно (например, для датасетов/пользователей штатной функции удаления еще нет — есть только деактивация) — деактивировать/пометить и явно сказать об этом в отчете, а не промолчать.
+**(а) e2e ТОЛЬКО через одноразовое окружение.** `bash scripts/e2e.sh` —
+единственный способ гонять Playwright локально: поднимает стек под отдельным
+compose project name (свои volumes/сеть/порт :8090), тестирует, всегда
+делает `docker compose down -v` на выходе. НИКОГДА не запускать
+`npx playwright test`/`npm run test:e2e:raw` вручную с `E2E_BASE_URL`,
+указывающим на персистентный dev-стек (:8080) — это и есть корень проблемы
+(root cause), не гипотетический риск. CI (`e2e` job) изолирован иначе —
+одноразовый раннер-VM + `down -v`, там прямой `npx playwright test` — ок,
+это другой контекст.
+
+**(б) Ручное создание сущностей — ТОЛЬКО через `abkit.dev_helpers.DevSession`**
+(не pytest/Playwright — у них своя изоляция через (а)/conftest.py, это
+правило их не касается). Прямой вызов `jobs.run_design`/`DatasetRepo().create()`/
+`create_connection()`/т.п. в отладочном скрипте — считать ошибкой, не
+шорткатом:
+
+```python
+from abkit.dev_helpers import DevSession
+with DevSession() as dev:
+    dev.design(current_user, config, data)         # name -> _dev_<name> принудительно
+    dev.dataset(filename="probe.csv", ...)          # -> _dev_probe.csv
+    dev.connection(current_user, display_name=...)  # -> _dev_<name>
+# teardown() уже отработал на выходе из `with`
+```
+
+Префикс `_dev_` ставится автоматически (забыть — нельзя), все созданное
+трекается, `teardown()` (или выход из `with`) убирает одним вызовом, не
+полагаясь на память о том, что именно было создано.
+
+**(в) Страховка — `abkit-admin cleanup-dev`** (`abkit/jobs.py::run_cleanup_dev`,
+полный docstring там же): удаляет сущности с префиксом `_dev_` (любого
+возраста) и все, что принадлежит аккаунтам `*@e2e.test`, старше
+`--min-age-hours` (default 1 — не трогает то, что может быть еще в процессе).
+Аккаунты `admin@e2e.test`/`viewer@e2e.test` (жестко зашиты в
+`frontend/e2e/helpers.ts` как логин для e2e) не деактивируются никогда —
+только то, что они создали. Ничего, принадлежащее email вне `@e2e.test` и не
+с префиксом `_dev_`, не трогается — реальные данные невидимы для этой
+команды по построению, не по списку исключений.
+
+**(г) Обязательный вызов в конце КАЖДОГО пакета работ**, шагом перед
+финальным отчетом:
+
+```bash
+docker compose exec backend abkit-admin cleanup-dev
+```
+
+И обязательная строка в отчете: **"cleanup: removed X dev artifacts"** или
+**"cleanup: nothing to clean"** — не молчать про этот шаг ни в одном из двух
+случаев.
 
 ## Правило: релизный процесс
 
@@ -62,9 +114,11 @@
     удаления/CASCADE, старое значение не пропадает резко.
 
 (в) **Перед тегом — полный прогон тестов и smoke на свежем стеке.** pytest +
-    pyflakes + frontend typecheck/lint/build + Playwright e2e (все зеленые) и
-    `docker compose up -d --build` с чистого состояния + smoke-чек (login,
-    `/api/v1/version`) — до, не после, простановки тега.
+    pyflakes + frontend typecheck/lint/build + Playwright e2e (`bash scripts/e2e.sh`,
+    не `npx playwright test` вручную — см. «Правило: гигиена dev-артефактов»
+    ниже) — все зеленые — и `docker compose up -d --build` с чистого
+    состояния + smoke-чек (login, `/api/v1/version`) — до, не после,
+    простановки тега.
 
 **CHANGELOG.md** — ведется вручную при подготовке каждого релизного тега:
 секция `## vX.Y.Z — <дата>` с перечнем крупных изменений с прошлого тега (не
@@ -149,6 +203,20 @@ freshness reminder»): если push меняет файлы в `frontend/src`, 
 
 **Edit/Delete датасета** (`abkit/jobs.py::run_update_dataset`/`run_delete_dataset`, право — владелец `uploaded_by` или Admin, не просто Admin как было в DB4): Delete проверяет использование (`experiment_datasets` + legacy `datasets.experiment_id`) — если ни один эксперимент не использует, обычный confirm; если использует — `DatasetInUseError` (маппится в 400 `confirmation_required` в `backend/errors.py`, как и остальные глобальные хендлеры), фронт показывает список экспериментов и требует ввести `DELETE`; повторный вызов с `confirm="DELETE"` проходит. Удаление датасета, на который ссылаются `analysis_results`, больше не падает с FK-violation — `analysis_results.dataset_id` теперь `ON DELETE SET NULL` (миграция 0009); поскольку это обнуляет сам dataset_id, отдельная колонка `analysis_results.dataset_filename` замораживает имя файла В МОМЕНТ АНАЛИЗА (`_save_analysis` в `backend/routers/experiments.py`) — `GET /experiments/{name}/results` читает именно её, не делает live-lookup, так что "какие данные анализировались" переживает удаление датасета. Edit для source=sql: смена `connection_id`/`sql_text` обновляет строку синхронно и запускает тот же джоб, что Refresh (переиспользует `run_refresh_sql_dataset`, которая читает поля СВЕЖИМИ из БД — отдельного кода "применить отредактированный SQL" нет). `EditDatasetModal.tsx` внизу показывает Collapse "Data preview" (развернут по умолчанию): для `source=sql` — Tabs с вкладками "Stored snapshot" (`components/datasets/DatasetSnapshotPreview.tsx`, первые 10 строк текущего сохраненного снапшота через `/datasets/{id}/preview`, тот же query-key `['dataset-preview', id]`, что и превью-drawer в списке) и "Query result" (тот же `QueryResultPreview`, кнопка "Preview query result" — можно сравнить сохраненный снапшот с результатом еще не сохраненной правки запроса); для `source=upload`/`demo` — только "Stored snapshot" (без Tabs, без Connection/SQL).
 
+**Bulk select/delete** (`frontend/src/pages/Datasets.tsx`, паттерн переиспользован из `ExperimentsList.tsx`'s bulk select — `POST /datasets/bulk-delete`, `backend/routers/datasets.py`): чекбокс-колонка + панель действий, как у экспериментов, но подтверждение ОДНО на весь батч (не два уровня, как у одиночного удаления) — модалка сразу подтягивает usage (`GET /datasets/{id}/usage`) на каждый выбранный id и показывает "used by: ..." построчно, ввод `DELETE` разрешает удалить всё сразу, включая используемые (сервер вызывает `run_delete_dataset(..., confirm="DELETE")` безусловно). Права — per-item (owner/admin) на сервере, несовпадающие пропускаются с "no permission" в итоговом отчете, а не роняют весь запрос.
+
 **Frontend**: `/admin/db-connections` (Settings → Data → Database Connections, только admin) — CRUD-страница в стиле Superset (`frontend/src/pages/admin/DatabaseConnections.tsx`). SQL-редактор в "From SQL" — обычный `Input.TextArea` (моно-шрифт), НЕ подсвеченный редактор: пробовали `react-simple-code-editor`, но библиотека стабильно роняла приложение (React error #130, чистый белый экран) после 2+ жестких переходов между страницами в одной сессии браузера — баг внутри самого `<Editor>` (воспроизводился даже с тривиальным `highlight={(code) => code}`, без Prism), библиотека полностью удалена (`npm uninstall`). Стабильность важнее подсветки синтаксиса.
+
+## Теги для A/B тестов
+
+По образцу тегов дашбордов Superset — свободная группировка/поиск, не контролируемый словарь.
+
+**Модель** (миграция `0011_tags.py`, аддитивная): `tags` (`id`, `name` — `CITEXT unique`, тот же паттерн, что `users.email`, регистронезависимая уникальность без ручного `lower()`; `color` nullable, `created_by`, `created_at`) + `experiment_tags` — голая composite-PK связка (`experiment_id`, `tag_id`, оба `ON DELETE CASCADE`), без суррогатного `id`, в отличие от `experiment_datasets` (у той есть `kind` — колонка, оправдывающая отдельный `id`; здесь оправдывать нечем).
+
+**API** (`abkit/jobs.py`: `run_create_tag`/`search_tags`/`run_set_experiment_tags`/`get_tag_usage_count`/`run_delete_tag`; `backend/routers/tags.py` + `PUT /experiments/{name}/tags` в `backend/routers/experiments.py`, не `{id}` — весь остальной API адресует эксперимент по имени, R2-решение, тег-эндпоинт не исключение): `GET /tags?q=` (typeahead, viewer+), `POST /tags` (editor+, **get-or-create** — `TagRepo.get_or_create()` возвращает существующий тег при регистронезависимом совпадении имени вместо ошибки, специально ради «ввод нового имени = тег уже существует» на UI не будучи отдельным кейсом), `PUT /experiments/{name}/tags` (owner/access-editor/admin — тот же `require_experiment_edit_access`, что у остальных Properties, ВСЕГДА полная замена списка, не дельта), `GET /tags/{id}/usage` (сколько экспериментов используют — для текста подтверждения перед удалением), `DELETE /tags/{id}` (только admin, снимает тег со всех экспериментов через `ON DELETE CASCADE`, не отдельным шагом). Все мутации — `audit_log` (`tag.create`, `experiment.tags_change`, `tag.delete`).
+
+**Список экспериментов**: `ExperimentSummary`/`ExperimentDetail`/`ExperimentPropertiesOut` несут `tags: list[TagOut]`, `ExperimentTagRepo.list_for_experiments()` — один запрос на страницу списка, не N+1. `GET /experiments` получил `tag` (repeatable query param, AND-логика: эксперимент должен нести ВСЕ выбранные теги, не любой) и живой поиск `q` теперь матчит и по имени тега, не только по имени эксперимента.
+
+**Frontend**: `components/TagBadge.tsx` (`TagBadge`/`TagList`, `+N`-сворачивание с tooltip) + `components/hashColor.ts` (детерминированный приглушенный цвет по hash строки — тот же палитра/алгоритм, что у аватарок владельцев в `UserAvatar.tsx`, вынесен в общий модуль вместо копии; цвет теговой бейджи ВСЕГДА считается по имени на клиенте, `tags.color` в БД не читается нигде — задел под ручной пикер, вне скоупа v1). `ExperimentPropertiesModal.tsx`: поле Tags — AntD `Select mode="tags"`, значения формы — ИМЕНА тегов (не id); при Save каждое имя резолвится в id через `POST /tags` (безопасно вызывать и для уже существующих имен — get-or-create), затем один `PUT .../tags` с полным списком id — Select ничего не знает про "новый или существующий тег", это решается только на сохранении. `ExperimentsList.tsx`: колонка Tags, мультиселект-фильтр по тегам (typeahead, AND), клик по бейджу — фильтр по этому тегу; поиск переведен с `Input.Search` (по Enter) на живой debounced `Input` (`useDebouncedValue`, вынесен в `hooks/useDebouncedValue.ts` — тот же хук, что уже был в `Datasets.tsx`, не копия), т.к. поиск теперь ищет и по тегам. `ExperimentPage.tsx`: бейджи тегов — ОТДЕЛЬНОЙ строкой под шапкой (не втиснуты в строку с статус-бейджами/Last modified — там и так `flexWrap`, но осознанно вынесено ниже, чтобы не грозило переносом строки шапки), клик — переход на `/experiments?tag=<id>` (список читает `tag` из URL при монтировании как начальное состояние фильтра — единственный способ передать фильтр между страницами, отдельного глобального стора фильтров нет).
 
 Тесты: `tests/test_db_connections_core.py`, `backend/tests/test_db_connections.py`, `tests/test_sql_guard.py`, `tests/test_sql_dataset_core.py`, `tests/test_sql_parsing.py` (Python-порт `parseSchemaTableFromSql`, используемый миграцией 0010), `backend/tests/test_dataset_from_sql.py`, `tests/test_experiment_dataset_repo.py`, `backend/tests/test_experiment_datasets_link.py` — все против `testcontainers-postgres` (реальная БД, не моки), см. `feedback` в общем описании тестов выше. E2E: `frontend/e2e/database-connections.spec.ts` (полный цикл: создать подключение → test → preview SQL → создать датасет → дизайн на нем; тест на Edit — каскад предзаполнен из сохраненного SQL, обе вкладки превью, "Preview query result" отражает несохраненную правку, плюс проверка JOIN-запроса → пустой каскад с подсказкой; тест на создание через каскад → `source_schema`/`source_table` реально сохранены в БД и предзаполнены в Edit БЕЗ повторного парсинга), `frontend/e2e/datasets-page.spec.ts`, `frontend/e2e/dataset-management.spec.ts` (Edit/Delete/поиск на source=upload, включая снапшот-превью без Connection/SQL).

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Typography, Tag, Button, Spin, Result, message, Input, Dropdown, Tooltip, Tabs } from 'antd'
+import { Typography, Tag, Button, Spin, Result, message, Input, Dropdown, Tooltip, Tabs, Space } from 'antd'
 import { EditOutlined, SaveOutlined, CloseOutlined, MoreOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons'
 import { apiClient, errorMessage } from '../../api/client'
 import { DeleteExperimentModal } from '../../components/DeleteExperimentModal'
 import { ExperimentPropertiesModal } from '../../components/ExperimentPropertiesModal'
 import { RelativeTime } from '../../components/RelativeTime'
+import { TagList } from '../../components/TagBadge'
 import { DesignSection } from './DesignSection'
 import { AnalyzeSection } from './AnalyzeSection'
 import { ResultsSection } from './ResultsSection'
@@ -96,6 +97,7 @@ type TabKey = (typeof TAB_KEYS)[number]
 export function ExperimentPage() {
   const { name } = useParams<{ name: string }>()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [editing, setEditing] = useState(false)
@@ -283,6 +285,16 @@ export function ExperimentPage() {
           )}
         </div>
       </div>
+
+      {data.tags.length > 0 && (
+        <Space size={4} style={{ marginBottom: 24 }}>
+          <TagList
+            tags={data.tags}
+            maxVisible={data.tags.length}
+            onTagClick={(tag) => navigate(`/experiments?tag=${tag.id}`)}
+          />
+        </Space>
+      )}
 
       <Tabs
         activeKey={activeTab}

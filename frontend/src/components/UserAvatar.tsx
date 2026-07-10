@@ -1,16 +1,5 @@
 import { Avatar, Tooltip } from 'antd'
-
-// Muted palette (no orange, matches the theme) — deterministic pick by
-// hashing the user id so the same person always gets the same color.
-const PALETTE = ['#5B8C7E', '#6B7FA3', '#8C6B9E', '#A37F5B', '#5B7FA3', '#7E8C5B']
-
-function hashColor(id: string): string {
-  let hash = 0
-  for (let i = 0; i < id.length; i++) {
-    hash = (hash * 31 + id.charCodeAt(i)) >>> 0
-  }
-  return PALETTE[hash % PALETTE.length]
-}
+import { hashColor } from './hashColor'
 
 function initialsOf(firstName: string, lastName: string, email: string): string {
   const combined = `${firstName?.[0] ?? ''}${lastName?.[0] ?? ''}`.toUpperCase()

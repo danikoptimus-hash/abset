@@ -233,8 +233,9 @@ def run_delete_experiment(current_user: CurrentUser, name: str) -> None:
     require_experiment_edit_access(current_user, exp_row)
 
     import shutil
+    from pathlib import Path
 
-    from abkit.db.repositories import ExperimentRepo
+    from abkit.db.repositories import DatasetRepo, ExperimentRepo
 
     # счетчики нужны ДО удаления (после — каскад их уже снес) — только для
     # audit_log details, чтобы в журнале было видно, сколько именно данных
@@ -245,6 +246,18 @@ def run_delete_experiment(current_user: CurrentUser, name: str) -> None:
 
     exp_id = str(exp_row.id)
     with _timed("delete_experiment", user=current_user.email, experiment=name):
+        # Datasets linked via the legacy datasets.experiment_id FK (ON DELETE
+        # CASCADE) get their ROW removed automatically once the experiment
+        # goes, but cascade never touches files on disk — unlink them here,
+        # BEFORE the cascade fires, or they leak in _uploads/ forever
+        # (found via abkit-admin cleanup-dev: ~900 orphaned files had
+        # accumulated exactly this way). Datasets only linked through
+        # experiment_datasets (many-to-many, possibly shared with other
+        # experiments) are untouched, same as before.
+        for ds in DatasetRepo().list_for_experiment(exp_row.id):
+            path = Path(ds.storage_path)
+            if path.exists():
+                path.unlink()
         ExperimentRepo().delete(name)
         artifact_dir = DbExperimentStore().data_dir / name
         if artifact_dir.exists():
@@ -584,3 +597,190 @@ def run_refresh_sql_dataset(
         details={"n_rows": result.n_rows, "truncated": result.truncated},
     )
     return {"dataset_id": str(ds.id), "n_rows": result.n_rows, "truncated": result.truncated}
+
+
+# Two accounts every Playwright e2e spec's loginViaUi()/helpers.ts hardcodes
+# as the credentials to log in with — must survive any cleanup sweep, or
+# every e2e run breaks immediately at login. Everything these accounts
+# CREATE (experiments/datasets/connections) is still swept — only the
+# accounts themselves are protected.
+_PROTECTED_E2E_FIXTURE_EMAILS = {"admin@e2e.test", "viewer@e2e.test"}
+
+
+def run_cleanup_dev(*, dry_run: bool = False, min_age_hours: int = 1) -> dict[str, list[str]]:
+    """`abkit-admin cleanup-dev` (CLAUDE.md, "Правило: гигиена dev-артефактов")
+    — a trusted CLI-only sweep, same "no HTTP/CurrentUser context" pattern as
+    create-admin/import-legacy: deletes/deactivates things that shouldn't be
+    sitting on a shared stack.
+
+    Root cause this exists for: local Playwright runs against the live
+    docker-compose stack (instead of a one-shot environment — see
+    playwright.config.ts) left 173 experiments / 247 datasets / 10 connections
+    / 73 stray user accounts behind across a handful of sessions before this
+    was caught. Fixing the e2e isolation (playwright.config.ts) prevents new
+    debris from THAT source going forward; this command is the safety net for
+    everything else (manual debugging on the live stack, or e2e isolation
+    regressing again unnoticed) — meant to run automatically at the end of
+    every work package (CLAUDE.md), not just on demand.
+
+    Matches, for experiments/datasets/connections: name/filename/display_name
+    starts with `_dev_` (any age — the whole point of that prefix is "safe to
+    remove"), OR the owning/uploading/creating user's email ends with
+    `@e2e.test` AND the row is older than `min_age_hours` (age guard: don't
+    delete something from an e2e run that might still be mid-flight). For
+    users: any `%@e2e.test` account older than `min_age_hours`, except the two
+    protected fixtures above — deactivated (`set_active(False)`), not deleted:
+    there is no user-delete function, same constraint as the Admin Users page.
+
+    Never touches anything owned by an email outside `@e2e.test` and not
+    literally prefixed `_dev_` — real user data (e.g. admin@abkit.local's own
+    experiments/datasets) is invisible to this sweep by construction, not by
+    an exclusion list.
+
+    Datasets are swept BEFORE experiments deliberately: `datasets.experiment_id`
+    is `ON DELETE CASCADE` from experiments, so deleting an experiment first
+    would silently cascade away any dataset still linked through that legacy
+    field WITHOUT going through this function's own dataset loop — meaning its
+    storage file would never get unlinked, leaking an orphaned parquet/csv on
+    every run. Sweeping datasets first means each one is always removed
+    through DatasetRepo().delete() + an explicit unlink, never via cascade.
+    """
+    from datetime import datetime, timedelta, timezone
+    from pathlib import Path
+
+    from abkit.db.repositories import DatabaseConnectionRepo, DatasetRepo, ExperimentRepo, UserRepo
+    from abkit.db.store import DbExperimentStore
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=min_age_hours)
+    users = UserRepo().list_all()
+    email_by_id = {u.id: u.email for u in users}
+
+    def _matches(name: str, owner_email: str | None, created_at) -> bool:
+        if name.startswith("_dev_"):
+            return True
+        return bool(owner_email) and owner_email.endswith("@e2e.test") and created_at is not None and created_at < cutoff
+
+    removed: dict[str, list[str]] = {"experiments": [], "datasets": [], "connections": [], "users_deactivated": []}
+
+    for ds in DatasetRepo().list_all():
+        owner_email = email_by_id.get(ds.uploaded_by) if ds.uploaded_by else None
+        if _matches(ds.filename, owner_email, ds.uploaded_at):
+            removed["datasets"].append(ds.filename)
+            if not dry_run:
+                DatasetRepo().delete(ds.id)
+                path = Path(ds.storage_path)
+                if path.exists():
+                    path.unlink()
+                _audit(None, "dev_cleanup.dataset_delete", object_type="dataset", object_name=ds.filename)
+
+    for exp in ExperimentRepo().list_all():
+        if _matches(exp.name, email_by_id.get(exp.owner_id), exp.created_at):
+            removed["experiments"].append(exp.name)
+            if not dry_run:
+                import shutil
+
+                ExperimentRepo().delete(exp.name)
+                artifact_dir = DbExperimentStore().data_dir / exp.name
+                if artifact_dir.exists():
+                    shutil.rmtree(artifact_dir)
+                _audit(None, "dev_cleanup.experiment_delete", object_type="experiment", object_name=exp.name)
+
+    for conn in DatabaseConnectionRepo().list_all():
+        owner_email = email_by_id.get(conn.created_by) if conn.created_by else None
+        if _matches(conn.display_name, owner_email, conn.created_at):
+            removed["connections"].append(conn.display_name)
+            if not dry_run:
+                DatabaseConnectionRepo().delete(conn.id)
+                _audit(None, "dev_cleanup.connection_delete", object_type="database_connection", object_name=conn.display_name)
+
+    for u in users:
+        if u.email in _PROTECTED_E2E_FIXTURE_EMAILS or not u.is_active:
+            continue
+        if u.email.endswith("@e2e.test") and u.created_at is not None and u.created_at < cutoff:
+            removed["users_deactivated"].append(u.email)
+            if not dry_run:
+                UserRepo().set_active(u.id, False)
+                _audit(None, "dev_cleanup.user_deactivate", object_type="user", object_name=u.email)
+
+    return removed
+
+
+def run_create_tag(current_user: CurrentUser, name: str) -> Any:
+    """POST /tags — "create on the fly" from the Edit Properties modal's Tags
+    field (Select mode="tags"). Editor+ (same bar as creating other
+    entities); TagRepo.get_or_create() means typing a name that already
+    exists (case-insensitively — CITEXT) reuses it instead of erroring, so
+    the UI never has to reconcile "create" vs "select existing" itself."""
+    require_role(current_user, "editor")
+    from abkit import storage
+    from abkit.db.repositories import TagRepo
+
+    name = name.strip()
+    if not name:
+        raise storage.StorageError("Tag name cannot be empty")
+    tag = TagRepo().get_or_create(name, created_by=uuid_mod.UUID(current_user.id))
+    _audit(current_user, "tag.create", object_type="tag", object_id=str(tag.id), object_name=tag.name)
+    return tag
+
+
+def search_tags(current_user: CurrentUser, q: str | None) -> Any:
+    """GET /tags?q= — typeahead, used both by the Properties modal's Tags
+    field and the experiments list's tag filter. Viewer+ (read-only,
+    everyone who can see the list should be able to filter it by tag)."""
+    require_role(current_user, "viewer")
+    from abkit.db.repositories import TagRepo
+
+    return TagRepo().search(q)
+
+
+def run_set_experiment_tags(current_user: CurrentUser, name: str, tag_ids: list[str]) -> Any:
+    """PUT /experiments/{name}/tags — same edit-access gate as renaming or
+    editing the Hypothesis/Conclusions/Decision blocks (owner/access-editor/
+    Admin, CLAUDE.md "Permissions model"). Always a full replace — the
+    caller sends the complete desired tag list, not a delta."""
+    from abkit.db.repositories import ExperimentTagRepo
+
+    exp_row = _get_experiment_row(name)
+    require_experiment_edit_access(current_user, exp_row)
+
+    parsed_ids = [uuid_mod.UUID(t) for t in tag_ids]
+    ExperimentTagRepo().set_for_experiment(exp_row.id, parsed_ids)
+    tags = ExperimentTagRepo().list_for_experiment(exp_row.id)
+    _audit(
+        current_user, "experiment.tags_change", object_type="experiment", object_id=str(exp_row.id),
+        object_name=name, details={"tags": [t.name for t in tags]},
+    )
+    return tags
+
+
+def get_tag_usage_count(current_user: CurrentUser, tag_id: str) -> int:
+    """How many experiments currently have this tag — the frontend fetches
+    this BEFORE showing the delete-tag confirmation (UX package, Tags
+    §3.2), so the count is visible up front rather than discovered after
+    confirming."""
+    require_role(current_user, "viewer")
+    from abkit.db.repositories import ExperimentTagRepo
+
+    return ExperimentTagRepo().count_for_tag(uuid_mod.UUID(tag_id))
+
+
+def run_delete_tag(current_user: CurrentUser, tag_id: str) -> int:
+    """DELETE /tags/{id} — Admin-only (UX package, Tags §3.2). Detaches the
+    tag from every experiment via ON DELETE CASCADE on experiment_tags, not
+    a separate step. Returns how many experiments were affected, for the
+    frontend's post-delete confirmation message."""
+    require_role(current_user, "admin")
+    from abkit import storage
+    from abkit.db.repositories import ExperimentTagRepo, TagRepo
+
+    parsed_id = uuid_mod.UUID(tag_id)
+    tag = TagRepo().get_by_id(parsed_id)
+    if tag is None:
+        raise storage.StorageError(f"Tag '{tag_id}' not found")
+    affected = ExperimentTagRepo().count_for_tag(parsed_id)
+    TagRepo().delete(parsed_id)
+    _audit(
+        current_user, "tag.delete", object_type="tag", object_id=tag_id, object_name=tag.name,
+        details={"affected_experiments": affected},
+    )
+    return affected

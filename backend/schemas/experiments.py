@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from backend.schemas.tags import TagOut
+
 REPORT_FILENAMES = ("design_report.html", "report.html")
 
 
@@ -24,6 +26,7 @@ class ExperimentSummary(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     archived_at: datetime | None
+    tags: list[TagOut] = []
 
 
 class PaginatedExperiments(BaseModel):
@@ -72,6 +75,7 @@ class ExperimentDetail(BaseModel):
     archived_at: datetime | None
     available_reports: list[str]
     files: list[FileInfo]
+    tags: list[TagOut] = []
 
 
 class AuditEntryOut(BaseModel):
@@ -164,6 +168,11 @@ class ExperimentPropertiesOut(BaseModel):
     owners: list[UserBrief]
     editors: list[UserBrief]
     visible_roles: list[str] | None
+    # Prefill for the Properties modal's Tags field — saving tags is a
+    # separate call (PUT /experiments/{name}/tags), not part of this
+    # endpoint's own PUT, but this GET is the modal's one "load everything"
+    # fetch, so the current set travels here too.
+    tags: list[TagOut] = []
 
 
 class UpdateExperimentPropertiesRequest(BaseModel):

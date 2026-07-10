@@ -145,5 +145,37 @@ def import_legacy(
         console.print("No experiments found to import (is registry.json empty?).")
 
 
+@app.command("cleanup-dev")
+def cleanup_dev(
+    dry_run: bool = typer.Option(False, "--dry-run", help="List what would be removed without removing it"),
+    min_age_hours: int = typer.Option(1, "--min-age-hours", help="Age guard for @e2e.test-owned entities"),
+) -> None:
+    """Sweep dev/e2e debris off a shared stack (CLAUDE.md, "Правило: гигиена
+    dev-артефактов") — _dev_-prefixed entities (any age) and @e2e.test-owned
+    ones older than --min-age-hours. Run this at the end of every work
+    package, not just when things look cluttered — see abkit/jobs.py::
+    run_cleanup_dev for exactly what it matches and what it never touches."""
+    from abkit.jobs import run_cleanup_dev
+
+    result = run_cleanup_dev(dry_run=dry_run, min_age_hours=min_age_hours)
+    total = sum(len(v) for v in result.values())
+    if total == 0:
+        console.print("[green]Nothing to clean.[/green]")
+        return
+
+    verb = "Would remove" if dry_run else "Removed"
+    if result["experiments"]:
+        console.print(f"[yellow]{verb} {len(result['experiments'])} experiment(s):[/yellow] {', '.join(result['experiments'])}")
+    if result["datasets"]:
+        console.print(f"[yellow]{verb} {len(result['datasets'])} dataset(s):[/yellow] {', '.join(result['datasets'])}")
+    if result["connections"]:
+        console.print(f"[yellow]{verb} {len(result['connections'])} database connection(s):[/yellow] {', '.join(result['connections'])}")
+    if result["users_deactivated"]:
+        deverb = "Would deactivate" if dry_run else "Deactivated"
+        console.print(f"[yellow]{deverb} {len(result['users_deactivated'])} user(s):[/yellow] {', '.join(result['users_deactivated'])}")
+
+    console.print(f"\n[bold]{'Dry run — ' if dry_run else ''}{total} artifact(s) total.[/bold]")
+
+
 if __name__ == "__main__":
     app()

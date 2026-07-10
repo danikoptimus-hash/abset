@@ -28,6 +28,9 @@ from backend.deps import get_current_user, get_job_runner, require_min_role
 from backend.errors import APIError
 from backend.jobs.runner import JobRunner
 from backend.schemas.datasets import (
+    BulkDeleteDatasetsRequest,
+    BulkDeleteDatasetsResult,
+    BulkDeleteDatasetsSkipped,
     DatasetFromSqlRequest,
     DatasetOut,
     DatasetPreview,
@@ -326,6 +329,39 @@ def delete_dataset(
     from abkit.jobs import run_delete_dataset
 
     run_delete_dataset(user, dataset_id, confirm=body.confirm)
+
+
+@router.post("/bulk-delete", response_model=BulkDeleteDatasetsResult)
+def bulk_delete_datasets(
+    body: BulkDeleteDatasetsRequest, user: CurrentUser = Depends(get_current_user),
+) -> BulkDeleteDatasetsResult:
+    """Bulk select + Delete on the Datasets list (mirrors
+    /experiments/bulk-delete) — permission (owner-or-admin) is checked PER
+    dataset on the server; rows the user can't delete are skipped, not
+    silently dropped. One typed-DELETE confirmation covers the whole batch,
+    including datasets in use by experiments (confirm="DELETE" always passed
+    through to run_delete_dataset, same as the single-item flow's "used"
+    branch) — the frontend has already shown their used-by info before this
+    request is ever sent."""
+    from abkit.auth.guards import AuthError
+    from abkit.jobs import run_delete_dataset
+
+    if body.confirm != "DELETE":
+        raise APIError(400, "confirmation_required", "Type DELETE to confirm")
+
+    deleted: list[str] = []
+    skipped: list[BulkDeleteDatasetsSkipped] = []
+    for dataset_id in body.dataset_ids:
+        ds = DatasetRepo().get_by_id(uuid_mod.UUID(dataset_id))
+        if ds is None:
+            skipped.append(BulkDeleteDatasetsSkipped(dataset_id=dataset_id, reason="not found"))
+            continue
+        try:
+            run_delete_dataset(user, dataset_id, confirm="DELETE")
+            deleted.append(dataset_id)
+        except AuthError:
+            skipped.append(BulkDeleteDatasetsSkipped(dataset_id=dataset_id, reason="no permission"))
+    return BulkDeleteDatasetsResult(deleted=deleted, skipped=skipped)
 
 
 @router.patch("/{dataset_id}", response_model=PatchDatasetResponse)
