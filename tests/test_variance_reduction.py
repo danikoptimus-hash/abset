@@ -37,6 +37,35 @@ def test_cuped_reduces_variance_close_to_theoretical():
     assert result_ctx.variance_reduction == pytest.approx(expected_reduction, rel=0.10)
 
 
+def test_cuped_rho_matches_empirical_correlation():
+    """UX-package: CUPED exposes rho (metric<->covariate correlation) as its
+    own diagnostic, separate from variance_reduction (~= rho**2)."""
+    rng = np.random.default_rng(0)
+    n = 20_000
+    rho = 0.7
+    pre = rng.normal(100, 20, size=n)
+    noise = rng.normal(0, 20 * np.sqrt(1 - rho**2), size=n)
+    revenue = rho * pre + noise + 50
+    group = ["control"] * (n // 2) + ["treatment"] * (n // 2)
+
+    ctx = make_ctx(revenue, group, covariate=pd.Series(pre))
+    result_ctx = CUPED().apply(ctx)
+
+    empirical_rho = np.corrcoef(revenue, pre)[0, 1]
+    assert result_ctx.cuped_rho == pytest.approx(empirical_rho, rel=0.02)
+    assert result_ctx.cuped_rho**2 == pytest.approx(result_ctx.variance_reduction, rel=1e-9)
+
+
+def test_cuped_rho_none_when_covariate_variance_zero():
+    values = pd.Series([1.0, 2.0, 3.0, 4.0])
+    covariate = pd.Series([5.0, 5.0, 5.0, 5.0])
+    group = pd.Series(["control", "control", "treatment", "treatment"])
+    ctx = make_ctx(values, group, covariate=covariate)
+
+    result_ctx = CUPED().apply(ctx)
+    assert result_ctx.cuped_rho is None
+
+
 def test_cuped_requires_covariate():
     ctx = make_ctx([1.0, 2.0, 3.0, 4.0], ["control", "control", "treatment", "treatment"])
     with pytest.raises(ValueError, match="covariate"):

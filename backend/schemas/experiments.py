@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 REPORT_FILENAMES = ("design_report.html", "report.html")
 
@@ -139,7 +139,10 @@ class AnalyzeDemoRequest(BaseModel):
 
 class ValidateRequest(BaseModel):
     dataset_id: str
-    n_sims: int = 2000
+    # ge=100: fewer sims make FPR/power estimates too noisy to interpret —
+    # the UI enforces this too (Validation.tsx), this is defense-in-depth
+    # against direct API calls (UX-package, Validation п.3.4).
+    n_sims: int = Field(default=2000, ge=100)
     compare_methods: bool = False
     effect: float = 0.05
 

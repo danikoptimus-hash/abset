@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { loginViaUi, seedExperiment, uploadDataset } from './helpers'
+import { loginViaUi, seedExperiment, seedTwoMetricExperiment, uploadDataset } from './helpers'
 
 // FRONTEND.md §7 R6: "Playwright: демо пост-данные -> анализ -> вердикты и
 // forest plot видны -> экспорт таблицы."
@@ -139,4 +139,69 @@ test('re-run analysis with a new dataset updates the results and run count', asy
 
   await page.getByRole('tab', { name: 'Results' }).click()
   await expect(page.getByText(new RegExp(`${rerunFilename.replace('.', '\\.')} \\(run #2\\)`))).toBeVisible()
+})
+
+// UX package, item 1: metric cards on Analysis double as tabs — clicking one
+// filters the wall of plots below to that metric only.
+test('clicking a metric card on Analysis switches which metric its analytics show', async ({ page, request }) => {
+  test.setTimeout(60_000)
+  const name = `analyze_percard_e2e_${Date.now()}`
+  await seedTwoMetricExperiment(request, name)
+  await loginViaUi(page)
+
+  await page.goto(`/experiments/${name}`)
+  await page.getByRole('tab', { name: 'Analysis' }).click()
+  await page.getByRole('button', { name: /Generate demo post-period data/ }).click()
+  await expect(page.getByText(/Demo data generated:/)).toBeVisible({ timeout: 10_000 })
+  await page.getByRole('button', { name: 'Run analysis' }).click()
+  await expect(
+    page.getByText(/significant positive|significant negative|no effect detected/).first(),
+  ).toBeVisible({ timeout: 20_000 })
+
+  // Defaults to the first primary metric (revenue) — its own "primary" card
+  // is highlighted as the active tab, and the plot wall below is titled
+  // "revenue", not "clicks".
+  await expect(page.getByRole('heading', { name: 'revenue', level: 4 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'clicks', level: 4 })).not.toBeVisible()
+
+  const clicksCard = page.getByRole('tab', { name: /clicks/ }).filter({ hasText: 'secondary' })
+  await expect(clicksCard).toBeVisible()
+  await clicksCard.click()
+
+  await expect(page.getByRole('heading', { name: 'clicks', level: 4 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'revenue', level: 4 })).not.toBeVisible()
+})
+
+// UX package, item 2: compare_methods=True can recompute the exact same
+// designed chain as one of its "alternative" chains (revenue here has no
+// pre_col, so its designed chain is plain Welch t-test — the same as the
+// first alt chain compare_methods_chains() always includes) — Results must
+// show that as ONE row, not two differing only by correction/p-adj.
+test('Results shows exactly one designed-method row per metric even with compare_methods duplicates, and a CUPED rho column', async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(60_000)
+  const name = `analyze_dedup_e2e_${Date.now()}`
+  await seedExperiment(request, name)
+  await loginViaUi(page)
+
+  await page.goto(`/experiments/${name}`)
+  await page.getByRole('tab', { name: 'Analysis' }).click()
+  await page.getByRole('checkbox', { name: 'Compare alternative methods' }).check()
+  await page.getByRole('button', { name: /Generate demo post-period data/ }).click()
+  await expect(page.getByText(/Demo data generated:/)).toBeVisible({ timeout: 10_000 })
+  await page.getByRole('button', { name: 'Run analysis' }).click()
+  await expect(
+    page.getByText(/significant positive|significant negative|no effect detected/).first(),
+  ).toBeVisible({ timeout: 20_000 })
+
+  await page.getByRole('tab', { name: 'Results' }).click()
+  await expect(page.getByRole('columnheader', { name: /CUPED/ })).toBeVisible()
+
+  // exact: compare_methods also runs "RemoveOutliers + Welch t-test" as a
+  // genuinely different alternative — its cell text contains "Welch t-test"
+  // as a substring too, so a loose match would over-count.
+  const welchCells = page.getByRole('cell', { name: 'Welch t-test', exact: true })
+  await expect(welchCells).toHaveCount(1)
 })

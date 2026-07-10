@@ -48,6 +48,12 @@ class CUPED(Step):
         var_before = float(values.var(ddof=1))
         var_after = float(adjusted.var(ddof=1))
         ctx.variance_reduction = (1 - var_after / var_before) if var_before > 0 else None
+        # rho: correlation between the metric and its pre-period covariate —
+        # variance_reduction ≈ rho² (Deng et al. 2013's CUPED theta is the
+        # regression coefficient, and 1 - var_after/var_before reduces to
+        # rho² for this theta), shown to users as an interpretable diagnostic
+        # of how good the covariate is, separate from the achieved reduction.
+        ctx.cuped_rho = (cov_xy / (var_x * var_before) ** 0.5) if var_before > 0 else None
 
         ctx.values = adjusted
         return ctx
@@ -117,6 +123,7 @@ class PostStratification(Step):
             n={ctx.control_name: n_control_total, ctx.treatment_name: n_treat_total},
             n_removed=dict(ctx.n_removed),
             variance_reduction=ctx.variance_reduction,
+            cuped_rho=ctx.cuped_rho,
             warnings=list(ctx.warnings),
             is_designed_method=ctx.is_designed_method,
             treatment_group=ctx.treatment_name,

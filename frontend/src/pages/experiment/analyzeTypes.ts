@@ -21,6 +21,10 @@ export interface TestResultOut {
   n: Record<string, number>
   n_removed: Record<string, number>
   variance_reduction: number | null
+  // Correlation between the metric and its pre-period covariate — set only
+  // when CUPED was applied (variance_reduction ~= cuped_rho^2); null
+  // otherwise.
+  cuped_rho: number | null
   warnings: string[]
   is_designed_method: boolean
   role: 'primary' | 'secondary'

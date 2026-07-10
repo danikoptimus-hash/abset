@@ -9,8 +9,8 @@ test('validation auto-selects the experiment design data', async ({ page, reques
   await loginViaUi(page)
 
   await page.goto('/validation')
-  await page.getByRole('combobox').first().click()
-  await page.getByRole('combobox').first().fill(name)
+  await page.getByRole('combobox', { name: 'validation-experiment-select' }).click()
+  await page.getByRole('combobox', { name: 'validation-experiment-select' }).fill(name)
   await page.getByTitle(name).click()
 
   await expect(page.getByText('From experiment design')).toBeVisible()
@@ -35,8 +35,8 @@ test('"Use different data" reveals upload, and an incompatible file is rejected 
   await loginViaUi(page)
 
   await page.goto('/validation')
-  await page.getByRole('combobox').first().click()
-  await page.getByRole('combobox').first().fill(name)
+  await page.getByRole('combobox', { name: 'validation-experiment-select' }).click()
+  await page.getByRole('combobox', { name: 'validation-experiment-select' }).fill(name)
   await page.getByTitle(name).click()
   await expect(page.getByText('From experiment design')).toBeVisible()
 
@@ -53,6 +53,25 @@ test('"Use different data" reveals upload, and an incompatible file is rejected 
   await page.getByRole('button', { name: 'Reset to design data' }).click()
   await expect(page.getByText('From experiment design')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Run Validation' })).toBeEnabled()
+})
+
+test('draft experiment is selectable, and n_sims below the minimum shows a validation error', async ({ page, request }) => {
+  const name = `val_draft_e2e_${Date.now()}`
+  // seedExperiment never publishes — the experiment stays draft, visible to
+  // its own owner (UX package, Validation п.3.1: drafts must be selectable).
+  await seedExperiment(request, name)
+  await loginViaUi(page)
+
+  await page.goto('/validation')
+  const experimentSelect = page.getByRole('combobox', { name: 'validation-experiment-select' })
+  await experimentSelect.click()
+  await experimentSelect.fill(name)
+  await page.getByTitle(name).click()
+  await expect(page.getByText('From experiment design')).toBeVisible()
+
+  await page.getByRole('spinbutton').first().fill('10')
+  await expect(page.getByText('Enter at least 100 simulations.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Run Validation' })).toBeDisabled()
 })
 
 test('Run Validation is disabled with a tooltip when no experiment is selected', async ({ page, request }) => {

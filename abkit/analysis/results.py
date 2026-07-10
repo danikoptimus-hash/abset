@@ -30,6 +30,10 @@ class TestResult:
     is_designed_method: bool
     treatment_group: str
     role: Literal["primary", "secondary"] = "primary"
+    # Correlation between the metric and its pre-period covariate — only set
+    # when CUPED was applied (variance_reduction ≈ cuped_rho²). None
+    # otherwise, incl. for methods that don't use a covariate at all.
+    cuped_rho: float | None = None
 
 
 class AnalysisResults:
@@ -182,8 +186,18 @@ class AnalysisResults:
         КАЖДОЙ строке отдельно (тем же правилом, что verdict()). Сортировка:
         метрика, затем метод."""
         correction = self._context.get("correction") if self._context else None
+        # Дедупликация: compare_methods=True иногда пересчитывает ТУ ЖЕ
+        # designed-цепочку еще раз как одну из "альтернативных" (например,
+        # designed-метод метрики с pre_col — CUPED+Welch, а альтернативные
+        # цепочки для CUPED-метрик тоже включают CUPED+Welch) — совпадающие
+        # (metric, method, treatment_group) с designed-строкой схлопываются в
+        # одну (designed) строку; собственно разные альтернативные методы не
+        # трогаются (UX-пакет, дедуп Detailed Results Table).
+        designed_keys = {(r.metric, r.method, r.treatment_group) for r in self._results if r.is_designed_method}
         rows: list[dict[str, Any]] = []
         for r in self._results:
+            if not r.is_designed_method and (r.metric, r.method, r.treatment_group) in designed_keys:
+                continue
             p = r.p_value_adjusted if r.p_value_adjusted is not None else r.p_value
             if p < alpha and r.effect_abs > 0:
                 verdict = "significant_positive"
@@ -219,6 +233,7 @@ class AnalysisResults:
                     "n_control": r.n.get(control_name),
                     "n_test": r.n.get(r.treatment_group),
                     "variance_reduction": variance_reduction_label,
+                    "cuped_rho": r.cuped_rho,
                     "verdict": verdict,
                 }
             )
@@ -254,6 +269,7 @@ class AnalysisResults:
                 "n (control)": row["n_control"],
                 "n (test)": row["n_test"],
                 "Variance reduction": row["variance_reduction"],
+                "CUPED rho": row["cuped_rho"] if row["cuped_rho"] is None else round(row["cuped_rho"], 3),
                 "Verdict": row["verdict"],
             }
             for row in rows
@@ -281,6 +297,7 @@ class AnalysisResults:
                     "n": r.n,
                     "n_removed": r.n_removed,
                     "variance_reduction": r.variance_reduction,
+                    "cuped_rho": r.cuped_rho,
                     "warnings": r.warnings,
                     "is_designed_method": r.is_designed_method,
                     "role": r.role,

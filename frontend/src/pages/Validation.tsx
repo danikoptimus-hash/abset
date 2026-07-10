@@ -72,6 +72,8 @@ interface DatasetInfo {
   uploadedAt: string | null
 }
 
+const WHAT_VALIDATION_RUNS = `Validation re-runs your experiment's design (its split method, strata, metrics and statistical tests) many times on this data: A/A — with no true effect, to verify the false positive rate stays at alpha; A/B — with a known injected effect, to verify the design detects it (empirical power).`
+
 const WHAT_IS_THIS = `**What A/A simulations do**
 
 Repeatedly split your historical data into two random groups with NO real difference between them (pure control vs control) and run the same statistical test many times. If the tool is honest, roughly 5% of these "fake" tests should come back significant just by chance — that's the false positive rate (FPR) matching alpha.
@@ -110,7 +112,7 @@ export function ValidationPage() {
   const [showManualUpload, setShowManualUpload] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
-  const [nSims, setNSims] = useState(2000)
+  const [nSims, setNSims] = useState<number | null>(2000)
   const [compareMethods, setCompareMethods] = useState(false)
   const [effect, setEffect] = useState(0.05)
 
@@ -201,8 +203,13 @@ export function ValidationPage() {
     }
   }
 
+  // n_sims: min 100 — fewer simulations make FPR/power estimates too noisy
+  // to interpret. Enforced as a visible validation error (not a silent
+  // clamp to 100) — UX package, Validation п.3.4.
+  const nSimsInvalid = nSims === null || nSims < 100
+
   const runValidate = async () => {
-    if (!experimentName || !activeDataset) return
+    if (!experimentName || !activeDataset || nSims === null || nSimsInvalid) return
     reset()
     const { data, error } = await apiClient.POST('/api/v1/experiments/{name}/validate', {
       params: { path: { name: experimentName } },
@@ -219,8 +226,10 @@ export function ValidationPage() {
     ? 'Select an experiment first'
     : !activeDataset
       ? 'Select post-period data or use the experiment design data'
-      : ''
-  const canSubmit = !!activeDataset && phase !== 'running'
+      : nSimsInvalid
+        ? 'Enter at least 100 simulations'
+        : ''
+  const canSubmit = !!activeDataset && !nSimsInvalid && phase !== 'running'
 
   return (
     <div>
@@ -243,43 +252,31 @@ export function ValidationPage() {
         ]}
       />
 
+      {/* Experiment is the primary control (UX package, Validation п.3.1) —
+          validation re-runs an EXPERIMENT's design, not an arbitrary
+          dataset, so picking the experiment comes first and large,
+          everything else (data, options) follows from that choice. */}
+      <div style={{ maxWidth: 640, marginBottom: 24 }}>
+        <Typography.Text strong style={{ fontSize: 16 }}>Experiment</Typography.Text>
+        <Select
+          size="large"
+          placeholder="Search for an experiment by name"
+          style={{ width: '100%', marginTop: 8 }}
+          value={experimentName}
+          onChange={setExperimentName}
+          showSearch
+          optionFilterProp="label"
+          aria-label="validation-experiment-select"
+          options={(experiments ?? []).map((e) => ({ value: e.name, label: e.name }))}
+        />
+        <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+          {WHAT_VALIDATION_RUNS}
+        </Typography.Paragraph>
+      </div>
+
       <div style={{ maxWidth: 480 }}>
-        <Typography.Text strong>Validation options</Typography.Text>
-        <div style={{ marginTop: 8, marginBottom: 24 }}>
-          <div style={{ marginBottom: 12 }}>
-            <OptionLabel>Experiment (design config)</OptionLabel>
-            <Select
-              placeholder="Select an experiment"
-              style={{ width: '100%' }}
-              value={experimentName}
-              onChange={setExperimentName}
-              showSearch
-              optionFilterProp="label"
-              options={(experiments ?? []).map((e) => ({ value: e.name, label: e.name }))}
-            />
-          </div>
-
-          <div style={{ marginBottom: 12 }}>
-            <OptionLabel>Number of simulations</OptionLabel>
-            <InputNumber min={100} step={100} value={nSims} onChange={(v) => setNSims(v ?? 2000)} style={{ width: '100%' }} />
-            <OptionHint>2000 = strict (a few minutes), 500 = quick check</OptionHint>
-          </div>
-
-          <div style={{ marginBottom: 12 }}>
-            <OptionLabel>Effect (A/B)</OptionLabel>
-            <InputNumber min={0} step={0.01} value={effect} onChange={(v) => setEffect(v ?? 0.05)} style={{ width: '100%' }} />
-            <OptionHint>Injected effect for the power check — 0.05 = +5% relative lift</OptionHint>
-          </div>
-
-          <Tooltip title="Also compute FPR/power for alternative methods to compare their honesty on your data">
-            <Checkbox checked={compareMethods} onChange={(e) => setCompareMethods(e.target.checked)}>
-              Compare alternative methods
-            </Checkbox>
-          </Tooltip>
-        </div>
-
         <Typography.Text strong>Data</Typography.Text>
-        <div style={{ marginTop: 8, marginBottom: 16 }}>
+        <div style={{ marginTop: 8, marginBottom: 24 }}>
           {!experimentName && (
             <Typography.Text type="secondary">Select an experiment above to choose its data.</Typography.Text>
           )}
@@ -341,6 +338,50 @@ export function ValidationPage() {
               )}
             </>
           )}
+        </div>
+
+        <Typography.Text strong>Validation options</Typography.Text>
+        <div style={{ marginTop: 8, marginBottom: 24 }}>
+          <div style={{ marginBottom: 12 }}>
+            <OptionLabel>Number of simulations</OptionLabel>
+            <InputNumber
+              // No `min` here on purpose: rc-input-number only fires
+              // onChange for an out-of-[min,max] value once the field is
+              // typed back in range — while it's out of range mid-typing,
+              // onChange simply doesn't fire, and on blur it silently
+              // snaps to `min` without ever calling onChange with the
+              // rejected value. That's exactly the "молча заменять 10 на
+              // 100" behavior the UX package forbids — so validation is
+              // done ourselves (nSimsInvalid) against an unconstrained
+              // input instead.
+              step={100}
+              value={nSims}
+              onChange={setNSims}
+              status={nSimsInvalid ? 'error' : undefined}
+              style={{ width: '100%' }}
+            />
+            <OptionHint>
+              Minimum 100 — fewer simulations make FPR/power estimates too noisy to interpret. 500 = quick
+              check, 2000 = strict.
+            </OptionHint>
+            {nSimsInvalid && (
+              <Typography.Text type="danger" style={{ display: 'block', fontSize: 12, marginTop: 2 }}>
+                Enter at least 100 simulations.
+              </Typography.Text>
+            )}
+          </div>
+
+          <div style={{ marginBottom: 12 }}>
+            <OptionLabel>Effect (A/B)</OptionLabel>
+            <InputNumber min={0} step={0.01} value={effect} onChange={(v) => setEffect(v ?? 0.05)} style={{ width: '100%' }} />
+            <OptionHint>Injected effect for the power check — 0.05 = +5% relative lift</OptionHint>
+          </div>
+
+          <Tooltip title="Also compute FPR/power for alternative methods to compare their honesty on your data">
+            <Checkbox checked={compareMethods} onChange={(e) => setCompareMethods(e.target.checked)}>
+              Compare alternative methods
+            </Checkbox>
+          </Tooltip>
         </div>
 
         <Tooltip title={disabledReason}>

@@ -10,12 +10,12 @@ test('validation page runs A/A + A/B and shows FPR and power tables', async ({ p
   await loginViaUi(page)
 
   await page.goto('/validation')
-  await page.getByRole('combobox').first().click()
+  await page.getByRole('combobox', { name: 'validation-experiment-select' }).click()
   // showSearch на Select (Validation.tsx) — печатаем имя, чтобы найти опцию
   // среди всех экспериментов в БД без опоры на виртуализированный список
   // (иначе на большом количестве экспериментов свежесозданная опция может
   // не попасть в изначально отрендеренное окно rc-virtual-list).
-  await page.getByRole('combobox').first().fill(name)
+  await page.getByRole('combobox', { name: 'validation-experiment-select' }).fill(name)
   await page.getByTitle(name).click()
   await expect(page.getByText('From experiment design')).toBeVisible()
 

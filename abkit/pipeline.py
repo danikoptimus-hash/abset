@@ -42,6 +42,7 @@ class MetricContext:
     warnings: list[str] = field(default_factory=list)
     n_removed: dict[str, int] = field(default_factory=dict)
     variance_reduction: float | None = None
+    cuped_rho: float | None = None
     result: TestResult | None = None
 
 

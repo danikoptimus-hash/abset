@@ -65,7 +65,7 @@ Segment breakdowns are exploratory (they're hypotheses, not a validated result).
 
   verdicts_table: `**What is shown**
 
-One row per metric × method × treatment-group pair: the point estimate of the effect (absolute and relative), the p-value (raw and after multiple-testing correction), whether the method was declared in the design (designed), and the metric's role (primary/secondary).
+One row per metric × method × treatment-group pair: the point estimate of the effect (absolute and relative), the p-value (raw and after multiple-testing correction), whether the method was declared in the design (designed), and the metric's role (primary/secondary). "CUPED ρ" is the correlation between the metric and its pre-period covariate, shown only for rows where CUPED was applied — variance reduction ≈ ρ².
 
 **How to read it**
 

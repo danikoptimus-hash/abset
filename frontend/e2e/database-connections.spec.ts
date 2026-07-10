@@ -74,6 +74,22 @@ test('create a database connection, test it, preview SQL, create a dataset, and 
   // (e2e_sql_dataset_...), and getByText matches case-insensitively.
   await expect(row.getByText('SQL', { exact: true })).toBeVisible()
 
+  // Preview drawer explains the snapshot semantics (UX package, Datasets
+  // п.4.1) — deleting the source table doesn't touch the stored dataset.
+  await row.click()
+  await expect(page.getByText(/Snapshot stored in ABKit/)).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  // Refresh re-runs the SQL against the live connection — requires
+  // confirming a Modal first, doesn't fire immediately on click (UX
+  // package, Datasets п.4.2).
+  await row.getByRole('button', { name: 'Refresh' }).click()
+  const confirmDialog = page.getByRole('dialog').filter({ hasText: 'Refresh dataset from source?' })
+  await expect(confirmDialog).toBeVisible()
+  await expect(confirmDialog.getByText(/replace the stored snapshot/)).toBeVisible()
+  await confirmDialog.getByRole('button', { name: 'Refresh' }).click()
+  await expect(page.getByText(/Refreshed:/)).toBeVisible({ timeout: 15_000 })
+
   // Design an experiment picking this dataset — proves it round-trips
   // through the exact same path a file upload would (DB3).
   await page.goto('/experiments/new')

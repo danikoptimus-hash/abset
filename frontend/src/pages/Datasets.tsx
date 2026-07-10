@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Table, Drawer, Table as PreviewTable, Typography, Button, Space, message } from 'antd'
+import { Table, Drawer, Table as PreviewTable, Typography, Button, Space, message, Modal, Alert } from 'antd'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import { Link } from 'react-router-dom'
 import { apiClient, errorMessage } from '../api/client'
@@ -15,8 +15,7 @@ function RefreshButton({ dataset }: { dataset: DatasetOut }) {
   const queryClient = useQueryClient()
   const [refreshing, setRefreshing] = useState(false)
 
-  const run = async (e: React.MouseEvent) => {
-    e.stopPropagation() // don't also trigger the row's preview-drawer click
+  const run = async () => {
     setRefreshing(true)
     try {
       const { data, error } = await apiClient.POST('/api/v1/datasets/{dataset_id}/refresh', {
@@ -35,6 +34,11 @@ function RefreshButton({ dataset }: { dataset: DatasetOut }) {
         message.success(`Refreshed: ${(job.result as { n_rows: number } | null)?.n_rows ?? '?'} rows`)
         queryClient.invalidateQueries({ queryKey: ['datasets'] })
         queryClient.invalidateQueries({ queryKey: ['datasets-for-select'] })
+        // The drawer's preview rows/columns (a separate query, keyed by
+        // dataset id) also need to reflect the fresh data — UX package,
+        // Datasets п.4.2: "обновленные fetched_at и структура колонок
+        // видны в drawer" after Refresh.
+        queryClient.invalidateQueries({ queryKey: ['dataset-preview', dataset.id] })
       } else {
         message.error(job?.error ?? 'Refresh failed')
       }
@@ -45,8 +49,19 @@ function RefreshButton({ dataset }: { dataset: DatasetOut }) {
     }
   }
 
+  const confirmRefresh = (e: React.MouseEvent) => {
+    e.stopPropagation() // don't also trigger the row's preview-drawer click
+    Modal.confirm({
+      title: 'Refresh dataset from source?',
+      content:
+        'This will replace the stored snapshot with fresh data from the source. Experiments already analyzed keep their results.',
+      okText: 'Refresh',
+      onOk: run,
+    })
+  }
+
   return (
-    <Button size="small" icon={<ReloadOutlined />} loading={refreshing} onClick={run}>
+    <Button size="small" icon={<ReloadOutlined />} loading={refreshing} onClick={confirmRefresh}>
       Refresh
     </Button>
   )
@@ -126,6 +141,12 @@ export function DatasetsPage() {
       >
         {previewedDataset?.source === 'sql' && previewedDataset.sql_text && (
           <div style={{ marginBottom: 16 }}>
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="Snapshot stored in ABKit. Deleting the source table in the external database does NOT affect this dataset. Use Refresh to re-fetch current data (columns are updated automatically)."
+            />
             <Space style={{ marginBottom: 4, justifyContent: 'space-between', width: '100%' }}>
               <Typography.Text strong>SQL</Typography.Text>
               {previewedDataset.fetched_at && (

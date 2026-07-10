@@ -1,8 +1,10 @@
+import { useEffect, useState } from 'react'
 import { Typography, Tag, Space, Card, Alert, Row, Col } from 'antd'
 import { ForestPlotChart } from '../../charts/ForestPlotChart'
 import { DistributionChart } from '../../charts/DistributionChart'
 import { CumulativeLiftChart } from '../../charts/CumulativeLiftChart'
 import { HelpCollapse } from './HelpCollapse'
+import { colors } from '../../theme/tokens'
 import type { AnalysisResultsOut, TestResultOut } from './analyzeTypes'
 import { resultsByMetric, verdict } from './analyzeTypes'
 
@@ -19,18 +21,63 @@ export const VERDICT_COLORS: Record<string, string> = {
   failed: 'warning',
 }
 
-export function VerdictCards({ results }: { results: TestResultOut[] }) {
+const ROLE_LABELS: Record<TestResultOut['role'], string> = { primary: 'primary', secondary: 'secondary' }
+
+// selectedMetric/onSelectMetric: Analysis tab (only) turns cards into
+// clickable tabs that filter the analytics wall below to one metric — see
+// AnalyzeResults. Results tab renders the same cards non-interactively
+// (omits onSelectMetric) — CLAUDE.md UX-package: "клик по карточке — только
+// на вкладке Analysis".
+export function VerdictCards({
+  results,
+  selectedMetric,
+  onSelectMetric,
+}: {
+  results: TestResultOut[]
+  selectedMetric?: string
+  onSelectMetric?: (metric: string) => void
+}) {
   const designed = results.filter((r) => r.is_designed_method)
   const byMetric = resultsByMetric(designed)
+  const interactive = !!onSelectMetric
   return (
     <Row gutter={16} style={{ marginBottom: 24 }}>
       {Object.entries(byMetric).map(([metric, rows]) =>
         rows.map((r) => {
           const v = verdict(r)
+          const active = interactive && selectedMetric === metric
           return (
             <Col key={`${metric}_${r.treatment_group}`}>
-              <Card size="small" style={{ minWidth: 220 }}>
-                <Typography.Text strong>{metric}</Typography.Text>
+              <Card
+                size="small"
+                hoverable={interactive}
+                role={interactive ? 'tab' : undefined}
+                aria-selected={interactive ? active : undefined}
+                tabIndex={interactive ? 0 : undefined}
+                onClick={interactive ? () => onSelectMetric!(metric) : undefined}
+                onKeyDown={
+                  interactive
+                    ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          onSelectMetric!(metric)
+                        }
+                      }
+                    : undefined
+                }
+                style={{
+                  minWidth: 220,
+                  cursor: interactive ? 'pointer' : undefined,
+                  borderColor: active ? colors.primary : undefined,
+                  boxShadow: active ? `0 0 0 2px ${colors.primary}40` : undefined,
+                }}
+              >
+                <Space align="center" size={6}>
+                  <Typography.Text strong>{metric}</Typography.Text>
+                  <Tag color={r.role === 'primary' ? 'blue' : 'default'} style={{ fontSize: 11, lineHeight: '16px', marginInlineEnd: 0 }}>
+                    {ROLE_LABELS[r.role]}
+                  </Tag>
+                </Space>
                 <br />
                 <Typography.Text type="secondary">{r.treatment_group} vs control</Typography.Text>
                 <br />
@@ -54,6 +101,26 @@ export function VerdictCards({ results }: { results: TestResultOut[] }) {
 export function AnalyzeResults({ data }: { data: AnalysisResultsOut }) {
   const byMetric = resultsByMetric(data.results)
   const { checks } = data.chart_data
+  const metricNames = Object.keys(byMetric)
+
+  // Metric cards double as tabs here (UX-package: "аналитика раскрывается по
+  // клику на карточку метрики") — the wall of plots below renders ONLY the
+  // selected metric instead of every metric back to back. Defaults to the
+  // first primary metric; falls back to the first metric at all (e.g. an
+  // experiment with only secondary metrics) or resets if the previously
+  // selected metric disappears (a re-run with a different metric set).
+  const [selectedMetric, setSelectedMetric] = useState<string | null>(null)
+  useEffect(() => {
+    if (metricNames.length === 0) return
+    if (selectedMetric && metricNames.includes(selectedMetric)) return
+    const firstPrimary = data.results.find((r) => r.is_designed_method && r.role === 'primary')
+    setSelectedMetric(firstPrimary?.metric ?? metricNames[0])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.results])
+
+  const activeMetric = selectedMetric && metricNames.includes(selectedMetric) ? selectedMetric : metricNames[0]
+  const metricResults = activeMetric ? byMetric[activeMetric] : undefined
+  const metricChart = activeMetric ? data.chart_data.metrics[activeMetric] : undefined
 
   return (
     <div>
@@ -65,7 +132,7 @@ export function AnalyzeResults({ data }: { data: AnalysisResultsOut }) {
         </Space>
       )}
 
-      <VerdictCards results={data.results} />
+      <VerdictCards results={data.results} selectedMetric={activeMetric} onSelectMetric={setSelectedMetric} />
 
       <Typography.Title level={5}>Sanity checks (on post-period data)</Typography.Title>
       <Space wrap style={{ marginBottom: 8 }}>
@@ -82,73 +149,69 @@ export function AnalyzeResults({ data }: { data: AnalysisResultsOut }) {
       </Space>
       <HelpCollapse chartType="srm_table" table />
 
-      {Object.entries(byMetric).map(([metricName, metricResults]) => {
-        const metricChart = data.chart_data.metrics[metricName]
-        return (
-          <div key={metricName} style={{ marginTop: 32 }}>
-            <Typography.Title level={4}>{metricName}</Typography.Title>
+      {activeMetric && metricResults && (
+        <div style={{ marginTop: 32 }}>
+          <Typography.Title level={4}>{activeMetric}</Typography.Title>
 
-            <Typography.Title level={5}>Forest plot</Typography.Title>
-            <ForestPlotChart
-              rows={metricResults
-                // A failed alternative method (compare_methods=True) has no
-                // usable effect/CI to plot — it's shown as a "failed" row in
-                // the detailed table below instead.
-                .filter((r) => r.effect_rel !== null && r.ci_rel[0] !== null && r.ci_rel[1] !== null)
-                .map((r) => ({
-                  label: `${r.method} (${r.treatment_group})`,
-                  effectRelPct: r.effect_rel! * 100,
-                  ciLoPct: r.ci_rel[0]! * 100,
-                  ciHiPct: r.ci_rel[1]! * 100,
-                  highlighted: r.is_designed_method,
-                }))}
-            />
-            <HelpCollapse chartType="forest" />
+          <Typography.Title level={5}>Forest plot</Typography.Title>
+          <ForestPlotChart
+            rows={metricResults
+              // A failed alternative method (compare_methods=True) has no
+              // usable effect/CI to plot — it's shown as a "failed" row in
+              // the detailed table below instead.
+              .filter((r) => r.effect_rel !== null && r.ci_rel[0] !== null && r.ci_rel[1] !== null)
+              .map((r) => ({
+                label: `${r.method} (${r.treatment_group})`,
+                effectRelPct: r.effect_rel! * 100,
+                ciLoPct: r.ci_rel[0]! * 100,
+                ciHiPct: r.ci_rel[1]! * 100,
+                highlighted: r.is_designed_method,
+              }))}
+          />
+          <HelpCollapse chartType="forest" />
 
-            {metricChart &&
-              Object.entries(metricChart.distributions).map(([treatName, dist]) => (
-                <div key={treatName}>
-                  <Typography.Title level={5}>
-                    Distribution: {metricChart.control_name} vs {treatName}
-                  </Typography.Title>
-                  <DistributionChart distribution={dist} controlName={metricChart.control_name} treatName={treatName} />
-                  <HelpCollapse chartType={dist.kind === 'binary' ? 'distribution_binary' : 'distribution_continuous'} />
-                </div>
-              ))}
+          {metricChart &&
+            Object.entries(metricChart.distributions).map(([treatName, dist]) => (
+              <div key={treatName}>
+                <Typography.Title level={5}>
+                  Distribution: {metricChart.control_name} vs {treatName}
+                </Typography.Title>
+                <DistributionChart distribution={dist} controlName={metricChart.control_name} treatName={treatName} />
+                <HelpCollapse chartType={dist.kind === 'binary' ? 'distribution_binary' : 'distribution_continuous'} />
+              </div>
+            ))}
 
-            {metricChart &&
-              Object.entries(metricChart.daily).map(([treatName, points]) => (
-                <div key={treatName}>
-                  <Typography.Title level={5}>
-                    Cumulative lift: {metricChart.control_name} vs {treatName}
-                  </Typography.Title>
-                  <CumulativeLiftChart points={points} />
-                  <HelpCollapse chartType="cumulative_lift" />
-                </div>
-              ))}
+          {metricChart &&
+            Object.entries(metricChart.daily).map(([treatName, points]) => (
+              <div key={treatName}>
+                <Typography.Title level={5}>
+                  Cumulative lift: {metricChart.control_name} vs {treatName}
+                </Typography.Title>
+                <CumulativeLiftChart points={points} />
+                <HelpCollapse chartType="cumulative_lift" />
+              </div>
+            ))}
 
-            {metricChart &&
-              Object.entries(metricChart.segments).map(([treatName, segs]) => (
-                <div key={treatName}>
-                  <Typography.Title level={5}>
-                    By segment: {metricChart.control_name} vs {treatName}{' '}
-                    <Tag>exploratory</Tag>
-                  </Typography.Title>
-                  <ForestPlotChart
-                    rows={segs.map((s) => ({
-                      label: s.stratum,
-                      effectRelPct: s.effect_rel * 100,
-                      ciLoPct: s.ci_rel[0] * 100,
-                      ciHiPct: s.ci_rel[1] * 100,
-                      highlighted: false,
-                    }))}
-                  />
-                  <HelpCollapse chartType="segment_forest" />
-                </div>
-              ))}
-          </div>
-        )
-      })}
+          {metricChart &&
+            Object.entries(metricChart.segments).map(([treatName, segs]) => (
+              <div key={treatName}>
+                <Typography.Title level={5}>
+                  By segment: {metricChart.control_name} vs {treatName} <Tag>exploratory</Tag>
+                </Typography.Title>
+                <ForestPlotChart
+                  rows={segs.map((s) => ({
+                    label: s.stratum,
+                    effectRelPct: s.effect_rel * 100,
+                    ciLoPct: s.ci_rel[0] * 100,
+                    ciHiPct: s.ci_rel[1] * 100,
+                    highlighted: false,
+                  }))}
+                />
+                <HelpCollapse chartType="segment_forest" />
+              </div>
+            ))}
+        </div>
+      )}
     </div>
   )
 }

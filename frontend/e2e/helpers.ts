@@ -88,6 +88,62 @@ export async function seedExperiment(
   throw new Error('design job did not finish in time')
 }
 
+/** Same as seedExperiment, but with TWO metrics (revenue continuous primary +
+ * clicks binary secondary) instead of one — for tests that need to switch
+ * between metrics (e.g. the Analysis tab's per-metric card click). */
+export async function seedTwoMetricExperiment(
+  request: APIRequestContext,
+  name: string,
+  opts: { email?: string; password?: string } = {},
+): Promise<void> {
+  const email = opts.email ?? 'admin@e2e.test'
+  const password = opts.password ?? 'e2epass123'
+
+  const loginResp = await request.post(`${API_BASE}/auth/login`, { data: { email, password } })
+  if (!loginResp.ok()) throw new Error(`login failed: ${loginResp.status()}`)
+
+  const lines = ['user_id,revenue,clicks'].concat(
+    Array.from({ length: 200 }, (_, i) => `u_${name}_${i},${100 + (i % 10)},${i % 5 === 0 ? 1 : 0}`),
+  )
+  const uploadResp = await request.post(`${API_BASE}/datasets`, {
+    multipart: {
+      kind: 'pre_design',
+      file: { name: 'data.csv', mimeType: 'text/csv', buffer: Buffer.from(lines.join('\n')) },
+    },
+  })
+  if (!uploadResp.ok()) throw new Error(`upload failed: ${uploadResp.status()}`)
+  const dataset = await uploadResp.json()
+
+  const designResp = await request.post(`${API_BASE}/design`, {
+    data: {
+      config: {
+        name,
+        unit_col: 'user_id',
+        groups: { control: 0.5, treatment: 0.5 },
+        metrics: [
+          { name: 'revenue', type: 'continuous', role: 'primary' },
+          { name: 'clicks', type: 'binary', role: 'secondary' },
+        ],
+        sample_size: 200,
+        split_method: 'simple',
+        isolation: 'off',
+      },
+      dataset_id: dataset.id,
+    },
+  })
+  if (!designResp.ok()) throw new Error(`design submit failed: ${designResp.status()}`)
+  const { job_id } = await designResp.json()
+
+  for (let i = 0; i < 100; i++) {
+    const jobResp = await request.get(`${API_BASE}/jobs/${job_id}`)
+    const job = await jobResp.json()
+    if (job.status === 'completed') return
+    if (job.status === 'failed') throw new Error(`design job failed: ${job.error}`)
+    await new Promise((r) => setTimeout(r, 100))
+  }
+  throw new Error('design job did not finish in time')
+}
+
 /** DB3 (dataset-centric model): design/analyze/validation no longer accept
  * a direct file upload — data must already exist as a dataset, picked via
  * DatasetSelect. Uploads it through the real API (same endpoint the

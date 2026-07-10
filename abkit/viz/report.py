@@ -60,6 +60,9 @@ DETAILED_COLUMN_TOOLTIPS: dict[str, str] = {
         "p-value adjusted for multiple comparisons (see Correction). Decision is made on "
         "this value. Equals raw p-value when there is only one primary hypothesis"
     ),
+    "CUPED rho": (
+        "Correlation between metric and its pre-period covariate; variance reduction ≈ rho²"
+    ),
 }
 
 

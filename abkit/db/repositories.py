@@ -886,8 +886,12 @@ class DatabaseConnectionRepo:
             return conn
 
     def list_all(self) -> list[DatabaseConnection]:
+        # created_at desc: a freshly created connection must be visible on
+        # the admin list's first page (default AntD Table page size 10)
+        # without hunting through pagination — alphabetical-by-name ordering
+        # buried new rows once enough connections accumulated.
         with session_scope() as s:
-            rows = list(s.scalars(select(DatabaseConnection).order_by(DatabaseConnection.display_name)))
+            rows = list(s.scalars(select(DatabaseConnection).order_by(DatabaseConnection.created_at.desc())))
             for r in rows:
                 s.expunge(r)
             return rows

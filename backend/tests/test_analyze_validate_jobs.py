@@ -277,7 +277,7 @@ def test_validate_runs_aa_and_ab(app_client, tmp_path, monkeypatch):
     dataset_id = _upload_csv(app_client, _design_csv(n=300))
     resp = app_client.post(
         "/api/v1/experiments/validate_exp/validate",
-        json={"dataset_id": dataset_id, "n_sims": 20, "effect": 0.1},
+        json={"dataset_id": dataset_id, "n_sims": 100, "effect": 0.1},
     )
     assert resp.status_code == 202
     job = _poll_job(app_client, resp.json()["job_id"], timeout=30.0)
@@ -285,6 +285,23 @@ def test_validate_runs_aa_and_ab(app_client, tmp_path, monkeypatch):
     assert "aa" in job["result"] and "ab" in job["result"]
     assert len(job["result"]["aa"]["methods"]) > 0
     assert len(job["result"]["ab"]["methods"]) > 0
+
+
+def test_validate_rejects_n_sims_below_minimum(app_client, tmp_path, monkeypatch):
+    """UX-package, Validation п.3.4: too few simulations make FPR/power
+    estimates too noisy to interpret — reject rather than silently running
+    a degenerate validation. The UI enforces this too (Validation.tsx); this
+    is defense-in-depth against direct API calls."""
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+    _design_experiment(app_client, "validate_n_sims_exp")
+
+    dataset_id = _upload_csv(app_client, _design_csv(n=300))
+    resp = app_client.post(
+        "/api/v1/experiments/validate_n_sims_exp/validate",
+        json={"dataset_id": dataset_id, "n_sims": 10, "effect": 0.1},
+    )
+    assert resp.status_code == 422
 
 
 def test_validate_result_records_dataset_id_and_filename(app_client, tmp_path, monkeypatch):
@@ -297,7 +314,7 @@ def test_validate_result_records_dataset_id_and_filename(app_client, tmp_path, m
     dataset_id = _upload_csv(app_client, _design_csv(n=300))
     resp = app_client.post(
         "/api/v1/experiments/validate_dataset_exp/validate",
-        json={"dataset_id": dataset_id, "n_sims": 20, "effect": 0.1},
+        json={"dataset_id": dataset_id, "n_sims": 100, "effect": 0.1},
     )
     job = _poll_job(app_client, resp.json()["job_id"], timeout=30.0)
     assert job["status"] == "completed", job

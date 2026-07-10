@@ -522,7 +522,11 @@ def test_analyze_uses_cuped_by_default_when_pre_col_configured(tmp_path):
 
 def test_detailed_rows_includes_all_comparisons_sorted_by_metric_then_method(tmp_path):
     """UX11: детальная таблица результатов должна включать ВСЕ вычисленные
-    сравнения (designed и exploratory), отсортированные по (метрика, метод)."""
+    сравнения (designed и exploratory), отсортированные по (метрика, метод) —
+    за вычетом дублей designed-метода (UX-пакет, дедуп): revenue не имеет
+    pre_col, поэтому его designed-цепочка — просто Welch t-test, а первая же
+    alt-цепочка из compare_methods_chains() — тоже просто Welch t-test;
+    exact-дубль схлопывается в одну (designed) строку."""
     experiment = design_simple_experiment(tmp_path)
     rng = np.random.default_rng(12)
     assignments = experiment.assignments
@@ -538,10 +542,14 @@ def test_detailed_rows_includes_all_comparisons_sorted_by_metric_then_method(tmp
     control_name = results.context["control_name"]
 
     rows = results.detailed_rows(control_name)
-    assert len(rows) == len(results.results)
+    assert len(rows) == len(results.results) - 1
     # ровно одна designed-строка на пару (metric, treatment_group)
     designed_rows = [r for r in rows if r["designed"]]
     assert len(designed_rows) == len(results.metrics)
+    # ровно одна строка Welch t-test для revenue — не две (designed + дубль-alt)
+    revenue_welch_rows = [r for r in rows if r["metric"] == "revenue" and r["method"] == "Welch t-test"]
+    assert len(revenue_welch_rows) == 1
+    assert revenue_welch_rows[0]["designed"] is True
 
     keys = [(r["metric"], r["method"]) for r in rows]
     assert keys == sorted(keys)
@@ -627,7 +635,7 @@ def test_detailed_display_rows_have_readable_column_headers(tmp_path):
     expected_columns = {
         "Metric", "Comparison group", "Method", "Effect (abs.)",
         "Lift %", "95% CI of lift", "p-value", "p-value (adj.)", "Correction",
-        "n (control)", "n (test)", "Variance reduction", "Verdict",
+        "n (control)", "n (test)", "Variance reduction", "CUPED rho", "Verdict",
     }
     assert set(rows[0].keys()) == expected_columns
 
