@@ -1,6 +1,8 @@
-# abkit
+# ABKit
 
 [![CI](https://github.com/danikoptimus-hash/abkit/actions/workflows/ci.yml/badge.svg)](https://github.com/danikoptimus-hash/abkit/actions/workflows/ci.yml)
+
+`[Screenshot: реестр экспериментов ABKit]`
 
 Библиотека + веб-интерфейс на React (плюс минимальный CLI для автоматизации)
 для дизайна и анализа A/B тестов: расчет мощности и MDE, (стратифицированное)
@@ -13,6 +15,16 @@ HTML-отчеты и A/A/A/B-симуляции для валидации диз
 Python — CLI и Python API ниже) и **серверный** (React-UI + FastAPI backend +
 Postgres, роли/аудит-лог, разворачивается в Docker — раздел «Серверный режим»
 ниже). Оба работают с одними и теми же `Experiment`/`AnalysisResults`.
+
+## Документация
+
+- **[docs/USER_GUIDE.md](docs/USER_GUIDE.md)** — для аналитиков: как провести
+  тест от гипотезы до решения через веб-интерфейс (на английском, как UI).
+- **[docs/OPERATIONS.md](docs/OPERATIONS.md)** — для инженеров: развертывание,
+  обновление версии, откат, бэкап/восстановление, диагностика.
+- **[docs/PRESENTATION.md](docs/PRESENTATION.md)** — для руководства: зачем
+  ABKit нужен компании, в 10 слайдах.
+- **[CHANGELOG.md](CHANGELOG.md)** — история релизов.
 
 Полное техническое задание — в [`DESIGN.md`](DESIGN.md) (ядро) и
 [`FRONTEND.md`](FRONTEND.md) (React-UI/backend).
@@ -195,10 +207,11 @@ segment/cumulative-графики, вердикты), валидация A/A и 
 шифруются). Подробности — [`docker/README.md`](docker/README.md) §«Подключения
 к базам данных».
 
-Подробности — [`docker/README.md`](docker/README.md) (деплой, бэкап, импорт
-существующих файловых экспериментов), [`DOCKER.md`](DOCKER.md) (техническое
-задание модели ролей/аутентификации/аудита/БД) и [`FRONTEND.md`](FRONTEND.md)
-(архитектура React-UI/backend).
+Регламент эксплуатации (обновление версии, откат, бэкап/восстановление,
+диагностика) — [`docs/OPERATIONS.md`](docs/OPERATIONS.md). Настройка
+конкретных фич и подробности деплоя — [`docker/README.md`](docker/README.md),
+[`DOCKER.md`](DOCKER.md) (техническое задание модели ролей/аутентификации/
+аудита/БД), [`FRONTEND.md`](FRONTEND.md) (архитектура React-UI/backend).
 
 ## Структура проекта
 

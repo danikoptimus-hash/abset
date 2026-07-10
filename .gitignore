@@ -33,6 +33,10 @@ ab_experiments/
 *.csv
 *.parquet
 
+# scripts/backup.sh output (docs/OPERATIONS.md §5) — pg_dump + volume tar,
+# never belongs in the repo itself
+backups/
+
 # IDE
 .idea/
 .vscode/

@@ -88,6 +88,45 @@ jobs:
       - name: Build
         run: npm run build
 
+  docs-freshness:
+    # Non-blocking напоминание (CLAUDE.md, «Правило: актуальность
+    # документации»): если пуш/PR трогает функциональный код
+    # (frontend/src, backend/, abkit/), а docs/ не тронуты и в сообщениях
+    # коммитов нет маркера "[docs:none]" — warning-аннотация в Summary,
+    # НЕ fail. Не заменяет ручной шаг "docs check" в конце каждого пакета
+    # правок — просто подстраховка на случай, если его забыли.
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Docs freshness reminder
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+            HEAD="${{ github.sha }}"
+          fi
+          # Push на новую ветку / force-push: "before" может быть
+          # all-zero или отсутствовать в истории раннера — тогда сравниваем
+          # с непосредственным родителем HEAD, чтобы не упасть на diff.
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            BASE="$(git rev-parse "$HEAD^" 2>/dev/null || echo "$HEAD")"
+          fi
+
+          CHANGED="$(git diff --name-only "$BASE" "$HEAD")"
+          FUNCTIONAL="$(echo "$CHANGED" | grep -E '^(frontend/src/|backend/|abkit/)' || true)"
+          DOCS_TOUCHED="$(echo "$CHANGED" | grep -E '^docs/' || true)"
+          MARKER="$(git log "$BASE..$HEAD" --format=%B | grep -F '[docs:none]' || true)"
+
+          if [ -n "$FUNCTIONAL" ] && [ -z "$DOCS_TOUCHED" ] && [ -z "$MARKER" ]; then
+            echo "::warning::Functional changes without docs update — verify USER_GUIDE/OPERATIONS are still accurate"
+          fi
+
   e2e:
     # Playwright против реального docker compose стека (FRONTEND.md §6) — на
     # PR и вручную (workflow_dispatch), не на каждый push: поднимает полный
