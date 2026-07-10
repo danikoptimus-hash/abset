@@ -338,6 +338,8 @@ def run_update_dataset(
     name: str | None = None,
     connection_id: str | None = None,
     sql_text: str | None = None,
+    source_schema: str | None = None,
+    source_table: str | None = None,
 ) -> dict[str, Any]:
     """PATCH /datasets/{id} (UX package, Datasets п.2.3) — owner or admin,
     same rule as delete. `name` (-> Dataset.filename) applies to any source.
@@ -348,7 +350,15 @@ def run_update_dataset(
     connection_id fresh off the row — already the new values by the time it
     runs, so there's no separate "apply edited SQL" code path to keep in
     sync. Returns {"needs_refetch": bool} so the router knows whether to
-    submit that job."""
+    submit that job.
+
+    source_schema/source_table (Datasets follow-up: persist source schema/
+    table) travel ONLY alongside a sql_text change, and only when the caller
+    (EditDatasetModal) has confirmed the current SQL box still exactly
+    matches what that schema/table selection would generate — otherwise it
+    omits them, which this function treats as "clear them", not "leave
+    unchanged": a stale source_schema/source_table would be a lie about
+    where the (now hand-edited) query actually comes from."""
     require_role(current_user, "viewer")
     from abkit import storage
     from abkit.db.repositories import DatasetRepo
@@ -374,7 +384,10 @@ def run_update_dataset(
         new_connection_id = uuid_mod.UUID(connection_id) if connection_id else ds.connection_id
         new_sql = sql_text if sql_text is not None else ds.sql_text
         if new_connection_id != ds.connection_id or new_sql != ds.sql_text:
-            DatasetRepo().update_sql_source(ds.id, connection_id=new_connection_id, sql_text=new_sql)
+            DatasetRepo().update_sql_source(
+                ds.id, connection_id=new_connection_id, sql_text=new_sql,
+                source_schema=source_schema, source_table=source_table,
+            )
             changes["sql_text"] = {"old": ds.sql_text, "new": new_sql}
             needs_refetch = True
 
@@ -460,12 +473,21 @@ def run_create_dataset_from_sql(
     name: str,
     kind: str,
     experiment_id: str | None = None,
+    source_schema: str | None = None,
+    source_table: str | None = None,
     progress_callback: Any = None,
 ) -> dict[str, Any]:
     """POST /datasets/from-sql (DB2, CLAUDE.md dataset-from-SQL feature) —
     materializes a SELECT query result to parquet (streamed, see
     abkit.db_connections.sql_dataset) and registers it as a normal dataset,
-    source='sql'. Editor+, same right as an uploaded dataset."""
+    source='sql'. Editor+, same right as an uploaded dataset.
+
+    source_schema/source_table (Datasets follow-up: persist source schema/
+    table) are recorded as-is — the caller (CreateDatasetModal) only sends
+    them when `sql` still exactly matches what that schema/table selection
+    generates, so by the time they get here they're already trustworthy;
+    None just means "no cascade selection was used (or it no longer
+    applies)"."""
     require_role(current_user, "editor")
     from datetime import datetime, timezone
 
@@ -498,6 +520,7 @@ def run_create_dataset_from_sql(
             storage_path=str(dest_path), sha256=sha256, experiment_id=exp_uuid,
             uploaded_by=uuid_mod.UUID(current_user.id), source="sql", connection_id=conn_row.id,
             sql_text=sql, fetched_at=datetime.now(timezone.utc),
+            source_schema=source_schema, source_table=source_table,
         )
     _audit(
         current_user, "dataset.create_from_sql",

@@ -1160,6 +1160,10 @@ export interface components {
             kind: string;
             /** Experiment Id */
             experiment_id?: string | null;
+            /** Source Schema */
+            source_schema?: string | null;
+            /** Source Table */
+            source_table?: string | null;
         };
         /** DatasetOut */
         DatasetOut: {
@@ -1203,6 +1207,10 @@ export interface components {
             sql_text?: string | null;
             /** Fetched At */
             fetched_at?: string | null;
+            /** Source Schema */
+            source_schema?: string | null;
+            /** Source Table */
+            source_table?: string | null;
         };
         /** DatasetPreview */
         DatasetPreview: {
@@ -1605,6 +1613,9 @@ export interface components {
          * @description PATCH /datasets/{id} (UX package, Datasets §2.3): name is always
          *     editable; connection_id/sql_text only apply to source=sql datasets and
          *     trigger a re-fetch (same mechanism as Refresh) when either changes.
+         *     source_schema/source_table (Datasets follow-up) are only meaningful
+         *     alongside a sql_text change — sent when the edited SQL still exactly
+         *     matches a cascade schema/table pick, omitted (-> cleared) otherwise.
          */
         PatchDatasetRequest: {
             /** Name */
@@ -1613,6 +1624,10 @@ export interface components {
             connection_id?: string | null;
             /** Sql Text */
             sql_text?: string | null;
+            /** Source Schema */
+            source_schema?: string | null;
+            /** Source Table */
+            source_table?: string | null;
         };
         /** PatchDatasetResponse */
         PatchDatasetResponse: {

@@ -422,6 +422,8 @@ class DatasetRepo:
         connection_id: uuid_mod.UUID | None = None,
         sql_text: str | None = None,
         fetched_at: datetime | None = None,
+        source_schema: str | None = None,
+        source_table: str | None = None,
     ) -> uuid_mod.UUID:
         with session_scope() as s:
             ds = Dataset(
@@ -437,6 +439,8 @@ class DatasetRepo:
                 connection_id=connection_id,
                 sql_text=sql_text,
                 fetched_at=fetched_at,
+                source_schema=source_schema,
+                source_table=source_table,
             )
             s.add(ds)
             s.flush()
@@ -484,18 +488,31 @@ class DatasetRepo:
             ds.filename = filename
 
     def update_sql_source(
-        self, dataset_id: uuid_mod.UUID, *, connection_id: uuid_mod.UUID | None, sql_text: str | None
+        self,
+        dataset_id: uuid_mod.UUID,
+        *,
+        connection_id: uuid_mod.UUID | None,
+        sql_text: str | None,
+        source_schema: str | None = None,
+        source_table: str | None = None,
     ) -> None:
         """Edit dataset -> connection/SQL for source='sql' (UX-пакет Datasets
         §2.3) — только меняет что ИСПОЛЬЗОВАТЬ при следующем фетче; сам
         re-fetch (n_rows/columns/sha256/fetched_at) делает отдельный джоб,
-        переиспользующий run_refresh_sql_dataset ПОСЛЕ этого вызова."""
+        переиспользующий run_refresh_sql_dataset ПОСЛЕ этого вызова.
+        source_schema/source_table ВСЕГДА перезаписываются вместе с sql_text
+        (Datasets follow-up) — вызывающая сторона (run_update_dataset)
+        передает их, только если текущий SQL все еще ТОЧНО совпадает со
+        сгенерированным для этого выбора запросом; иначе — None, чтобы не
+        хранить устаревшее/неверное указание источника."""
         with session_scope() as s:
             ds = s.get(Dataset, dataset_id)
             if ds is None:
                 raise RepoError(f"Dataset {dataset_id} not found")
             ds.connection_id = connection_id
             ds.sql_text = sql_text
+            ds.source_schema = source_schema
+            ds.source_table = source_table
 
     def attach_to_experiment(self, dataset_id: uuid_mod.UUID, experiment_id: uuid_mod.UUID) -> None:
         """Привязывает pre_design датасет (загружен до создания эксперимента,

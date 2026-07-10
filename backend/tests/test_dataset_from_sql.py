@@ -313,6 +313,127 @@ def test_refresh_leaves_old_snapshot_untouched_on_mid_fetch_failure(app_client, 
     assert entry_after["n_rows"] == entry_before["n_rows"]
 
 
+def test_from_sql_dataset_persists_source_schema_table_when_provided(app_client, db_url, tmp_path, monkeypatch):
+    """Datasets follow-up (persist source schema/table): the create form
+    sends source_schema/source_table when the SQL box still exactly matches
+    a cascade table pick — must round-trip through GET /datasets."""
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _seed_table(db_url, n=5)
+    _login(app_client, role="admin")
+    conn_id = _create_connection(app_client, db_url)
+
+    resp = app_client.post(
+        "/api/v1/datasets/from-sql",
+        json={
+            "connection_id": conn_id, "sql": 'SELECT * FROM "public"."from_sql_probe"',
+            "name": "with_source", "kind": "pre_design",
+            "source_schema": "public", "source_table": "from_sql_probe",
+        },
+    )
+    job = _poll_job(app_client, resp.json()["job_id"])
+    assert job["status"] == "completed", job
+    dataset_id = job["result"]["dataset_id"]
+
+    ds = app_client.get("/api/v1/datasets").json()
+    entry = next(d for d in ds["items"] if d["id"] == dataset_id)
+    assert entry["source_schema"] == "public"
+    assert entry["source_table"] == "from_sql_probe"
+
+
+def test_from_sql_dataset_source_schema_table_default_null(app_client, db_url, tmp_path, monkeypatch):
+    """A hand-written query (no cascade pick) leaves source_schema/table
+    null — no guessing at creation time either."""
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _seed_table(db_url, n=5)
+    _login(app_client, role="admin")
+    conn_id = _create_connection(app_client, db_url)
+
+    resp = app_client.post(
+        "/api/v1/datasets/from-sql",
+        json={
+            "connection_id": conn_id, "sql": "SELECT user_id FROM from_sql_probe WHERE revenue > 100",
+            "name": "no_source", "kind": "pre_design",
+        },
+    )
+    job = _poll_job(app_client, resp.json()["job_id"])
+    assert job["status"] == "completed", job
+    dataset_id = job["result"]["dataset_id"]
+
+    ds = app_client.get("/api/v1/datasets").json()
+    entry = next(d for d in ds["items"] if d["id"] == dataset_id)
+    assert entry["source_schema"] is None
+    assert entry["source_table"] is None
+
+
+def test_patch_dataset_sql_clears_source_schema_table_when_hand_edited(app_client, db_url, tmp_path, monkeypatch):
+    """Datasets follow-up §2: editing the SQL so it no longer matches the
+    stored table must clear source_schema/source_table, not leave a stale
+    (lying) pointer at the old table."""
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _seed_table(db_url, n=5)
+    _login(app_client, role="admin")
+    conn_id = _create_connection(app_client, db_url)
+
+    resp = app_client.post(
+        "/api/v1/datasets/from-sql",
+        json={
+            "connection_id": conn_id, "sql": 'SELECT * FROM "public"."from_sql_probe"',
+            "name": "patchable", "kind": "pre_design",
+            "source_schema": "public", "source_table": "from_sql_probe",
+        },
+    )
+    job = _poll_job(app_client, resp.json()["job_id"])
+    dataset_id = job["result"]["dataset_id"]
+
+    patch_resp = app_client.patch(
+        f"/api/v1/datasets/{dataset_id}",
+        json={"sql_text": "SELECT user_id FROM from_sql_probe WHERE revenue > 100"},
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    job_id = patch_resp.json()["job_id"]
+    assert job_id is not None
+    _poll_job(app_client, job_id)
+
+    ds = app_client.get("/api/v1/datasets").json()
+    entry = next(d for d in ds["items"] if d["id"] == dataset_id)
+    assert entry["source_schema"] is None
+    assert entry["source_table"] is None
+
+
+def test_patch_dataset_sql_sets_source_schema_table_when_provided(app_client, db_url, tmp_path, monkeypatch):
+    """Inverse of the above: patching SQL together with a fresh cascade pick
+    updates source_schema/source_table to the new values."""
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _seed_table(db_url, n=5)
+    _login(app_client, role="admin")
+    conn_id = _create_connection(app_client, db_url)
+
+    resp = app_client.post(
+        "/api/v1/datasets/from-sql",
+        json={
+            "connection_id": conn_id, "sql": "SELECT user_id FROM from_sql_probe",
+            "name": "patchable2", "kind": "pre_design",
+        },
+    )
+    job = _poll_job(app_client, resp.json()["job_id"])
+    dataset_id = job["result"]["dataset_id"]
+
+    patch_resp = app_client.patch(
+        f"/api/v1/datasets/{dataset_id}",
+        json={
+            "sql_text": 'SELECT * FROM "public"."from_sql_probe"',
+            "source_schema": "public", "source_table": "from_sql_probe",
+        },
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    _poll_job(app_client, patch_resp.json()["job_id"])
+
+    ds = app_client.get("/api/v1/datasets").json()
+    entry = next(d for d in ds["items"] if d["id"] == dataset_id)
+    assert entry["source_schema"] == "public"
+    assert entry["source_table"] == "from_sql_probe"
+
+
 def test_refresh_rejects_non_sql_dataset(app_client, db_url, tmp_path, monkeypatch):
     monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
     _login(app_client, role="editor")

@@ -23,6 +23,12 @@ class DatasetOut(BaseModel):
     connection_name: str | None = None
     sql_text: str | None = None
     fetched_at: datetime | None = None
+    # Datasets follow-up (persist source schema/table): explicit schema/
+    # table picked via the From SQL cascade, when sql_text still matches
+    # what it generates — None for hand-written queries / once sql_text has
+    # diverged. See abkit/db/models.py::Dataset for the full rationale.
+    source_schema: str | None = None
+    source_table: str | None = None
 
 
 class DatasetFromSqlRequest(BaseModel):
@@ -33,6 +39,11 @@ class DatasetFromSqlRequest(BaseModel):
     # upload_dataset's kind param in backend/routers/datasets.py.
     kind: str = "pre_design"
     experiment_id: str | None = None
+    # Only sent when `sql` is still exactly what selecting this schema/table
+    # in the cascade would generate (Datasets follow-up) — the frontend
+    # omits both otherwise, e.g. for hand-written SQL.
+    source_schema: str | None = None
+    source_table: str | None = None
 
 
 class DatasetFromSqlResult(BaseModel):
@@ -92,11 +103,16 @@ class DeleteDatasetRequest(BaseModel):
 class PatchDatasetRequest(BaseModel):
     """PATCH /datasets/{id} (UX package, Datasets §2.3): name is always
     editable; connection_id/sql_text only apply to source=sql datasets and
-    trigger a re-fetch (same mechanism as Refresh) when either changes."""
+    trigger a re-fetch (same mechanism as Refresh) when either changes.
+    source_schema/source_table (Datasets follow-up) are only meaningful
+    alongside a sql_text change — sent when the edited SQL still exactly
+    matches a cascade schema/table pick, omitted (-> cleared) otherwise."""
 
     name: str | None = None
     connection_id: str | None = None
     sql_text: str | None = None
+    source_schema: str | None = None
+    source_table: str | None = None
 
 
 class PatchDatasetResponse(BaseModel):

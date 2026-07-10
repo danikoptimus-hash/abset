@@ -353,6 +353,12 @@ export function DatasetsPage() {
               style={{ marginBottom: 12 }}
               message="Snapshot stored in ABKit. Deleting the source table in the external database does NOT affect this dataset. Use Refresh to re-fetch current data (columns are updated automatically)."
             />
+            <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
+              Source: {previewedDataset.connection_name ?? 'Unknown connection'} ·{' '}
+              {previewedDataset.source_schema && previewedDataset.source_table
+                ? `${previewedDataset.source_schema}.${previewedDataset.source_table}`
+                : 'custom query'}
+            </Typography.Text>
             <Space style={{ marginBottom: 4, justifyContent: 'space-between', width: '100%' }}>
               <Space align="center">
                 <Typography.Text strong>SQL</Typography.Text>

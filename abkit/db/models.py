@@ -176,6 +176,15 @@ class Dataset(Base):
     )
     sql_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Datasets follow-up: explicit schema/table the user picked via the
+    # From SQL cascade, when sql_text was generated from (or later confirmed
+    # to still match) that pick — NULL for hand-written queries the cascade
+    # was never used for, or once sql_text has been edited to diverge from
+    # it (see abkit/jobs.py::run_update_dataset). Authoritative source for
+    # the Edit modal's cascade prefill; re-parsing sql_text is only a
+    # fallback for rows this doesn't cover.
+    source_schema: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_table: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class ExperimentDataset(Base):

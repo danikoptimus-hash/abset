@@ -58,6 +58,7 @@ def _to_dataset_out(d, exp_name_by_id: dict, email_by_id: dict, connection_name_
         connection_id=str(d.connection_id) if d.connection_id else None,
         connection_name=connection_name_by_id.get(d.connection_id) if d.connection_id else None,
         sql_text=d.sql_text, fetched_at=d.fetched_at,
+        source_schema=d.source_schema, source_table=d.source_table,
     )
 
 
@@ -278,6 +279,7 @@ def create_dataset_from_sql(
         return run_create_dataset_from_sql(
             user, connection_id=body.connection_id, sql=body.sql, name=body.name,
             kind=body.kind, experiment_id=body.experiment_id, progress_callback=reporter.stage,
+            source_schema=body.source_schema, source_table=body.source_table,
         )
 
     job = runner.submit("dataset_from_sql", uuid_mod.UUID(user.id), _run)
@@ -340,6 +342,7 @@ def patch_dataset(
 
     result = run_update_dataset(
         user, dataset_id, name=body.name, connection_id=body.connection_id, sql_text=body.sql_text,
+        source_schema=body.source_schema, source_table=body.source_table,
     )
 
     job_id = None

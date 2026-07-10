@@ -7,7 +7,7 @@ import type { components } from '../../api/schema'
 import { SchemaTableCascade } from '../../components/datasets/SchemaTableCascade'
 import { QueryResultPreview } from '../../components/datasets/QueryResultPreview'
 import { DatasetSnapshotPreview } from '../../components/datasets/DatasetSnapshotPreview'
-import { parseSchemaTableFromSql } from '../../components/datasets/parseSchemaTableFromSql'
+import { buildSelectAllSql, parseSchemaTableFromSql } from '../../components/datasets/parseSchemaTableFromSql'
 
 type DatasetOut = components['schemas']['DatasetOut']
 
@@ -49,9 +49,17 @@ export function EditDatasetModal({
       setName(dataset.filename)
       setConnectionId(dataset.connection_id ?? undefined)
       setSql(dataset.sql_text ?? '')
-      const parsed = dataset.source === 'sql' ? parseSchemaTableFromSql(dataset.sql_text ?? '') : {}
-      setSchema(parsed.schema)
-      setTable(parsed.table)
+      // Datasets follow-up (persist source schema/table): the stored
+      // columns are authoritative — only fall back to re-parsing sql_text
+      // for older rows / hand-written queries that never had them set.
+      if (dataset.source === 'sql' && (dataset.source_schema || dataset.source_table)) {
+        setSchema(dataset.source_schema ?? undefined)
+        setTable(dataset.source_table ?? undefined)
+      } else {
+        const parsed = dataset.source === 'sql' ? parseSchemaTableFromSql(dataset.sql_text ?? '') : {}
+        setSchema(parsed.schema)
+        setTable(parsed.table)
+      }
       lastAutoFilledSql.current = null
       setError(null)
       reset()
@@ -87,7 +95,7 @@ export function EditDatasetModal({
   const handleTableChange = (value: string | undefined) => {
     setTable(value)
     if (!value || !schema) return
-    const generated = `SELECT * FROM "${schema}"."${value}"`
+    const generated = buildSelectAllSql(schema, value)
     if (sql.trim() === '' || sql === lastAutoFilledSql.current) {
       setSql(generated)
       lastAutoFilledSql.current = generated
@@ -108,11 +116,26 @@ export function EditDatasetModal({
     setSaving(true)
     setError(null)
     try {
-      const body: { name?: string; connection_id?: string; sql_text?: string } = {}
+      const body: {
+        name?: string
+        connection_id?: string
+        sql_text?: string
+        source_schema?: string
+        source_table?: string
+      } = {}
       if (name.trim() && name.trim() !== dataset.filename) body.name = name.trim()
       if (sqlChanged) {
         body.connection_id = connectionId
         body.sql_text = sql
+        // Datasets follow-up: only carry the schema/table selection along
+        // if the SQL box still exactly matches what it generates — a
+        // hand-edited query clears source_schema/source_table instead of
+        // keeping a stale (and now false) pointer at the old table.
+        const sourceMatches = !!schema && !!table && sql.trim() === buildSelectAllSql(schema, table)
+        if (sourceMatches) {
+          body.source_schema = schema
+          body.source_table = table
+        }
       }
       const { data, error } = await apiClient.PATCH('/api/v1/datasets/{dataset_id}', {
         params: { path: { dataset_id: dataset.id } },
@@ -185,6 +208,11 @@ export function EditDatasetModal({
             onSchemaChange={setSchema}
             onTableChange={handleTableChange}
           />
+          {!schema && !table && (
+            <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 12 }}>
+              Custom query — table picker not applicable.
+            </Typography.Text>
+          )}
 
           <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>
             SQL (SELECT only)

@@ -223,4 +223,127 @@ test('Edit dataset (source=sql) shows the schema/table cascade prefilled and bot
   await expect(dialog.getByRole('columnheader', { name: 'email' })).toBeVisible()
 
   await dialog.getByRole('button', { name: 'Cancel' }).click()
+
+  // Datasets follow-up (persist source schema/table) — a JOIN query has no
+  // single source table by design: source_schema/source_table stay null,
+  // and Edit shows the picker empty with an explanatory hint rather than
+  // guessing at (or clobbering) something wrong. Created via the API
+  // directly (reusing the connection above) since this is about what Edit
+  // shows, not another full From-SQL-tab walkthrough.
+  const connResp = await page.request.get('/api/v1/admin/db-connections')
+  const connId = (await connResp.json()).find(
+    (c: { display_name: string; id: string }) => c.display_name === connectionName,
+  ).id
+  const joinName = `e2e_sql_join_${Date.now()}`
+  const joinResp = await page.request.post('/api/v1/datasets/from-sql', {
+    data: {
+      connection_id: connId,
+      sql: 'SELECT u.id, u.email FROM public.users u JOIN public.experiments e ON e.owner_id = u.id',
+      name: joinName, kind: 'pre_design',
+    },
+  })
+  expect(joinResp.ok()).toBeTruthy()
+  const joinJobId = (await joinResp.json()).job_id
+  let joinJob: { status: string; result?: { dataset_id: string } } | undefined
+  for (let i = 0; i < 100; i++) {
+    const jobResp = await page.request.get(`/api/v1/jobs/${joinJobId}`)
+    joinJob = await jobResp.json()
+    if (joinJob!.status !== 'pending' && joinJob!.status !== 'running') break
+    await page.waitForTimeout(150)
+  }
+  expect(joinJob?.status).toBe('completed')
+
+  const joinDatasetsResp = await page.request.get('/api/v1/datasets?page_size=200')
+  const joinEntry = (await joinDatasetsResp.json()).items.find((d: { id: string }) => d.id === joinJob!.result!.dataset_id)
+  expect(joinEntry.source_schema).toBeNull()
+  expect(joinEntry.source_table).toBeNull()
+
+  await page.goto('/datasets')
+  const joinRow = page.getByRole('row', { name: new RegExp(joinName) })
+  await expect(joinRow).toBeVisible()
+  await joinRow.hover()
+  await joinRow.getByRole('button', { name: 'Edit' }).click()
+  const joinDialog = page.getByRole('dialog').filter({ hasText: 'Edit dataset' })
+  await expect(joinDialog).toBeVisible()
+  await expect(joinDialog.getByRole('combobox', { name: 'from-sql-schema-select' })).toBeVisible()
+  await expect(joinDialog.getByText('Custom query — table picker not applicable.')).toBeVisible()
+  await joinDialog.getByRole('button', { name: 'Cancel' }).click()
+})
+
+test('Creating via the schema/table cascade persists source_schema/source_table, shown in the preview drawer and preselected (not re-parsed) in Edit', async ({
+  page,
+}) => {
+  test.skip(!PG.host || !PG.password, 'E2E_POSTGRES_* not set — see .github/workflows/ci.yml')
+  test.setTimeout(60_000)
+
+  await loginViaUi(page)
+  await page.goto('/admin/db-connections')
+
+  const connectionName = `e2e_pg_cascade_${Date.now()}`
+  await page.getByRole('button', { name: 'Database' }).click()
+  const connDialog = page.getByRole('dialog')
+  await connDialog.getByLabel('Host').fill(PG.host!)
+  await connDialog.getByLabel('Port').fill(PG.port!)
+  await connDialog.getByLabel('Database Name').fill(PG.db!)
+  await connDialog.getByLabel('Username').fill(PG.user!)
+  await connDialog.getByLabel('Password').fill(PG.password!)
+  await connDialog.getByLabel('Display Name').fill(connectionName)
+  await connDialog.getByRole('button', { name: 'Test connection' }).click()
+  await expect(connDialog.getByText('Connection successful')).toBeVisible({ timeout: 10_000 })
+  await connDialog.getByRole('button', { name: 'OK' }).click()
+  await expect(connDialog).not.toBeVisible()
+
+  await page.goto('/datasets')
+  await page.getByRole('button', { name: 'Dataset' }).click()
+  await page.getByRole('tab', { name: 'From SQL' }).click()
+  await page.getByRole('combobox', { name: 'from-sql-connection-select' }).click()
+  await page.getByTitle(new RegExp(connectionName)).click()
+
+  const schemaSelect = page.getByRole('combobox', { name: 'from-sql-schema-select' })
+  await schemaSelect.click()
+  await schemaSelect.fill('public')
+  await page.getByTitle('public').click()
+
+  const tableSelect = page.getByRole('combobox', { name: 'from-sql-table-select' })
+  await tableSelect.click()
+  await tableSelect.fill('users')
+  await page.getByTitle('users', { exact: true }).click()
+
+  const sqlBox = page.getByPlaceholder('SELECT user_id, revenue FROM events WHERE ...')
+  await expect(sqlBox).toHaveValue('SELECT * FROM "public"."users"')
+  // No manual edit from here on — the cascade pick must be sent as-is,
+  // which is what makes source_schema/source_table get persisted (Datasets
+  // follow-up: bug report said Edit opened with the picker empty).
+
+  const datasetName = `e2e_cascade_persist_${Date.now()}`
+  await page.getByPlaceholder('e.g. active_users_30d').fill(datasetName)
+  await page.getByRole('button', { name: 'Create dataset' }).click()
+  await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: 20_000 })
+
+  // The persisted columns are the point of this fix — assert them directly
+  // via the API, not just that the Edit modal happens to show something
+  // (which the old, removed sql_text-reparsing fallback could also do).
+  const datasetsResp = await page.request.get('/api/v1/datasets?page_size=200')
+  const entry = (await datasetsResp.json()).items.find((d: { filename: string }) => d.filename.startsWith(datasetName))
+  expect(entry).toBeTruthy()
+  expect(entry.source_schema).toBe('public')
+  expect(entry.source_table).toBe('users')
+
+  const row = page.getByRole('row', { name: new RegExp(datasetName) })
+  await expect(row).toBeVisible()
+
+  // Preview drawer's Source line reflects it too.
+  await row.click()
+  await expect(page.getByText(/Source: .*· public\.users/)).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await row.hover()
+  await row.getByRole('button', { name: 'Edit' }).click()
+  const dialog = page.getByRole('dialog').filter({ hasText: 'Edit dataset' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByTitle('public')).toBeVisible()
+  await expect(dialog.getByTitle('users', { exact: true })).toBeVisible()
+  await expect(dialog.getByText('Custom query — table picker not applicable.')).not.toBeVisible()
+
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
 })

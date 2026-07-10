@@ -7,6 +7,7 @@ import { apiClient, errorMessage, toFormData } from '../../api/client'
 import { useJobPolling } from '../../api/useJobPolling'
 import { SchemaTableCascade } from '../../components/datasets/SchemaTableCascade'
 import { QueryResultPreview } from '../../components/datasets/QueryResultPreview'
+import { buildSelectAllSql } from '../../components/datasets/parseSchemaTableFromSql'
 
 const { Dragger } = Upload
 const { TextArea } = Input
@@ -90,7 +91,7 @@ function FromSqlTab({ onDone }: { onDone: () => void }) {
   const handleTableChange = (value: string | undefined) => {
     setTable(value)
     if (value && schema) {
-      const generated = `SELECT * FROM "${schema}"."${value}"`
+      const generated = buildSelectAllSql(schema, value)
       if (sql.trim() === '' || sql === lastAutoFilledSql.current) {
         setSql(generated)
         lastAutoFilledSql.current = generated
@@ -101,9 +102,17 @@ function FromSqlTab({ onDone }: { onDone: () => void }) {
   const runCreate = async () => {
     if (!connectionId || !sql.trim() || !name.trim()) return
     reset()
+    // Datasets follow-up (persist source schema/table): only send the
+    // cascade pick if the SQL box still exactly matches what it generates —
+    // a hand-edited query has no business claiming to come from that table.
+    const sourceMatches = !!schema && !!table && sql.trim() === buildSelectAllSql(schema, table)
     const { data, error } = await apiClient.POST('/api/v1/datasets/from-sql', {
       // kind: server defaults to 'pre_design' (DB3 dataset-centric model).
-      body: { connection_id: connectionId, sql, name, kind: 'pre_design' },
+      body: {
+        connection_id: connectionId, sql, name, kind: 'pre_design',
+        source_schema: sourceMatches ? schema : undefined,
+        source_table: sourceMatches ? table : undefined,
+      },
     })
     if (error) {
       setCreateError(errorMessage(error))
