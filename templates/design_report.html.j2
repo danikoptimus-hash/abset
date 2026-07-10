@@ -67,7 +67,13 @@
     <tr>
       <td>{{ row.metric }}</td>
       <td>{{ '%.2f%%' % (row.mde_rel*100) if row.mde_rel is not none else '-' }}</td>
-      <td>{{ '%.2f%%' % (row.mde_rel_cuped*100) if row.mde_rel_cuped is not none else '-' }}</td>
+      {% if row.mde_rel_cuped is none %}
+      <td title="no pre-period column specified">-</td>
+      {% elif row.rho is not none and row.rho|abs < 0.1 %}
+      <td title="low correlation, negligible gain">{{ '%.2f%%' % (row.mde_rel_cuped*100) }}</td>
+      {% else %}
+      <td>{{ '%.2f%%' % (row.mde_rel_cuped*100) }}</td>
+      {% endif %}
       <td>{{ '%.0f' % row.sample_size if row.sample_size is not none else '-' }}</td>
       <td>{{ '%.3f' % row.rho if row.rho is not none else '-' }}</td>
     </tr>

@@ -384,6 +384,12 @@ def _compute_power_results(
                     result.sample_size_per_group = n_req
                     result.mde_abs = p_treat - mean
                     result.mde_rel = config.mde
+                    if rho is not None:
+                        result.sample_size_per_group_cuped = power.sample_size_binary_cuped(
+                            mean, p_treat, rho, alpha=alpha, power=config.power, ratio=ratio
+                        )
+                        result.mde_abs_cuped = p_treat - mean
+                        result.mde_rel_cuped = config.mde
             else:
                 mde_abs = abs(config.mde * mean) if mean != 0 else abs(config.mde)
                 n_req = power.sample_size_continuous(std, mde_abs, alpha=alpha, power=config.power, ratio=ratio)
@@ -410,6 +416,13 @@ def _compute_power_results(
                 result.sample_size_per_group = n_control
                 result.mde_abs = mde_delta
                 result.mde_rel = mde_delta / mean if mean else None
+                if rho is not None:
+                    mde_delta_cuped = power.mde_binary_cuped(
+                        mean, rho, n_control, alpha=alpha, power=config.power, ratio=ratio
+                    )
+                    result.sample_size_per_group_cuped = n_control
+                    result.mde_abs_cuped = mde_delta_cuped
+                    result.mde_rel_cuped = mde_delta_cuped / mean if mean else None
             else:
                 mde_abs = power.mde_continuous(std, n_control, alpha=alpha, power=config.power, ratio=ratio)
                 result.sample_size_per_group = n_control

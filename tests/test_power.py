@@ -136,3 +136,27 @@ def test_cuped_reduces_required_sample_size():
     n_cuped = power.sample_size_continuous(std_cuped, mde_abs)
     assert n_cuped < n_no_cuped
     assert n_cuped == pytest.approx(n_no_cuped * (1 - rho**2), rel=1e-6)
+
+
+def test_binary_variance_is_bernoulli_variance():
+    assert power.binary_variance(0.5) == pytest.approx(0.25)
+    assert power.binary_variance(0.055) == pytest.approx(0.055 * 0.945)
+
+
+def test_sample_size_binary_cuped_matches_1_minus_rho_squared_approximation():
+    p_control, p_treat, rho = 0.05, 0.06, 0.35
+    n_no_cuped = power.sample_size_binary_cuped(p_control, p_treat, rho=0.0)
+    n_cuped = power.sample_size_binary_cuped(p_control, p_treat, rho=rho)
+    assert n_cuped < n_no_cuped
+    assert n_cuped == pytest.approx(n_no_cuped * (1 - rho**2), rel=1e-6)
+
+
+def test_mde_binary_cuped_smaller_than_without_cuped_at_same_n():
+    p_control, rho, n_control = 0.055, 0.35, 2000.0
+    mde_no_cuped = power.mde_continuous(power.binary_variance(p_control) ** 0.5, n_control)
+    mde_cuped = power.mde_binary_cuped(p_control, rho, n_control)
+    assert mde_cuped < mde_no_cuped
+    # mde scales with std (linear in the normal approximation), so the ratio
+    # should match sqrt(1 - rho^2) — the same (1-rho^2)-on-variance approximation
+    # as the continuous case, applied to the Bernoulli variance p*(1-p).
+    assert mde_cuped == pytest.approx(mde_no_cuped * np.sqrt(1 - rho**2), rel=1e-6)

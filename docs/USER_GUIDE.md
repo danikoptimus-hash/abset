@@ -176,7 +176,15 @@ exploits), and the split-quality checks below.
 
 The design report always includes:
 - **MDE table** — per metric, the smallest effect size the experiment can
-  reliably detect at this sample size, with and without CUPED.
+  reliably detect at this sample size, with and without CUPED (works the same
+  way for `binary` metrics as `continuous` ones — a conversion-rate metric
+  with a pre-period column gets a CUPED-adjusted MDE too, using the
+  `p·(1−p)·(1−ρ²)` variance approximation instead of the exact proportions
+  test). A dash in a CUPED column always means something specific, not "no
+  data": hover it — a metric with no pre-period column shows "no pre-period
+  column specified", while a metric that has one but whose correlation with
+  it is too weak to matter (|ρ| < 0.1) still shows the computed number, with
+  a "low correlation, negligible gain" hint instead of hiding it.
 - **SRM check** (Sample Ratio Mismatch) — a chi-square test comparing the
   actual group sizes against the intended split ratio. If it fails
   (p < 0.001), don't trust downstream analysis until you find the cause (a

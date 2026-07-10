@@ -182,3 +182,30 @@ def correlation_with_pre(metric: pd.Series, pre: pd.Series) -> float:
 def cuped_variance_multiplier(rho: float) -> float:
     """Множитель дисперсии при CUPED: var_cuped = var * (1 - rho^2)."""
     return 1 - rho**2
+
+
+def binary_variance(p: float) -> float:
+    """Дисперсия Бернулли p*(1-p) — continuous-аналог для CUPED-приближения на
+    binary-метриках: после CUPED-поправки остаток уже не строго 0/1, поэтому
+    его дисперсию приближают как p*(1-p)*(1-rho^2) и дальше считают через
+    continuous-формулы (mde_continuous/sample_size_continuous), а не точный
+    биномиальный тест (mde_binary/sample_size_binary)."""
+    return p * (1 - p)
+
+
+def mde_binary_cuped(
+    p_control: float, rho: float, n_control: float, alpha: float = 0.05, power: float = 0.8, ratio: float = 1.0,
+) -> float:
+    """Достижимый абсолютный MDE для binary-метрики с CUPED (нормальное
+    приближение на дисперсии p*(1-p)*(1-rho^2) — см. binary_variance)."""
+    std_cuped = (binary_variance(p_control) * cuped_variance_multiplier(rho)) ** 0.5
+    return mde_continuous(std_cuped, n_control, alpha=alpha, power=power, ratio=ratio)
+
+
+def sample_size_binary_cuped(
+    p_control: float, p_treat: float, rho: float, alpha: float = 0.05, power: float = 0.8, ratio: float = 1.0,
+) -> float:
+    """Размер контрольной группы для детектирования p_treat-p_control у
+    binary-метрики с CUPED (тот же прием, что mde_binary_cuped)."""
+    std_cuped = (binary_variance(p_control) * cuped_variance_multiplier(rho)) ** 0.5
+    return sample_size_continuous(std_cuped, p_treat - p_control, alpha=alpha, power=power, ratio=ratio)

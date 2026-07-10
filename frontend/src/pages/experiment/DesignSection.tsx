@@ -1,4 +1,4 @@
-import { Typography, Table, Tag, Space, Button, Alert, Descriptions, Collapse, Spin } from 'antd'
+import { Typography, Table, Tag, Space, Button, Alert, Descriptions, Collapse, Spin, Tooltip } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '../../api/client'
@@ -105,6 +105,33 @@ function ConfigSummary({ config }: { config: Record<string, unknown> }) {
   )
 }
 
+// Below this |rho| threshold CUPED's variance reduction is negligible
+// (~1% or less) — still a real, computed number, not omitted, just flagged
+// so it isn't mistaken for a meaningful gain.
+const CUPED_NEGLIGIBLE_RHO = 0.1
+
+// A CUPED cell is never a bare, unexplained dash: null means no pre-period
+// column was given at all (nothing to compute from), which is a different
+// situation from "computed, but the correlation is too weak to matter" —
+// each gets its own tooltip so the distinction is visible, not implied.
+function cupedCell(value: number | null, rho: number | null, format: (v: number) => string) {
+  if (value == null) {
+    return (
+      <Tooltip title="no pre-period column specified">
+        <span>—</span>
+      </Tooltip>
+    )
+  }
+  if (rho != null && Math.abs(rho) < CUPED_NEGLIGIBLE_RHO) {
+    return (
+      <Tooltip title="low correlation, negligible gain">
+        <span>{format(value)}</span>
+      </Tooltip>
+    )
+  }
+  return format(value)
+}
+
 function mdeTable(computed: ComputedDesignSummary) {
   const rows = Object.entries(computed.power).map(([metricName, p]) => ({
     key: metricName,
@@ -125,8 +152,18 @@ function mdeTable(computed: ComputedDesignSummary) {
     { title: 'n per group', dataIndex: 'n_per_group', render: (v: number | null) => v ?? '—' },
     ...(hasCuped
       ? [
-          { title: 'MDE (rel., CUPED)', dataIndex: 'mde_rel_cuped', render: (v: number | null) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`) },
-          { title: 'n per group (CUPED)', dataIndex: 'n_per_group_cuped', render: (v: number | null) => v ?? '—' },
+          {
+            title: 'MDE (rel., CUPED)',
+            dataIndex: 'mde_rel_cuped',
+            render: (v: number | null, record: (typeof rows)[number]) =>
+              cupedCell(v, record.rho, (x) => `${(x * 100).toFixed(1)}%`),
+          },
+          {
+            title: 'n per group (CUPED)',
+            dataIndex: 'n_per_group_cuped',
+            render: (v: number | null, record: (typeof rows)[number]) =>
+              cupedCell(v, record.rho, (x) => String(x)),
+          },
         ]
       : []),
   ]

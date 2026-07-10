@@ -258,6 +258,82 @@ def test_design_with_cuped_pre_col(tmp_path):
     assert result.sample_size_per_group_cuped < result.sample_size_per_group
 
 
+def test_design_with_cuped_pre_col_binary_metric(tmp_path):
+    """Regression: CUPED MDE/n for a BINARY metric with pre_col used to stay
+    None (frontend showed a bare dash) — abkit/design/power.py::mde_binary_cuped/
+    sample_size_binary_cuped now cover this the same way continuous does."""
+    rng = np.random.default_rng(0)
+    n = 8000
+    # conversion_pre correlates with conversion via a shared latent propensity
+    # — enough to land rho in the same ballpark (~0.3-0.4) real pre-period
+    # conversion data tends to show.
+    propensity = rng.normal(0, 1, size=n)
+    conversion_pre = (rng.normal(0, 1, size=n) + propensity > 0.6).astype(float)
+    conversion = (rng.normal(0, 1, size=n) + propensity > 0.6).astype(float)
+    data = pd.DataFrame(
+        {
+            "user_id": [f"u{i}" for i in range(n)],
+            "conversion": conversion,
+            "conversion_pre": conversion_pre,
+        }
+    )
+    config = make_config(
+        name="cuped_binary_exp",
+        metrics=[MetricConfig(name="conversion", type="binary", pre_col="conversion_pre")],
+        strata=[],
+    )
+    experiment = Experiment.design(config, data, experiments_dir=tmp_path)
+    result = experiment.report.power_results["conversion"]
+    assert result.rho is not None
+    assert result.rho > 0.1  # sanity: this synthetic setup should clear the "negligible" threshold
+    assert result.mde_rel_cuped is not None
+    assert result.sample_size_per_group_cuped is not None
+    assert result.sample_size_per_group_cuped < result.sample_size_per_group
+
+    # make_config()'s default mde=0.1 exercises the "target MDE given, solve
+    # for n" branch — there, CUPED reduces the required SAMPLE SIZE for the
+    # same target MDE (mde_rel_cuped == mde_rel by construction, same as the
+    # continuous case), so the (1-rho^2)-approximation shows up in the n
+    # ratio, not an MDE ratio.
+    assert result.mde_rel_cuped == pytest.approx(result.mde_rel)
+    expected_ratio = 1 - result.rho**2
+    actual_ratio = result.sample_size_per_group_cuped / result.sample_size_per_group
+    assert actual_ratio == pytest.approx(expected_ratio, rel=0.05)
+
+
+def test_design_with_cuped_pre_col_binary_metric_achievable_mde_branch(tmp_path):
+    """Same as above but mde=None/sample_size=None (achievable-MDE-at-given-n
+    branch) — there CUPED reduces the MDE itself (n stays fixed), the mirror
+    case of the branch tested above."""
+    rng = np.random.default_rng(1)
+    n = 8000
+    propensity = rng.normal(0, 1, size=n)
+    conversion_pre = (rng.normal(0, 1, size=n) + propensity > 0.6).astype(float)
+    conversion = (rng.normal(0, 1, size=n) + propensity > 0.6).astype(float)
+    data = pd.DataFrame(
+        {
+            "user_id": [f"u{i}" for i in range(n)],
+            "conversion": conversion,
+            "conversion_pre": conversion_pre,
+        }
+    )
+    config = make_config(
+        name="cuped_binary_exp2", mde=None, sample_size=None,
+        metrics=[MetricConfig(name="conversion", type="binary", pre_col="conversion_pre")],
+        strata=[],
+    )
+    experiment = Experiment.design(config, data, experiments_dir=tmp_path)
+    result = experiment.report.power_results["conversion"]
+    assert result.rho is not None and result.rho > 0.1
+    assert result.mde_rel_cuped is not None
+    assert result.sample_size_per_group_cuped == pytest.approx(result.sample_size_per_group)
+    assert result.mde_rel_cuped < result.mde_rel
+
+    expected_ratio = (1 - result.rho**2) ** 0.5
+    actual_ratio = result.mde_abs_cuped / result.mde_abs
+    assert actual_ratio == pytest.approx(expected_ratio, rel=0.05)
+
+
 def make_data_with_strata_nan(n=2000, n_nan=150, seed=0):
     data = make_synthetic_data(n=n, seed=seed)
     rng = np.random.default_rng(seed + 1)
