@@ -17,6 +17,10 @@ export interface GroupFormRow {
   id: string
   name: string
   prop: number
+  // Stage 3: optional free-text "what does this variant show/do?" — stored
+  // additively in DesignConfig.group_descriptions (sibling dict to groups,
+  // same keys), editable only via Redesign (this same wizard, prefilled).
+  description: string
 }
 
 export type SizeMode = 'mde_rel' | 'mde_abs' | 'sample_size' | 'all'
@@ -80,6 +84,16 @@ export function groupsToApi(state: WizardState): Record<string, number> {
   return out
 }
 
+// Only non-empty descriptions are sent — an empty string is "no
+// description", same as the key being absent entirely (old configs).
+export function groupDescriptionsToApi(state: WizardState): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const g of state.groups) {
+    if (g.name.trim() && g.description.trim()) out[g.name.trim()] = g.description.trim()
+  }
+  return out
+}
+
 export function groupsSum(state: WizardState): number {
   return state.groups.reduce((acc, g) => acc + (g.prop || 0), 0)
 }
@@ -89,6 +103,7 @@ export function buildDesignConfig(state: WizardState): DesignConfig {
     name: state.name.trim(),
     unit_col: state.unitCol ?? '',
     groups: groupsToApi(state),
+    group_descriptions: groupDescriptionsToApi(state),
     metrics: metricsToApi(state),
     alpha: 0.05,
     power: 0.8,
@@ -124,6 +139,7 @@ export function buildExternalDesignConfig(state: WizardState): DesignConfig {
     name: state.name.trim(),
     unit_col: '',
     groups: groupsToApi(state),
+    group_descriptions: groupDescriptionsToApi(state),
     metrics: metricsToApi(state),
     alpha: 0.05,
     power: 0.8,
@@ -146,8 +162,16 @@ export function nextId(prefix: string): string {
   return `${prefix}${idCounter}`
 }
 
-export function groupsFromApi(groups: Record<string, number>): GroupFormRow[] {
-  return Object.entries(groups).map(([name, prop]) => ({ id: nextId('group'), name, prop }))
+export function groupsFromApi(
+  groups: Record<string, number>,
+  descriptions?: Record<string, string>,
+): GroupFormRow[] {
+  return Object.entries(groups).map(([name, prop]) => ({
+    id: nextId('group'),
+    name,
+    prop,
+    description: descriptions?.[name] ?? '',
+  }))
 }
 
 export function metricsFromApi(metrics: MetricConfig[]): MetricFormRow[] {
@@ -179,7 +203,7 @@ export function wizardStateFromConfig(config: DesignConfig): Partial<WizardState
     splitMode: config.split_source === 'external' ? 'external' : 'abkit',
     name: config.name,
     unitCol: config.unit_col,
-    groups: groupsFromApi(config.groups),
+    groups: groupsFromApi(config.groups, config.group_descriptions),
     metrics,
     strata: config.strata ?? [],
     nanStrategy: config.nan_strategy ?? 'separate_stratum',

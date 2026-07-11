@@ -20,8 +20,8 @@ const INITIAL_STATE: WizardState = {
   hypothesis: '',
   unitCol: null,
   groups: [
-    { id: nextId('group'), name: 'control', prop: 0.5 },
-    { id: nextId('group'), name: 'treatment', prop: 0.5 },
+    { id: nextId('group'), name: 'control', prop: 0.5, description: '' },
+    { id: nextId('group'), name: 'treatment', prop: 0.5, description: '' },
   ],
   metrics: [{ id: nextId('metric'), name: '', type: 'continuous', role: 'primary', preCol: null, num: null, den: null }],
   strata: [],

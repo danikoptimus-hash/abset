@@ -1567,6 +1567,10 @@ export interface components {
             groups: {
                 [key: string]: number;
             };
+            /** Group Descriptions */
+            group_descriptions?: {
+                [key: string]: string;
+            };
             /** Metrics */
             metrics: components["schemas"]["MetricConfig"][];
             /**

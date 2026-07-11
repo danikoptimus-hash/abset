@@ -85,3 +85,48 @@ test('hypothesis entered in the wizard is saved into the experiment\'s Hypothesi
     page.getByText('If we change the checkout button color, conversion will increase.'),
   ).toBeVisible()
 })
+
+// Stage 3: optional per-group "what does this variant show/do?" description,
+// entered in the wizard's Groups & Metrics step, shown on the Design tab and
+// in design_report.html — editable only via Redesign afterwards.
+test('group descriptions entered in the wizard show up on the Design tab and in the design report', async ({
+  page,
+}) => {
+  test.setTimeout(60_000)
+  await loginViaUi(page)
+
+  await page.getByRole('button', { name: 'Create A/B Test' }).click()
+  await page.getByRole('button', { name: 'Demo Data' }).click()
+  await expect(page.getByText(/Data loaded: 5000 rows/)).toBeVisible({ timeout: 15_000 })
+  await page.getByRole('button', { name: 'Next' }).click()
+
+  const expName = `wizard_groupdesc_e2e_${Date.now()}`
+  await page.getByPlaceholder('Experiment name').fill(expName)
+
+  const descriptionInputs = page.getByPlaceholder('What does this variant show/do? (optional)')
+  await expect(descriptionInputs).toHaveCount(2) // demo data prefills control/treatment
+  await descriptionInputs.nth(0).fill('Existing checkout flow')
+  await descriptionInputs.nth(1).fill('New one-click checkout')
+  await page.getByRole('button', { name: 'Next' }).click()
+
+  await page.getByText(/exclude — exclude participants/).click()
+  await page.getByText(/off — exclude no one/).click()
+  await page.getByRole('button', { name: 'Next' }).click()
+
+  await page.getByRole('button', { name: 'Design' }).click()
+  await expect(page).toHaveURL(new RegExp(`/experiments/${expName}$`), { timeout: 20_000 })
+
+  await expect(page.getByText('Existing checkout flow')).toBeVisible()
+  await expect(page.getByText('New one-click checkout')).toBeVisible()
+
+  // AntD's <Button href=... target="_blank"> renders an <a> (role "link"),
+  // not role "button" — despite looking like a button.
+  const [reportPage] = await Promise.all([
+    page.context().waitForEvent('page'),
+    page.getByRole('link', { name: 'View report' }).click(),
+  ])
+  await reportPage.waitForLoadState()
+  await expect(reportPage.getByText('Existing checkout flow')).toBeVisible()
+  await expect(reportPage.getByText('New one-click checkout')).toBeVisible()
+  await reportPage.close()
+})

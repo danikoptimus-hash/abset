@@ -20,7 +20,7 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
     const groups = GROUP_PRESETS[preset]
     setState((prev) => ({
       ...prev,
-      groups: Object.entries(groups).map(([name, prop]) => ({ id: nextId('group'), name, prop })),
+      groups: Object.entries(groups).map(([name, prop]) => ({ id: nextId('group'), name, prop, description: '' })),
     }))
   }
 
@@ -52,39 +52,58 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
       </Space>
 
       {state.groups.map((g) => (
-        <Space key={g.id} style={{ display: 'flex', marginBottom: 8 }}>
-          <Input
-            placeholder="Group name"
-            value={g.name}
-            style={{ width: 200 }}
+        <div key={g.id} style={{ marginBottom: 12 }}>
+          <Space style={{ display: 'flex', marginBottom: 4 }}>
+            <Input
+              placeholder="Group name"
+              value={g.name}
+              style={{ width: 200 }}
+              onChange={(e) =>
+                setState((prev) => ({
+                  ...prev,
+                  groups: prev.groups.map((x) => (x.id === g.id ? { ...x, name: e.target.value } : x)),
+                }))
+              }
+            />
+            <InputNumber
+              min={0}
+              max={1}
+              step={0.05}
+              value={g.prop}
+              onChange={(v) =>
+                setState((prev) => ({
+                  ...prev,
+                  groups: prev.groups.map((x) => (x.id === g.id ? { ...x, prop: v ?? 0 } : x)),
+                }))
+              }
+            />
+            <Button
+              icon={<DeleteOutlined />}
+              onClick={() => setState((prev) => ({ ...prev, groups: prev.groups.filter((x) => x.id !== g.id) }))}
+            />
+          </Space>
+          <Input.TextArea
+            placeholder="What does this variant show/do? (optional)"
+            value={g.description}
+            rows={2}
+            style={{ width: 460 }}
             onChange={(e) =>
               setState((prev) => ({
                 ...prev,
-                groups: prev.groups.map((x) => (x.id === g.id ? { ...x, name: e.target.value } : x)),
+                groups: prev.groups.map((x) => (x.id === g.id ? { ...x, description: e.target.value } : x)),
               }))
             }
           />
-          <InputNumber
-            min={0}
-            max={1}
-            step={0.05}
-            value={g.prop}
-            onChange={(v) =>
-              setState((prev) => ({
-                ...prev,
-                groups: prev.groups.map((x) => (x.id === g.id ? { ...x, prop: v ?? 0 } : x)),
-              }))
-            }
-          />
-          <Button
-            icon={<DeleteOutlined />}
-            onClick={() => setState((prev) => ({ ...prev, groups: prev.groups.filter((x) => x.id !== g.id) }))}
-          />
-        </Space>
+        </div>
       ))}
       <Button
         icon={<PlusOutlined />}
-        onClick={() => setState((prev) => ({ ...prev, groups: [...prev.groups, { id: nextId('group'), name: '', prop: 0 }] }))}
+        onClick={() =>
+          setState((prev) => ({
+            ...prev,
+            groups: [...prev.groups, { id: nextId('group'), name: '', prop: 0, description: '' }],
+          }))
+        }
         style={{ marginBottom: 12 }}
       >
         Add Group

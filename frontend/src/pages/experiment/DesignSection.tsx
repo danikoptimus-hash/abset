@@ -32,12 +32,32 @@ function CheckBadge({ label, passed, detail }: { label: string; passed: boolean;
   )
 }
 
-function formatGroups(config: Record<string, unknown>): string {
-  const groups = config.groups as Record<string, number> | undefined
-  if (!groups || Object.keys(groups).length === 0) return '—'
-  return Object.entries(groups)
-    .map(([n, p]) => `${n} ${(p * 100).toFixed(0)}%`)
-    .join(' / ')
+// Stage 3: renders name + proportion + (if set) description per group —
+// a plain joined string (the old formatGroups) can't carry a multiline
+// description, so this became its own small block instead of a one-liner.
+function GroupsDisplay({ config }: { config: Record<string, unknown> }) {
+  const groups = (config.groups as Record<string, number> | undefined) ?? {}
+  const descriptions = (config.group_descriptions as Record<string, string> | undefined) ?? {}
+  const entries = Object.entries(groups)
+  if (entries.length === 0) return <>—</>
+  return (
+    <Space direction="vertical" size={4}>
+      {entries.map(([name, prop]) => (
+        <div key={name}>
+          <Typography.Text>
+            {name} {(prop * 100).toFixed(0)}%
+          </Typography.Text>
+          {descriptions[name] && (
+            <div>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {descriptions[name]}
+              </Typography.Text>
+            </div>
+          )}
+        </div>
+      ))}
+    </Space>
+  )
 }
 
 function formatMetric(m: RawMetric): string {
@@ -96,7 +116,9 @@ function ConfigSummary({ config, computed }: { config: Record<string, unknown>; 
   return (
     <>
       <Descriptions bordered column={1} size="small" style={{ marginBottom: 24 }}>
-        <Descriptions.Item label="Groups">{formatGroups(config)}</Descriptions.Item>
+        <Descriptions.Item label="Groups">
+          <GroupsDisplay config={config} />
+        </Descriptions.Item>
         <Descriptions.Item label="Metrics">
           <Space direction="vertical" size={2}>
             {metrics.length ? metrics.map((m, i) => <div key={i}>{formatMetric(m)}</div>) : '—'}

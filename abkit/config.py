@@ -33,6 +33,17 @@ class DesignConfig(BaseModel):
     name: str
     unit_col: str
     groups: dict[str, float]
+    group_descriptions: dict[str, str] = Field(default_factory=dict)
+    """Опциональное описание группы ("что показывает/делает этот вариант") —
+    Stage 3, чисто для отображения (Design tab, design_report), не влияет ни
+    на сплит, ни на анализ. Сиблинг-словарь к groups (те же ключи-имена),
+    а не переход groups на dict[str, GroupConfig] — иначе пришлось бы менять
+    каждого потребителя groups как dict[str, float] (splitter.py,
+    experiment.py, demo_data.py, validation/simulation.py) и ломать JSON уже
+    существующих в БД экспериментов. Ключи, отсутствующие здесь (старые
+    эксперименты, группа без описания) — трактуются как "нет описания", не
+    ошибка. Редактируется только через Redesign (design-wizard/
+    Step2GroupsMetrics.tsx) — отдельного edit-флоу нет."""
     metrics: list[MetricConfig]
     split_source: Literal["abkit", "external"] = "abkit"
     """"abkit" (default): the usual flow — ABSet picks candidates, splits

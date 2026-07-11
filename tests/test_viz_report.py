@@ -21,6 +21,7 @@ _REPORT_SECTION_IDS = [
 
 _DESIGN_REPORT_SECTION_IDS = [
     "section-availability",
+    "section-groups",
     "section-power",
     "section-strata-balance",
     "section-srm",
@@ -29,7 +30,7 @@ _DESIGN_REPORT_SECTION_IDS = [
 ]
 
 
-def _demo_design(tmp_path, n=3000, strata=None, seed=1):
+def _demo_design(tmp_path, n=3000, strata=None, seed=1, group_descriptions=None):
     rng = np.random.default_rng(seed)
     design_data = pd.DataFrame(
         {
@@ -45,6 +46,7 @@ def _demo_design(tmp_path, n=3000, strata=None, seed=1):
         name="viz_exp",
         unit_col="user_id",
         groups={"control": 0.5, "treatment": 0.5},
+        group_descriptions=group_descriptions or {},
         metrics=[
             MetricConfig(name="revenue", type="continuous"),
             MetricConfig(name="clicks", type="binary", role="secondary"),
@@ -72,6 +74,25 @@ def test_design_report_shows_created_date(tmp_path):
     experiment = _demo_design(tmp_path)
     html = (experiment.path / "design_report.html").read_text(encoding="utf-8")
     assert "Created " in html
+
+
+def test_design_report_shows_groups_table_with_descriptions(tmp_path):
+    experiment = _demo_design(
+        tmp_path,
+        group_descriptions={"control": "Existing checkout flow", "treatment": "New one-click checkout"},
+    )
+    html = (experiment.path / "design_report.html").read_text(encoding="utf-8")
+    assert 'id="section-groups"' in html
+    assert "Existing checkout flow" in html
+    assert "New one-click checkout" in html
+    assert "50%" in html
+
+
+def test_design_report_groups_table_omits_description_column_when_none_set(tmp_path):
+    experiment = _demo_design(tmp_path)
+    html = (experiment.path / "design_report.html").read_text(encoding="utf-8")
+    assert 'id="section-groups"' in html
+    assert "<th>Description</th>" not in html
 
 
 def test_design_report_has_absolute_mde_columns(tmp_path):

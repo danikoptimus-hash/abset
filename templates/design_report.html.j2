@@ -42,6 +42,22 @@
   <p>Groups: {% for name, size in group_sizes.items() %}{{ name }} ({{ size }}){% if not loop.last %}, {% endif %}{% endfor %}</p>
 </section>
 
+<section id="section-groups">
+  <h2>Groups</h2>
+  <table>
+    <tr>
+      <th>Group</th><th>Proportion</th>
+      {% if config.group_descriptions %}<th>Description</th>{% endif %}
+    </tr>
+    {% for name, prop in config.groups.items() %}
+    <tr>
+      <td>{{ name }}</td><td>{{ '%.0f%%' % (prop * 100) }}</td>
+      {% if config.group_descriptions %}<td>{{ config.group_descriptions.get(name, '—') }}</td>{% endif %}
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+
 {% if strata_nan_rows %}
 <section id="section-strata-nan">
   <h2>Missing values in strata</h2>
