@@ -381,7 +381,7 @@ export function DesignSection({ name, config, availableReports }: Props) {
               icon={<DownloadOutlined />}
               href={`/api/v1/experiments/${name}/reports/design_report.html?download=1`}
             >
-              Download
+              Download report
             </Button>
           </>
         )}

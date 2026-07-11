@@ -57,7 +57,7 @@ export function ResultsSection({ experimentName, familySize, blocks, editing, on
               View report
             </Button>
             <Button icon={<DownloadOutlined />} href={`/api/v1/experiments/${experimentName}/reports/report.html?download=1`}>
-              Download
+              Download report
             </Button>
           </Space>
         </>
