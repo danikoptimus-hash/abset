@@ -9,6 +9,7 @@ import { DatasetSelect } from '../../components/DatasetSelect'
 import { AnalyzeResults } from './AnalyzeResults'
 import { experimentResultsQueryKey, fetchExperimentResults } from './resultsQuery'
 import type { HypothesisFamily } from './types'
+import { PRODUCT_NAME } from '../../branding'
 
 const CORRECTION_OPTIONS = [
   { value: 'holm', label: 'holm' },
@@ -37,7 +38,7 @@ export function AnalyzeSection({
   // offered (5-part package pt.5.1).
   family: HypothesisFamily
   // Item 12 (external split): "external" means the split happened outside
-  // ABKit — there's no assignments join, the group comes from a column in
+  // ABSet — there's no assignments join, the group comes from a column in
   // the uploaded post-data that the user maps to declaredGroups (the
   // experiment's declared group names, control first) right here, before
   // "Run analysis" is even enabled.
@@ -279,7 +280,7 @@ export function AnalyzeSection({
             <div style={{ marginBottom: 16 }}>
               <Typography.Text strong>Group assignment</Typography.Text>
               <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 4, marginBottom: 8 }}>
-                The split happened outside ABKit — pick the column that carries it, then map each value to a
+                The split happened outside {PRODUCT_NAME} — pick the column that carries it, then map each value to a
                 declared group (or exclude it).
               </Typography.Paragraph>
               <Select

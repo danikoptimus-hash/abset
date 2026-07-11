@@ -180,7 +180,7 @@ def join_with_assignments(
     if collisions:
         cols = ", ".join(repr(c) for c in collisions)
         raise AnalysisError(
-            f"The uploaded data has column(s) {cols} that collide with ABKit's own "
+            f"The uploaded data has column(s) {cols} that collide with ABSet's own "
             "group-assignment columns of the same name (recorded at design time). "
             "Rename or drop them in your post-period dataset before analyzing."
         )

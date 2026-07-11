@@ -173,7 +173,7 @@
   </table>
   {% else %}
   <p>Data loss (assigned vs. present) is not applicable — this is an external-split experiment,
-    ABKit has no assignments to compare against. See the "Group column coverage" warning above
+    {{ product_name }} has no assignments to compare against. See the "Group column coverage" warning above
     for how many rows were excluded during group mapping instead.</p>
   {% endif %}
   {{ help_details('srm_table', True) }}

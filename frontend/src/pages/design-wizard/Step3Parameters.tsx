@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '../../api/client'
 import { SIZE_MODE_LABELS, SPLIT_METHOD_LABELS, ISOLATION_LABELS, NAN_STRATEGY_LABELS } from './helpTexts'
 import type { WizardState } from './types'
+import { PRODUCT_NAME } from '../../branding'
 
 interface Props {
   state: WizardState
@@ -75,7 +76,7 @@ export function Step3Parameters({ state, setState }: Props) {
       <div>
         <Typography.Title level={5}>Expected sample size (optional)</Typography.Title>
         <Typography.Paragraph type="secondary" style={{ maxWidth: 500 }}>
-          For reference only — the external system calculates its own power/MDE, so ABKit won't build an MDE
+          For reference only — the external system calculates its own power/MDE, so {PRODUCT_NAME} won't build an MDE
           table for this experiment.
         </Typography.Paragraph>
         <InputNumber

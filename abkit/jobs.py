@@ -100,7 +100,7 @@ def run_design_external(
 ) -> Experiment:
     """External split (item 12) — same Editor+ gate as run_design, no data
     involved: the split happens in an outside system (Firebase A/B Testing
-    and similar), ABKit only stores the declared groups/metrics for later
+    and similar), ABSet only stores the declared groups/metrics for later
     analysis."""
     require_role(current_user, "editor")
     with _timed("design_external", user=current_user.email, experiment=config.name):

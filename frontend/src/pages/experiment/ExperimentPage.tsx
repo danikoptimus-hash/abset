@@ -10,6 +10,7 @@ import { DeleteExperimentModal } from '../../components/DeleteExperimentModal'
 import { ExperimentPropertiesModal } from '../../components/ExperimentPropertiesModal'
 import { RelativeTime } from '../../components/RelativeTime'
 import { TagList } from '../../components/TagBadge'
+import { PRODUCT_NAME } from '../../branding'
 import { DesignSection } from './DesignSection'
 import { AnalyzeSection } from './AnalyzeSection'
 import { ResultsSection } from './ResultsSection'
@@ -307,7 +308,7 @@ export function ExperimentPage() {
         />
         <StatusBadge status={data.status} canEdit={canEdit && !editing} onChange={handleStatusChange} />
         {data.config.split_source === 'external' && (
-          <Tooltip title="The split happened in an outside system (e.g. Firebase A/B Testing) — ABKit is used for analysis only">
+          <Tooltip title={`The split happened in an outside system (e.g. Firebase A/B Testing) — ${PRODUCT_NAME} is used for analysis only`}>
             <Tag color="purple">External split</Tag>
           </Tooltip>
         )}

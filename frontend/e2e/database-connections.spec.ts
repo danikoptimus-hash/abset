@@ -106,7 +106,7 @@ test('create a database connection, test it, preview SQL, create a dataset, and 
   // Preview drawer explains the snapshot semantics (UX package, Datasets
   // п.4.1) — deleting the source table doesn't touch the stored dataset.
   await row.click()
-  await expect(page.getByText(/Snapshot stored in ABKit/)).toBeVisible()
+  await expect(page.getByText(/Snapshot stored in ABSet/)).toBeVisible()
   await page.keyboard.press('Escape')
 
   // Change the SQL's source table (a real, live change — insert a new user

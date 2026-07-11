@@ -1,5 +1,5 @@
 """Item 12: external split (config.split_source="external") — the split
-happens outside ABKit (Firebase A/B Testing and similar); ABKit only stores
+happens outside ABSet (Firebase A/B Testing and similar); ABSet only stores
 declared groups/metrics and analyzes post-period data against a group column
 the user maps at analysis time. Core-level (Experiment.design_external/
 .analyze()) coverage — HTTP/wizard flow is covered by e2e."""

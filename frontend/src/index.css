@@ -24,8 +24,8 @@ body {
   font-weight: 600;
 }
 
-/* Navbar logo-only wordmark (brand, logo-only navbar) — the whale already
-   spells out "ABKit" inside itself, no separate text label next to it. */
+/* Navbar logo-only wordmark (brand, logo-only navbar) — the logo already
+   spells out "ABSet" inside itself, no separate text label next to it. */
 .navbar-logo-link img {
   transition: opacity 0.15s ease-in-out;
 }

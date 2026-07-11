@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Обновление ABKit на сервере: бэкап -> checkout тега -> build -> up ->
+# Обновление ABSet на сервере: бэкап -> checkout тега -> build -> up ->
 # smoke-чек -> вывод статуса. См. docs/OPERATIONS.md §3.
 #
 # Только теги вида v* деплоятся на серверы (CLAUDE.md, правило релизов) —

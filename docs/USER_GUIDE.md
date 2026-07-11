@@ -1,11 +1,11 @@
-# ABKit User Guide
+# ABSet User Guide
 
 For analysts running A/B tests day to day. If you're deploying or maintaining
-ABKit itself, see [OPERATIONS.md](OPERATIONS.md) instead.
+ABSet itself, see [OPERATIONS.md](OPERATIONS.md) instead.
 
-## What is ABKit
+## What is ABSet
 
-ABKit is a self-hosted A/B-testing tool that takes you from "I have a pool of
+ABSet is a self-hosted A/B-testing tool that takes you from "I have a pool of
 candidate users and a metric I care about" to a statistically defensible
 decision: it calculates the sample size and minimum detectable effect (MDE)
 you need before you start, splits users into groups (with stratification and
@@ -60,7 +60,7 @@ observed, so the only path from there is **Archive** and a new experiment.
 
 ### Datasets: where your data comes from
 
-ABKit doesn't accept files directly inside the design wizard or Analyze/
+ABSet doesn't accept files directly inside the design wizard or Analyze/
 Validation anymore — everything reads from a **dataset**, created once on the
 [Datasets](#) page and then reused wherever you need it. A dataset is either:
 
@@ -69,7 +69,7 @@ Validation anymore — everything reads from a **dataset**, created once on the
   configured (PostgreSQL, ClickHouse, MSSQL) — pick a connection, optionally a
   schema/table from a searchable picker (which fills in
   `SELECT * FROM "schema"."table"` for you), preview the first rows, and save.
-  The query result is materialized once into ABKit's own storage — deleting
+  The query result is materialized once into ABSet's own storage — deleting
   the source table afterward does not affect your dataset. Use **Refresh** on
   the dataset (Editor+) to re-run the query and pull current data later.
 
@@ -159,11 +159,11 @@ block in later instead — both write to the same place.
 
 Four steps: **Data → Groups & Metrics → Parameters → Run**.
 
-**Data** — choose the split mode first: **ABKit split** (the flow described
-below — ABKit picks candidates, splits them, and stores assignments) or
+**Data** — choose the split mode first: **ABSet split** (the flow described
+below — ABSet picks candidates, splits them, and stores assignments) or
 **External split** (the split already happened in an outside system, e.g.
 Firebase A/B Testing — see [External split mode](#7-external-split-mode-firebase-etc)
-below for that flow instead). For ABKit split, pick the dataset from step 1
+below for that flow instead). For ABSet split, pick the dataset from step 1
 (search existing datasets or create a new one inline).
 
 **Groups & Metrics**:
@@ -247,7 +247,7 @@ The design report always includes:
 - **Data-loss table** — how many assigned users actually show up later in
   post-period data, per group. Loss should be roughly symmetric between
   groups; asymmetric loss can bias the comparison even when SRM passes.
-- **Pre-period A/A check** — if you supplied pre-period metric values, ABKit
+- **Pre-period A/A check** — if you supplied pre-period metric values, ABSet
   runs a quick sanity check that the groups don't already differ before the
   test starts.
 
@@ -333,17 +333,17 @@ instead of living in someone's notebook.
 
 If the random split already happened somewhere else (Firebase A/B Testing and
 similar remote-config/experimentation systems), pick **External split** on
-the wizard's first step instead of the default **ABKit split**. It changes
+the wizard's first step instead of the default **ABSet split**. It changes
 the rest of the flow:
 
-- **No dataset step, no split, no assignments, no isolation.** ABKit isn't
+- **No dataset step, no split, no assignments, no isolation.** ABSet isn't
   picking or splitting anyone, so none of that applies — the wizard just
   collects the declared design: name, optional hypothesis, group names with
   their *expected* traffic proportions (needed later for the SRM check), and
   metrics. Metric columns are typed in directly (there's no dataset yet to
   pick columns from) rather than chosen from a dropdown.
 - **Expected sample size is optional and reference-only.** If you provide
-  one, the Design tab shows it as-is; ABKit doesn't compute an MDE table for
+  one, the Design tab shows it as-is; ABSet doesn't compute an MDE table for
   an external split (there's no pre-period data of your candidates to
   compute variance from), and says so explicitly: "external design: power
   calculated by the external system."
@@ -356,17 +356,17 @@ the rest of the flow:
 run analysis: after selecting your post-period dataset, a **Group
 assignment** block appears. Pick the **Group column** — whichever column in
 your data holds the variant each row belongs to (e.g. a Firebase experiment
-ID/variant column) — and ABKit shows you its distinct values with row counts.
+ID/variant column) — and ABSet shows you its distinct values with row counts.
 Map each value to one of your declared groups, or to **Exclude** for values
 that don't belong to this experiment (bot traffic, an unrelated variant,
 etc.); **Run analysis** stays disabled until every declared group has a
 mapped value. From there the pipeline is the familiar one:
 
 - **SRM** compares the *actual* proportions in your mapped data against the
-  proportions you declared at design time (instead of against an ABKit split
+  proportions you declared at design time (instead of against an ABSet split
   ratio — same check, different source for "expected").
 - The **Multiple testing correction** control appears under the same rule as
-  ABKit-split experiments — only when there's more than one hypothesis
+  ABSet-split experiments — only when there's more than one hypothesis
   (primary metrics × treatment groups).
 - The **data-loss table** (assigned vs. present) doesn't apply — there are no
   assignments to compare against — and is replaced by a **group column

@@ -4,6 +4,7 @@ import { Typography, Button, Descriptions, Alert, Progress, Space, Tag, message 
 import { apiClient, errorMessage } from '../../api/client'
 import { buildDesignConfig, buildExternalDesignConfig, groupsToApi, metricsToApi } from './types'
 import type { WizardState } from './types'
+import { PRODUCT_NAME } from '../../branding'
 
 // The wizard's optional Hypothesis field (5-item follow-up п.14) saves into
 // the experiment's existing Hypothesis markdown block — every experiment
@@ -165,7 +166,7 @@ export function Step4Review({ state, redesignName }: Props) {
       <Typography.Title level={5}>Summary</Typography.Title>
       <Descriptions bordered column={1} size="small" style={{ marginBottom: 24 }}>
         <Descriptions.Item label="Split mode">
-          {isExternal ? 'External split (e.g. Firebase)' : 'ABKit split'}
+          {isExternal ? 'External split (e.g. Firebase)' : `${PRODUCT_NAME} split`}
         </Descriptions.Item>
         <Descriptions.Item label="Name">{state.name || '—'}</Descriptions.Item>
         <Descriptions.Item label="Hypothesis">{state.hypothesis.trim() || '—'}</Descriptions.Item>

@@ -14,11 +14,12 @@ import {
 } from './helpTexts'
 import type { WizardState, DesignConfig } from './types'
 import { groupsFromApi, metricsFromApi } from './types'
+import { PRODUCT_NAME } from '../../branding'
 
 interface Props {
   state: WizardState
   setState: (updater: (prev: WizardState) => WizardState) => void
-  // Redesign always targets an existing ABKit-split experiment (external
+  // Redesign always targets an existing ABSet-split experiment (external
   // ones don't offer a Redesign action at all) — locked so a redesign
   // can't accidentally switch modes mid-flow.
   lockSplitMode?: boolean
@@ -119,7 +120,7 @@ export function Step1Data({ state, setState, lockSplitMode }: Props) {
         onChange={(e) => setState((prev) => ({ ...prev, splitMode: e.target.value }))}
         style={{ marginBottom: 24 }}
       >
-        <Radio.Button value="abkit">ABKit split</Radio.Button>
+        <Radio.Button value="abkit">{PRODUCT_NAME} split</Radio.Button>
         <Radio.Button value="external">External split (e.g. Firebase)</Radio.Button>
       </Radio.Group>
 
@@ -128,7 +129,7 @@ export function Step1Data({ state, setState, lockSplitMode }: Props) {
           type="info"
           showIcon
           message="No dataset needed for an external split"
-          description="The split already happens in an outside system (Firebase A/B Testing and similar) — ABKit is only used to analyze the results. Declare your groups, metrics, and hypothesis on the next steps; you'll map the actual split to real data when you run the analysis."
+          description={`The split already happens in an outside system (Firebase A/B Testing and similar) — ${PRODUCT_NAME} is only used to analyze the results. Declare your groups, metrics, and hypothesis on the next steps; you'll map the actual split to real data when you run the analysis.`}
           style={{ maxWidth: 640 }}
         />
       ) : (

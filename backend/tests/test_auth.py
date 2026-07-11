@@ -171,7 +171,7 @@ def test_register_duplicate_email_returns_409(app_client, monkeypatch):
 def test_openapi_schema_is_served(app_client):
     resp = app_client.get("/api/openapi.json")
     assert resp.status_code == 200
-    assert resp.json()["info"]["title"] == "ABKit API"
+    assert resp.json()["info"]["title"] == "ABSet API"
 
 
 def test_health_endpoint_does_not_require_auth(app_client):
@@ -186,7 +186,7 @@ def test_version_endpoint_reports_product_name_and_version(app_client):
     resp = app_client.get("/api/v1/version")
     assert resp.status_code == 200
     assert resp.json() == {"product_name": PRODUCT_NAME, "version": __version__}
-    assert resp.json()["product_name"] == "ABKit"
+    assert resp.json()["product_name"] == "ABSet"
 
 
 def test_require_min_role_blocks_below_threshold():

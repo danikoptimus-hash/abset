@@ -63,7 +63,7 @@ def start_design(
 
     if config.split_source == "external":
         # Item 12: no dataset at all — the split happens in an outside
-        # system (Firebase A/B Testing and similar), ABKit only stores the
+        # system (Firebase A/B Testing and similar), ABSet only stores the
         # declared groups/metrics for later analysis.
         def _run_external(reporter: ProgressReporter) -> dict[str, Any]:
             from abkit.jobs import run_design_external

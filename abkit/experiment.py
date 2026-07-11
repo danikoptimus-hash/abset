@@ -724,7 +724,7 @@ class Experiment:
     ) -> "Experiment":
         """External split (item 12, config.split_source == "external"): the
         split happens in an outside system (Firebase A/B Testing and
-        similar) — ABKit only stores the declared groups/metrics/hypothesis
+        similar) — ABSet only stores the declared groups/metrics/hypothesis
         for later analysis. No dataset, no isolation, no power calculation
         (there's no data yet to estimate variance from — an achievable-MDE
         table would just be a guess dressed up as a computation, so we

@@ -17,6 +17,7 @@ import type { BulkDeleteDatasetsResult } from '../components/datasets/BulkDelete
 import { useAuth, hasMinRole } from '../auth/AuthContext'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import type { components } from '../api/schema'
+import { PRODUCT_NAME } from '../branding'
 
 type DatasetOut = components['schemas']['DatasetOut']
 
@@ -419,7 +420,7 @@ export function DatasetsPage() {
               type="info"
               showIcon
               style={{ marginBottom: 12 }}
-              message="Snapshot stored in ABKit. Deleting the source table in the external database does NOT affect this dataset. Use Refresh to re-fetch current data (columns are updated automatically)."
+              message={`Snapshot stored in ${PRODUCT_NAME}. Deleting the source table in the external database does NOT affect this dataset. Use Refresh to re-fetch current data (columns are updated automatically).`}
             />
             <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
               Source: {previewedDataset.connection_name ?? 'Unknown connection'} ·{' '}

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Бэкап ABKit: pg_dump (users/experiments/assignments/audit_log — структурные
+# Бэкап ABSet: pg_dump (users/experiments/assignments/audit_log — структурные
 # данные) + tar volume abkit_data (parquet-датасеты, HTML-отчеты) в
 # BACKUP_DIR/<timestamp>/, ротация — хранит последние KEEP_LAST наборов
 # (default 14), старые удаляет. Требует запущенный docker compose стек

@@ -18,7 +18,7 @@ async function selectComboboxOption(page: Page, comboboxName: string, optionLabe
 }
 
 // Item 12: external split (e.g. Firebase A/B Testing) — the split happens
-// outside ABKit; the wizard only collects the declared config (no dataset),
+// outside ABSet; the wizard only collects the declared config (no dataset),
 // and analysis requires mapping a group column in the uploaded post-data to
 // the declared groups before it can run.
 test('create an external-split experiment via the wizard, map groups, and analyze end-to-end', async ({
@@ -105,7 +105,7 @@ test('create an external-split experiment via the wizard, map groups, and analyz
 })
 
 // Item 12.5: hypothesis family (primary metrics × treatment groups) reuses
-// the same smart-visibility logic for external experiments as for ABKit
+// the same smart-visibility logic for external experiments as for ABSet
 // ones — a 3-value mapping (1 control + 2 treatment groups) must surface
 // the correction selector, unlike the 2-group case above where it's hidden.
 test('correction selector appears when an external experiment declares more than one treatment group', async ({

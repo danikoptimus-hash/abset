@@ -17,7 +17,7 @@ React-UI (FRONTEND.md); стек состоит из четырех сервис
 ## Быстрый старт
 
 ```bash
-git clone <repo> && cd abkit
+git clone <repo> && cd abset
 cp .env.example .env
 # отредактировать .env: как минимум ABKIT_SECRET_KEY и POSTGRES_PASSWORD
 #   ABKIT_SECRET_KEY генерировать так: openssl rand -hex 32

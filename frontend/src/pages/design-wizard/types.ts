@@ -29,7 +29,7 @@ export interface WizardState {
   nRows: number
 
   // Item 12: "abkit" is the usual flow (this file, as before) — "external"
-  // means the split already happened outside ABKit (Firebase A/B Testing
+  // means the split already happened outside ABSet (Firebase A/B Testing
   // and similar); no dataset, no split, no isolation, only a manually
   // declared config. See buildExternalDesignConfig below for what that
   // flow actually submits.
@@ -112,7 +112,7 @@ export function buildDesignConfig(state: WizardState): DesignConfig {
   return config
 }
 
-// Item 12 (external split): no dataset, so none of the ABKit-split-only
+// Item 12 (external split): no dataset, so none of the ABSet-split-only
 // fields (split_method/strata/isolation/nan_strategy) mean anything — sent
 // as harmless fixed defaults rather than left to whatever they happened to
 // be in state, so a persisted external config never LOOKS like it made an
