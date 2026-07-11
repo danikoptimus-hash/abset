@@ -807,6 +807,20 @@ class Experiment:
         if date_col and date_col not in data.columns:
             raise checks.AnalysisError(f"Date column '{date_col}' is not in the data")
 
+        if self.config.unit_col not in data.columns:
+            # Regression (found via a real internal_error report): this was
+            # an unguarded data[self.config.unit_col] access below, raising
+            # a raw pandas KeyError — not one of the domain exceptions
+            # backend/jobs/runner.py::_human_readable_message recognizes, so
+            # it surfaced to the user as an opaque "Internal processing
+            # error" instead of a clear, actionable one (e.g. post-period
+            # data uploaded without the unit-id column used at design time).
+            raise checks.AnalysisError(
+                f"Unit column '{self.config.unit_col}' is not in the uploaded data. "
+                "Make sure you selected the post-period dataset that has the same "
+                "user-id column used when this experiment was designed."
+            )
+
         global_warnings: list[str] = []
 
         dup_mask = data[self.config.unit_col].duplicated(keep=False)

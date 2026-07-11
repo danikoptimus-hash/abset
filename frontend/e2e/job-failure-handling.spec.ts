@@ -38,6 +38,40 @@ test('a failed analyze job shows its real error message, not a generic one', asy
   await expect(page.getByText('Failed to get job status')).not.toBeVisible()
 })
 
+// Regression for a real production internal_error report: post-period data
+// uploaded without the design's unit-id column crashed with a raw pandas
+// KeyError (data[self.config.unit_col] was never guarded) — surfaced as an
+// opaque "Internal processing error" instead of a clear, actionable message.
+// None of the existing analyze e2e coverage used a post-dataset missing the
+// unit_col column, which is exactly why this slipped through untested.
+test('analyzing with post-data missing the unit column shows a clear error, not Internal processing error', async ({
+  page,
+  request,
+}) => {
+  const name = `analyze_missing_unit_col_e2e_${Date.now()}`
+  await seedExperiment(request, name)
+
+  const csv = 'not_user_id,revenue\n' + Array.from({ length: 50 }, (_, i) => `u${i},${100 + (i % 10)}`).join('\n')
+  const filename = `missing_unit_col_${Date.now()}.csv`
+  await uploadDataset(request, csv, filename)
+
+  await loginViaUi(page)
+  await page.goto(`/experiments/${name}`)
+  await page.getByRole('tab', { name: 'Analysis' }).click()
+
+  const datasetSelect = page.getByRole('combobox', { name: 'post-period-dataset-select' })
+  await datasetSelect.click()
+  await datasetSelect.fill(filename)
+  await page.getByTitle(filename).click()
+  await expect(page.getByText(new RegExp(`Data ready: ${filename.replace('.', '\\.')}`))).toBeVisible()
+
+  await page.getByRole('button', { name: 'Run analysis' }).click()
+  await expect(page.getByText(/Unit column 'user_id' is not in the uploaded data/)).toBeVisible({
+    timeout: 20_000,
+  })
+  await expect(page.getByText('Internal processing error')).not.toBeVisible()
+})
+
 // Regression for the compare-methods OOM bug itself: with the checkbox
 // checked, Bootstrap (the method that used to crash the process at scale)
 // runs as one of the alternative methods and must complete and render

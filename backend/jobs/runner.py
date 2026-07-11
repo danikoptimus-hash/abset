@@ -22,14 +22,18 @@ log = get_logger("backend.jobs")
 _DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 60
 
 
-def _human_readable_message(exc: BaseException) -> str:
+def _human_readable_message(exc: BaseException, error_id: str) -> str:
     """job.error долетает до UI как есть (GET /jobs/{id}) — доменные исключения
     (AnalysisError/DesignError/PipelineError/StorageError) уже несут
     сообщение, написанное для пользователя, пробрасываем его. Все прочее
     (сырые pandas/Python-исключения вроде ValueError на merge несовместимых
     dtype, а также SystemExit и прочие BaseException) технического вида и
     никогда не должно долетать до UI — полная трассировка уже ушла в лог
-    (см. вызов ниже), сюда — только общая фраза."""
+    (см. вызов ниже), сюда — только общая фраза. error_id (короткий uuid,
+    тот же, что уже пишется в лог рядом с traceback'ом) — по той же причине,
+    что и в backend/errors.py::_handle_unexpected_error: голое "Internal
+    processing error" без него бесполезно для диагностики, а до этого
+    момента у job-уровня (в отличие от HTTP-уровня) его вообще не было."""
     from abkit import checks, storage
     from abkit.db_connections.sql_dataset import SqlExecutionError
     from abkit.db_connections.sql_guard import SqlValidationError
@@ -44,7 +48,7 @@ def _human_readable_message(exc: BaseException) -> str:
         ),
     ):
         return str(exc)
-    return "Internal processing error"
+    return f"Internal processing error (ref: {error_id})"
 
 
 class RequiresConfirmation(Exception):
@@ -109,8 +113,9 @@ class JobRunner:
             # MemoryError/anything else still needs status=failed+error.
             # A hard OOM-kill of the whole process is the one thing this
             # can't catch (see _sweep_stale_jobs for that case).
-            log.error("job.failed", job_id=str(job_id), exc_info=True)
-            self._repo.mark_failed(job_id, _human_readable_message(e))
+            error_id = uuid_mod.uuid4().hex[:8]
+            log.error("job.failed", job_id=str(job_id), error_id=error_id, exc_info=True)
+            self._repo.mark_failed(job_id, _human_readable_message(e, error_id))
         else:
             self._repo.mark_completed(job_id, result)
 

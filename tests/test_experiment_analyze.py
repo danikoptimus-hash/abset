@@ -239,6 +239,32 @@ def test_analyze_raises_on_duplicate_data_without_date_col(tmp_path):
         experiment.analyze(post_data)
 
 
+def test_analyze_raises_clear_error_when_unit_col_missing_from_post_data(tmp_path):
+    """Regression (found via a real internal_error report, root cause: an
+    unguarded data[self.config.unit_col] access — raw pandas KeyError, not
+    one of the domain exceptions backend/jobs/runner.py recognizes, so it
+    surfaced as an opaque 'Internal processing error' instead of telling the
+    user what actually went wrong): uploading post-period data that doesn't
+    have the design's unit-id column (e.g. the wrong file, or one exported
+    without it) must raise a clear, actionable AnalysisError — same
+    treatment as the neighboring duplicate-data and missing-date-col checks,
+    not a crash. This is exactly the scenario none of the existing analyze
+    tests/fixtures exercised (they all conveniently reuse assignments'
+    unit_id column), which is why it slipped through undetected."""
+    experiment = design_simple_experiment(tmp_path)
+    assignments = experiment.assignments
+    n = len(assignments)
+    post_data = pd.DataFrame(
+        {
+            "not_user_id": list(assignments["unit_id"]),
+            "revenue": np.random.default_rng(1).normal(100, 20, size=n),
+            "clicks": np.random.default_rng(1).binomial(1, 0.1, size=n),
+        }
+    )
+    with pytest.raises(AnalysisError, match="Unit column 'user_id' is not in the uploaded data"):
+        experiment.analyze(post_data)
+
+
 def test_analyze_progress_callback_reports_stages_in_order(tmp_path):
     """UI (app.py) показывает прогресс через st.status по этапам analyze() —
     нужна гарантия, что callback реально вызывается на каждом этапе (join,

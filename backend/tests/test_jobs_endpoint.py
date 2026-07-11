@@ -92,7 +92,14 @@ def test_job_runner_marks_job_failed_on_raw_exception_with_generic_message(db_ur
     """A raw/technical exception (not one of our human-readable domain
     errors) must never leak str(e) to job.error — the job still ends up
     failed (not stuck/lost), just with a generic message; full detail goes
-    to the log instead (backend/jobs/runner.py::_human_readable_message)."""
+    to the log instead (backend/jobs/runner.py::_human_readable_message).
+    16 (samples-download-bug follow-up): the generic message must carry an
+    error_id — same reasoning as backend/errors.py's HTTP-level handler, a
+    bare "Internal processing error" with no way to correlate it to a log
+    line was exactly what made a real production regression hard to
+    diagnose."""
+    import re
+
     from backend.jobs.runner import JobRunner
 
     runner = JobRunner(max_workers=1)
@@ -103,7 +110,8 @@ def test_job_runner_marks_job_failed_on_raw_exception_with_generic_message(db_ur
         job = runner.submit("analyze", None, _fn)
         fetched = _wait_for_terminal_status(job.id)
         assert fetched.status == "failed"
-        assert fetched.error == "Internal processing error"
+        match = re.fullmatch(r"Internal processing error \(ref: [0-9a-f]{8}\)", fetched.error)
+        assert match, f"expected a generic message with a (ref: <8 hex>) suffix, got {fetched.error!r}"
     finally:
         runner.shutdown(wait=True)
 
@@ -131,6 +139,8 @@ def test_job_runner_marks_job_failed_with_domain_error_message_preserved(db_url)
 def test_job_runner_marks_job_failed_on_base_exception_not_just_exception(db_url):
     """Job wrapper must catch BaseException, not just Exception — a job must
     never disappear or hang in 'running' regardless of what it raises."""
+    import re
+
     from backend.jobs.runner import JobRunner
 
     runner = JobRunner(max_workers=1)
@@ -141,7 +151,7 @@ def test_job_runner_marks_job_failed_on_base_exception_not_just_exception(db_url
         job = runner.submit("analyze", None, _fn)
         fetched = _wait_for_terminal_status(job.id)
         assert fetched.status == "failed"
-        assert fetched.error == "Internal processing error"
+        assert re.fullmatch(r"Internal processing error \(ref: [0-9a-f]{8}\)", fetched.error)
     finally:
         runner.shutdown(wait=True)
 
