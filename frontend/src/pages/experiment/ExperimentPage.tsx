@@ -8,6 +8,7 @@ import {
 import { apiClient, errorMessage } from '../../api/client'
 import { DeleteExperimentModal } from '../../components/DeleteExperimentModal'
 import { ExperimentPropertiesModal } from '../../components/ExperimentPropertiesModal'
+import { LifecycleDates } from '../../components/LifecycleDates'
 import { RelativeTime } from '../../components/RelativeTime'
 import { TagList } from '../../components/TagBadge'
 import { PRODUCT_NAME } from '../../branding'
@@ -407,6 +408,10 @@ export function ExperimentPage() {
         </div>
       </div>
 
+      <div style={{ marginTop: -16, marginBottom: 24 }}>
+        <LifecycleDates createdAt={data.created_at} startedAt={data.started_at} completedAt={data.completed_at} />
+      </div>
+
       {data.tags.length > 0 && (
         <Space size={4} style={{ marginBottom: 24 }}>
           <TagList
@@ -458,6 +463,9 @@ export function ExperimentPage() {
               <ResultsSection
                 experimentName={name}
                 familySize={hypothesisFamily(data.config).familySize}
+                createdAt={data.created_at}
+                startedAt={data.started_at}
+                completedAt={data.completed_at}
                 blocks={otherBlocks}
                 editing={editing}
                 onChangeBlock={updateDraftBlock}

@@ -147,3 +147,43 @@ test('viewer sees status badges but cannot click them', async ({ page, request }
   await expect(page.getByText('published', { exact: true })).toBeVisible()
   await expect(page.getByText('designed', { exact: true })).toBeVisible()
 })
+
+// Stage 2 (lifecycle dates), items 2.1/2.5: only present dates show, in
+// order, and completed_at resets when reopening a completed test (backward
+// completed->running) — the header line must reflect that live, not just
+// the DB column tested separately in backend/tests/test_experiments_mutations.py.
+test('header shows only present lifecycle dates, and reopening a completed test drops "Completed"', async ({
+  page,
+  request,
+}) => {
+  const name = `e2e_lifecycle_${Date.now()}`
+  await seedExperiment(request, name)
+  await loginViaUi(page)
+  await page.goto(`/experiments/${name}`)
+
+  // designed: only "Created", never "Started"/"Completed".
+  await expect(page.getByText(/Created \w+ \d+/)).toBeVisible()
+  await expect(page.getByText(/Started \w+ \d+/)).not.toBeVisible()
+  await expect(page.getByText(/Completed \w+ \d+/)).not.toBeVisible()
+
+  await page.getByText('designed', { exact: true }).click()
+  await page.getByText('Move to running').click()
+  await expect(page.getByText('running', { exact: true })).toBeVisible()
+  await expect(page.getByText(/Created \w+ \d+ · Started \w+ \d+/)).toBeVisible()
+  await expect(page.getByText(/Completed \w+ \d+/)).not.toBeVisible()
+
+  await page.getByText('running', { exact: true }).click()
+  await page.getByText('Move to completed').click()
+  await expect(page.getByText('completed', { exact: true })).toBeVisible()
+  await expect(page.getByText(/Created \w+ \d+ · Started \w+ \d+ · Completed \w+ \d+/)).toBeVisible()
+
+  // completed -> running (reopen): "Completed" must disappear again.
+  await page.getByText('completed', { exact: true }).click()
+  await page.getByText('Move to running').click()
+  const reopenDialog = page.getByRole('dialog').filter({ hasText: "Move to 'running'?" })
+  await expect(reopenDialog).toBeVisible()
+  await reopenDialog.getByRole('button', { name: 'Continue' }).click()
+  await expect(page.getByText('running', { exact: true })).toBeVisible()
+  await expect(page.getByText(/Created \w+ \d+ · Started \w+ \d+/)).toBeVisible()
+  await expect(page.getByText(/Completed \w+ \d+/)).not.toBeVisible()
+})

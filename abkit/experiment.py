@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import secrets
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Literal
 
@@ -736,8 +737,18 @@ class Experiment:
             if not hasattr(store, "replace_experiment"):
                 raise DesignError("Redesign requires ABKIT_MODE=db (no file-mode support)")
             handle = store.replace_experiment(config.name, final_config, assignments)
+            # replace_experiment() doesn't touch created_at (abkit/db/store.py's
+            # docstring) — the design report should show the experiment's real
+            # original creation date, not "now" (this redesign's timestamp).
+            # Only reachable in DB mode (the hasattr check above), so this
+            # import doesn't break file-mode's store-agnosticism.
+            from abkit.db.repositories import ExperimentRepo as _ExperimentRepo
+
+            exp_row = _ExperimentRepo().get_by_name(config.name)
+            report_created_at = exp_row.created_at if exp_row else None
         else:
             handle = store.create_experiment(final_config, assignments, owner_id=owner_id)
+            report_created_at = datetime.now(timezone.utc)
         path = handle.path
 
         experiment = cls(config=final_config, path=path, experiments_dir=experiments_dir)
@@ -746,7 +757,7 @@ class Experiment:
 
         from abkit.viz.report import render_design_report  # локальный импорт: избегаем цикла
 
-        design_report_html = render_design_report(experiment)
+        design_report_html = render_design_report(experiment, created_at=report_created_at)
         (path / "design_report.html").write_text(design_report_html, encoding="utf-8")
 
         return experiment
@@ -886,6 +897,9 @@ class Experiment:
         progress_callback: Callable[[str], None] | None = None,
         group_column: str | None = None,
         group_mapping: dict[str, str] | None = None,
+        created_at: datetime | None = None,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
     ) -> AnalysisResults:
         """Анализ по фактическим данным: join -> проверки честности -> пайплайн по
         метрикам -> поправка на множественность.
@@ -913,6 +927,13 @@ class Experiment:
         to the declared group names (abkit/jobs.py::run_analyze validates
         both are present before calling this). Ignored for the normal
         (split_source="abkit") flow.
+
+        created_at/started_at/completed_at: Stage 2 (report header dates) —
+        optional, purely for display in report.html; this in-memory
+        Experiment has no DB-row fields of its own (DB mode's lifecycle
+        timestamps live on the ExperimentRepo row), so the caller
+        (backend/routers/experiments.py::start_analyze, which already has
+        that row in scope) passes them through here into attach_context().
         """
         cb = progress_callback or (lambda _label: None)
         global_warnings: list[str] = []
@@ -1102,5 +1123,8 @@ class Experiment:
             segment_results=segment_results,
             daily_results=daily_results,
             correction=correction,
+            created_at=created_at,
+            started_at=started_at,
+            completed_at=completed_at,
         )
         return results

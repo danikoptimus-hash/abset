@@ -68,6 +68,12 @@ def test_design_report_written_and_has_all_sections(tmp_path):
     assert experiment.name in html
 
 
+def test_design_report_shows_created_date(tmp_path):
+    experiment = _demo_design(tmp_path)
+    html = (experiment.path / "design_report.html").read_text(encoding="utf-8")
+    assert "Created " in html
+
+
 def test_design_report_has_absolute_mde_columns(tmp_path):
     """5-part package pt.2: MDE (abs.) / MDE (abs., CUPED) columns, binary
     metrics in percentage points, continuous in raw units."""
@@ -148,6 +154,31 @@ def test_analysis_report_has_all_sections_and_writes_results_json(tmp_path):
     payload = json.loads(results_json_path.read_text(encoding="utf-8"))
     assert "results" in payload
     assert len(payload["results"]) > 0
+
+    # Stage 2 item 2.3: no created_at/started_at/completed_at was passed to
+    # analyze() here, so the lifecycle-dates line is absent, not blank.
+    assert "Created " not in html
+    assert "Started " not in html
+    assert "Completed " not in html
+
+
+def test_analysis_report_shows_lifecycle_dates_when_provided(tmp_path):
+    import datetime as dt
+
+    experiment = _demo_design(tmp_path)
+    rng = np.random.default_rng(2)
+    post_data = _demo_post_data(experiment, len(experiment.assignments), rng)
+
+    results = experiment.analyze(
+        post_data,
+        created_at=dt.datetime(2026, 7, 2, tzinfo=dt.timezone.utc),
+        started_at=dt.datetime(2026, 7, 5, tzinfo=dt.timezone.utc),
+        completed_at=None,
+    )
+    html = results.report().read_text(encoding="utf-8")
+    assert "Created Jul 2, 2026" in html
+    assert "Started Jul 5, 2026" in html
+    assert "Completed " not in html
 
 
 def test_analysis_report_shows_p99_clip_caption_for_continuous_metric(tmp_path):

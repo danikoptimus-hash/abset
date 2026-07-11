@@ -43,6 +43,9 @@
     <h1>{{ experiment_name }}</h1>
   </div>
   <p>Generated: {{ generated_at }}</p>
+  {% if lifecycle_dates %}
+  <p>{% for label, formatted in lifecycle_dates %}{{ label }} {{ formatted }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+  {% endif %}
   <p>Groups: {% for name, size in group_sizes.items() %}{{ name }} ({{ size }}){% if not loop.last %}, {% endif %}{% endfor %}</p>
   <p>Split method: {{ config.split_method }} · Multiple-testing correction: {{ correction }}</p>
   <div class="badges">

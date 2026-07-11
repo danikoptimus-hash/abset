@@ -21,3 +21,10 @@ export function formatRelativeTime(iso: string): string {
 export function formatExactTime(iso: string): string {
   return dayjs(iso).format('MMM D, YYYY, HH:mm')
 }
+
+// Compact lifecycle-date label text: "Jul 8" (no year — used alongside a
+// "Created/Started/Completed" label where the exact timestamp is already one
+// hover away via formatExactTime, so the year would just be visual noise).
+export function formatShortDate(iso: string): string {
+  return dayjs(iso).format('MMM D')
+}

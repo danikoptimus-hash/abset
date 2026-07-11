@@ -7,11 +7,15 @@ import { HelpCollapse } from './HelpCollapse'
 import { MarkdownBlockView } from './MarkdownBlockView'
 import type { BlockDraft } from './MarkdownBlockView'
 import { experimentResultsQueryKey, fetchExperimentResults } from './resultsQuery'
+import { LifecycleDates } from '../../components/LifecycleDates'
 import { RelativeTime } from '../../components/RelativeTime'
 
 interface Props {
   experimentName: string
   familySize: number
+  createdAt: string
+  startedAt: string | null
+  completedAt: string | null
   blocks: BlockDraft[]
   editing: boolean
   onChangeBlock: (id: string | null, patch: Partial<BlockDraft>) => void
@@ -19,7 +23,9 @@ interface Props {
   onRemoveBlock: (id: string | null) => void
 }
 
-export function ResultsSection({ experimentName, familySize, blocks, editing, onChangeBlock, onAddBlock, onRemoveBlock }: Props) {
+export function ResultsSection({
+  experimentName, familySize, createdAt, startedAt, completedAt, blocks, editing, onChangeBlock, onAddBlock, onRemoveBlock,
+}: Props) {
   // Same query key as AnalyzeSection (Analysis tab) — shares the react-query
   // cache entry, so opening the Results tab directly (deep link/reload)
   // still gets the latest results without needing the Analysis tab to have
@@ -33,10 +39,13 @@ export function ResultsSection({ experimentName, familySize, blocks, editing, on
     <div>
       {results ? (
         <>
-          <Typography.Paragraph type="secondary" style={{ marginTop: -4, marginBottom: 16, fontSize: 13 }}>
+          <Typography.Paragraph type="secondary" style={{ marginTop: -4, marginBottom: 4, fontSize: 13 }}>
             Analyzed <RelativeTime iso={results.run_meta.created_at} /> with{' '}
             {results.run_meta.dataset_filename ?? 'unknown dataset'} (run #{results.run_meta.run_number})
           </Typography.Paragraph>
+          <div style={{ marginBottom: 16 }}>
+            <LifecycleDates createdAt={createdAt} startedAt={startedAt} completedAt={completedAt} />
+          </div>
 
           <VerdictCards results={results.results} />
 

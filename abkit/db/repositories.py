@@ -224,16 +224,33 @@ class ExperimentRepo:
             return exps
 
     def update_status(self, name: str, new_status: str) -> None:
+        """Timestamps only ever reflect the FURTHEST point an experiment has
+        reached in its current run — a backward transition (allowed by the
+        frontend's status-badge dropdown, CLAUDE.md Stage 2 item 2.5) clears
+        the timestamps for stages the experiment no longer occupies, rather
+        than leaving stale dates behind (e.g. completed->running must not
+        keep showing a "Completed" date once the test has been reopened).
+        The transition itself is still fully recorded in audit_log
+        (run_update_status's from/to details) regardless of what happens to
+        these columns."""
         with session_scope() as s:
             exp = s.scalar(select(Experiment).where(Experiment.name == name))
             if exp is None:
                 raise RepoError(f"Experiment '{name}' not found")
             exp.status = new_status
             now = datetime.now(timezone.utc)
-            if new_status == "running":
-                exp.started_at = now
+            if new_status == "designed":
+                exp.started_at = None
+                exp.completed_at = None
+                exp.archived_at = None
+            elif new_status == "running":
+                if exp.started_at is None:
+                    exp.started_at = now
+                exp.completed_at = None
+                exp.archived_at = None
             elif new_status == "completed":
                 exp.completed_at = now
+                exp.archived_at = None
             elif new_status == "archived":
                 exp.archived_at = now
 

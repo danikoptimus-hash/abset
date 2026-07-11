@@ -33,6 +33,26 @@ _env = jinja2.Environment(
 _env.globals["help_details"] = lambda chart_type, table=False: Markup(
     render_help_html(chart_type, table=table)
 )
+
+
+def _format_report_date(dt: datetime | None) -> str | None:
+    """Stage 2 report-header dates — static HTML has no hover/local-tz
+    conversion (unlike the frontend's RelativeTime), so this shows the full
+    absolute UTC date once, upfront. %-d isn't portable (Windows strftime),
+    hence the explicit zero-strip instead."""
+    if dt is None:
+        return None
+    return dt.strftime("%b %d, %Y").replace(" 0", " ")
+
+
+def _lifecycle_dates(context: dict[str, Any]) -> list[tuple[str, str]]:
+    labels = (("created_at", "Created"), ("started_at", "Started"), ("completed_at", "Completed"))
+    out = []
+    for key, label in labels:
+        formatted = _format_report_date(context.get(key))
+        if formatted is not None:
+            out.append((label, formatted))
+    return out
 _env.globals["chart_warning"] = get_warning
 
 
@@ -167,6 +187,7 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
     return template.render(
         experiment_name=context["experiment_name"],
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        lifecycle_dates=_lifecycle_dates(context),
         config=config,
         control_name=control_name,
         group_sizes=context["group_sizes"],
@@ -187,8 +208,15 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
     )
 
 
-def render_design_report(experiment: Any) -> str:
-    """Строит design_report.html: упрощенный вариант (доступность, MDE, баланс, SRM, pre-A/A)."""
+def render_design_report(experiment: Any, created_at: datetime | None = None) -> str:
+    """Строит design_report.html: упрощенный вариант (доступность, MDE, баланс, SRM, pre-A/A).
+
+    created_at: Stage 2 (report header dates) — optional; design_report is
+    always generated at design time, so started_at/completed_at don't apply
+    yet (status is always "designed" at this point) — only "Created" is
+    shown. Passed explicitly by the caller (Experiment.design(), right after
+    the experiment row is created) rather than read off `experiment`, since
+    the in-memory Experiment class has no DB-row timestamp fields."""
     config = experiment.config
     report = experiment.report
 
@@ -221,6 +249,7 @@ def render_design_report(experiment: Any) -> str:
     template = _env.get_template("design_report.html.j2")
     return template.render(
         experiment_name=config.name,
+        created_at=_format_report_date(created_at),
         config=config,
         n_candidates_total=report.n_candidates_total,
         n_excluded_by_isolation=report.n_excluded_by_isolation,

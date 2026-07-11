@@ -29,6 +29,7 @@
     {% if logo_data_uri %}<img src="{{ logo_data_uri }}" alt="{{ product_name }}">{% endif %}
     <h1>Design: {{ experiment_name }}</h1>
   </div>
+  {% if created_at %}<p>Created {{ created_at }}</p>{% endif %}
   <p>Total candidates: {{ n_candidates_total }} · excluded by isolation: {{ n_excluded_by_isolation }} · available: {{ n_available }}</p>
   {% if excluded_by_experiment %}
   <table>

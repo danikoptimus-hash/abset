@@ -121,6 +121,12 @@ test('re-run analysis with a new dataset updates the results and run count', asy
 
   await page.getByRole('tab', { name: 'Results' }).click()
   await expect(page.getByText(/demo_post_data\.csv \(run #1\)/)).toBeVisible()
+  // Stage 2 item 2.2: same "Created ... · Started ..." line as the header,
+  // next to the "Analyzed ... (run #N)" line on Results. The header renders
+  // its own copy too (unaffected by which tab is active), so two matches
+  // exist on screen — .last() is the Results tab's (renders after the
+  // header in DOM order).
+  await expect(page.getByText(/Created \w+ \d+/).last()).toBeVisible()
 
   await page.getByRole('tab', { name: 'Analysis' }).click()
   await page.getByRole('button', { name: 'Re-run analysis' }).click()

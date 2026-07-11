@@ -734,6 +734,10 @@ def start_analyze(
             compare_methods=body.compare_methods, date_col=body.date_col,
             group_column=body.group_column, group_mapping=body.group_mapping,
             progress_callback=reporter.stage,
+            # Stage 2 (report header dates): `exp` (the DB row, fetched
+            # above before the job runs) has these; the in-memory
+            # `experiment` being analyzed does not.
+            created_at=exp.created_at, started_at=exp.started_at, completed_at=exp.completed_at,
         )
         _save_analysis(
             name, results,

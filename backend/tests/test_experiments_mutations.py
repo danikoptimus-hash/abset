@@ -86,6 +86,50 @@ def test_change_status_backward_transitions_allowed_and_audited(app_client):
     ]
 
 
+def test_change_status_backward_transition_resets_stale_lifecycle_timestamps(app_client):
+    """Stage 2 item 2.5: timestamps must only ever reflect the furthest
+    point the CURRENT run has reached — a backward transition clears the
+    timestamps for stages no longer occupied (completed_at on
+    completed->running, both started_at/completed_at on any->designed,
+    archived_at on any unarchive), while the audit_log entry (asserted
+    above) still records the transition regardless."""
+    owner_id = _login(app_client)
+    _make_experiment("reset_exp", status="designed", owner_id=owner_id)
+
+    app_client.post("/api/v1/experiments/reset_exp/status", json={"to": "running"})
+    exp = ExperimentRepo().get_by_name("reset_exp")
+    assert exp.started_at is not None
+    assert exp.completed_at is None
+    original_started_at = exp.started_at
+
+    app_client.post("/api/v1/experiments/reset_exp/status", json={"to": "completed"})
+    exp = ExperimentRepo().get_by_name("reset_exp")
+    assert exp.completed_at is not None
+
+    # completed -> running: completed_at clears; started_at is the ORIGINAL
+    # start (reopening a test continues its run, it doesn't restart it).
+    app_client.post("/api/v1/experiments/reset_exp/status", json={"to": "running"})
+    exp = ExperimentRepo().get_by_name("reset_exp")
+    assert exp.completed_at is None
+    assert exp.started_at == original_started_at
+
+    # ...-> designed: both clear (implies the test hasn't started).
+    app_client.post("/api/v1/experiments/reset_exp/status", json={"to": "designed"})
+    exp = ExperimentRepo().get_by_name("reset_exp")
+    assert exp.started_at is None
+    assert exp.completed_at is None
+
+    app_client.post("/api/v1/experiments/reset_exp/status", json={"to": "archived"})
+    exp = ExperimentRepo().get_by_name("reset_exp")
+    assert exp.archived_at is not None
+
+    # unarchiving clears archived_at.
+    app_client.post("/api/v1/experiments/reset_exp/status", json={"to": "running"})
+    exp = ExperimentRepo().get_by_name("reset_exp")
+    assert exp.archived_at is None
+    assert exp.started_at is not None
+
+
 def test_change_status_backward_transition_forbidden_for_non_owner_editor(app_client):
     other_owner = UserRepo().create(
         email="owner_backward@co.com", first_name="O", password_hash=hash_password("pw12345"), role="editor"
