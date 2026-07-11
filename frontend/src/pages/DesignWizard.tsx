@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Steps, Button, Space, Input, Select, Alert, Spin, Tooltip } from 'antd'
+import { Steps, Button, Space, Input, Select, Alert, Spin, Tooltip, Typography } from 'antd'
 import { apiClient, errorMessage } from '../api/client'
 import { Step1Data } from './design-wizard/Step1Data'
 import { Step2GroupsMetrics } from './design-wizard/Step2GroupsMetrics'
@@ -16,6 +16,7 @@ const INITIAL_STATE: WizardState = {
   previewRows: [],
   nRows: 0,
   name: '',
+  hypothesis: '',
   unitCol: null,
   groups: [
     { id: nextId('group'), name: 'control', prop: 0.5 },
@@ -158,6 +159,24 @@ export function DesignWizardPage() {
             options={state.columns.map((c) => ({ value: c, label: c }))}
           />
         </Space>
+      )}
+
+      {current === 1 && (
+        <div style={{ marginBottom: 24, maxWidth: 600 }}>
+          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>
+            Hypothesis (optional)
+          </Typography.Text>
+          <Input.TextArea
+            value={state.hypothesis}
+            onChange={(e) => setState((prev) => ({ ...prev, hypothesis: e.target.value }))}
+            rows={3}
+            aria-label="Hypothesis"
+          />
+          <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+            A well-formed hypothesis: If we change X, it will affect Y, which we will observe as a change in
+            metric Z.
+          </Typography.Text>
+        </div>
       )}
 
       <div style={{ minHeight: 300 }}>

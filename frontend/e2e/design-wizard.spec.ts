@@ -55,3 +55,33 @@ test('create experiment via wizard on demo data, then publish and edit hypothesi
   await expect(page.locator('textarea')).toHaveCount(0)
   await expect(page.getByText('New hypothesis from the e2e test')).toBeVisible()
 })
+
+// 5-item follow-up п.14: the wizard's optional Hypothesis field (step 2,
+// below the name field) saves into the experiment's existing Hypothesis
+// block on design — visible immediately on the experiment page, no manual
+// edit needed.
+test('hypothesis entered in the wizard is saved into the experiment\'s Hypothesis block', async ({ page }) => {
+  test.setTimeout(60_000)
+  await loginViaUi(page)
+
+  await page.getByRole('button', { name: 'Create A/B Test' }).click()
+  await page.getByRole('button', { name: 'Demo Data' }).click()
+  await expect(page.getByText(/Data loaded: 5000 rows/)).toBeVisible({ timeout: 15_000 })
+  await page.getByRole('button', { name: 'Next' }).click()
+
+  const expName = `wizard_hypothesis_e2e_${Date.now()}`
+  await page.getByPlaceholder('Experiment name').fill(expName)
+  await page.getByLabel('Hypothesis').fill('If we change the checkout button color, conversion will increase.')
+  await page.getByRole('button', { name: 'Next' }).click()
+
+  await page.getByText(/exclude — exclude participants/).click()
+  await page.getByText(/off — exclude no one/).click()
+  await page.getByRole('button', { name: 'Next' }).click()
+
+  await page.getByRole('button', { name: 'Design' }).click()
+  await expect(page).toHaveURL(new RegExp(`/experiments/${expName}$`), { timeout: 20_000 })
+
+  await expect(
+    page.getByText('If we change the checkout button color, conversion will increase.'),
+  ).toBeVisible()
+})

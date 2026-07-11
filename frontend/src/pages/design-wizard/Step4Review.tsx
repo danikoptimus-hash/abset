@@ -1,9 +1,41 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Typography, Button, Descriptions, Alert, Progress, Space, Tag } from 'antd'
+import { Typography, Button, Descriptions, Alert, Progress, Space, Tag, message } from 'antd'
 import { apiClient, errorMessage } from '../../api/client'
 import { buildDesignConfig, groupsToApi, metricsToApi } from './types'
 import type { WizardState } from './types'
+
+// The wizard's optional Hypothesis field (5-item follow-up п.14) saves into
+// the experiment's existing Hypothesis markdown block — every experiment
+// auto-creates one empty (abkit/db/repositories.py::ExperimentRepo.create),
+// so this is always an UPDATE, never a new block; PUT .../blocks requires
+// the block's real id or it would create a DUPLICATE hypothesis-kind block
+// instead of filling in the existing one, hence the GET first. Best-effort:
+// the design/redesign itself already succeeded by the time this runs, so a
+// failure here shouldn't block navigation — the user can still fill it in
+// from the experiment page.
+async function saveHypothesis(experimentName: string, hypothesis: string): Promise<void> {
+  try {
+    const { data: blocks, error } = await apiClient.GET('/api/v1/experiments/{name}/blocks', {
+      params: { path: { name: experimentName } },
+    })
+    if (error) throw new Error(errorMessage(error))
+    const hypothesisBlock = blocks?.find((b) => b.kind === 'hypothesis')
+    if (!hypothesisBlock) return
+    const { error: putError } = await apiClient.PUT('/api/v1/experiments/{name}/blocks', {
+      params: { path: { name: experimentName } },
+      body: [
+        {
+          id: hypothesisBlock.id, kind: 'hypothesis', title: hypothesisBlock.title,
+          content_md: hypothesis, position: hypothesisBlock.position,
+        },
+      ],
+    })
+    if (putError) throw new Error(errorMessage(putError))
+  } catch {
+    message.warning('The hypothesis could not be saved automatically — add it from the experiment page.')
+  }
+}
 
 interface Props {
   state: WizardState
@@ -46,6 +78,9 @@ export function Step4Review({ state, redesignName }: Props) {
       if (data.status === 'completed') {
         const experimentName = (data.result as { experiment_name?: string } | null)?.experiment_name
         if (experimentName) {
+          if (state.hypothesis.trim()) {
+            await saveHypothesis(experimentName, state.hypothesis.trim())
+          }
           navigate(`/experiments/${experimentName}`)
         }
         return
@@ -116,6 +151,7 @@ export function Step4Review({ state, redesignName }: Props) {
       <Typography.Title level={5}>Summary</Typography.Title>
       <Descriptions bordered column={1} size="small" style={{ marginBottom: 24 }}>
         <Descriptions.Item label="Name">{state.name || '—'}</Descriptions.Item>
+        <Descriptions.Item label="Hypothesis">{state.hypothesis.trim() || '—'}</Descriptions.Item>
         <Descriptions.Item label="Unit Column">{state.unitCol || '—'}</Descriptions.Item>
         <Descriptions.Item label="Groups">
           {Object.entries(groupsToApi(state))

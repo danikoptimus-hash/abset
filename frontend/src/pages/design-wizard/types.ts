@@ -29,6 +29,7 @@ export interface WizardState {
   nRows: number
 
   name: string
+  hypothesis: string
   unitCol: string | null
   groups: GroupFormRow[]
   metrics: MetricFormRow[]
