@@ -219,14 +219,15 @@ def _get_last_modified(exp) -> tuple:
     """Самое свежее из audit_log (status/publication/rename/properties/
     analyze — все аудируются, см. abkit/jobs.py::_audit) и
     experiment_blocks.updated_at/updated_by (блоки НЕ аудируются отдельно,
-    только эти две колонки трассируют правку). Фильтр по object_name, как
-    и GET /{name}/audit — после переименования старые записи под прежним
-    именем этим запросом не видны (то же существующее ограничение)."""
+    только эти две колонки трассируют правку). Фильтр по object_id (баг
+    п.15) — по object_name склеивал бы это с audit_log эксперимента,
+    удаленного и затем пересозданного под тем же именем; переименование
+    по-прежнему работает, потому что id при переименовании не меняется."""
     from abkit.db.repositories import AuditRepo, BlockRepo
 
     candidates: list[tuple] = []
 
-    recent_audit = AuditRepo().list_recent(limit=1, object_name=exp.name)
+    recent_audit = AuditRepo().list_recent(limit=1, object_id=str(exp.id))
     if recent_audit:
         candidates.append((recent_audit[0].ts, recent_audit[0].user_id))
 
@@ -437,11 +438,17 @@ def get_experiment_audit(
     page_size: int = Query(default=50, ge=1, le=200),
     user: CurrentUser = Depends(get_current_user),
 ) -> PaginatedAudit:
-    _get_experiment_or_404(name)
+    """History tab (bug fix п.15): filtered by object_id, not object_name —
+    a new experiment created under a deleted one's old name gets a fresh
+    uuid (ExperimentRepo.create()), so filtering by name alone showed the
+    OLD experiment's events (including its own delete) mixed into the new
+    one's history. object_name is still stored on each entry for display,
+    just not used to select which rows belong to this experiment."""
+    exp = _get_experiment_or_404(name)
     repo = AuditRepo()
     offset = (page - 1) * page_size
-    entries = repo.list_recent(limit=page_size, offset=offset, object_name=name)
-    total = repo.count(object_name=name)
+    entries = repo.list_recent(limit=page_size, offset=offset, object_id=str(exp.id))
+    total = repo.count(object_id=str(exp.id))
     items = [
         AuditEntryOut(
             id=e.id, ts=e.ts, user_email=e.user_email, action=e.action,

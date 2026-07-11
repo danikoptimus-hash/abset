@@ -722,7 +722,7 @@ class AuditRepo:
             )
             s.add(entry)
 
-    def _filtered(self, stmt, *, user_id, user_email, action, object_name, date_from, date_to):
+    def _filtered(self, stmt, *, user_id, user_email, action, object_name, object_id, date_from, date_to):
         if user_id is not None:
             stmt = stmt.where(AuditLog.user_id == user_id)
         if user_email is not None:
@@ -734,6 +734,15 @@ class AuditRepo:
             stmt = stmt.where(AuditLog.action == action)
         if object_name is not None:
             stmt = stmt.where(AuditLog.object_name == object_name)
+        if object_id is not None:
+            # Bug fix (History tab п.15): filtering by name alone conflates
+            # a deleted experiment with a NEW one created under the same
+            # name afterward — the new row gets a fresh uuid, so filtering
+            # by object_id is the only way to see strictly ITS events. Name
+            # stays available (object_name above) for the admin-only global
+            # log, where "browse everything matching this text" is the
+            # actual intent, not "this one experiment's history."
+            stmt = stmt.where(AuditLog.object_id == object_id)
         if date_from is not None:
             stmt = stmt.where(AuditLog.ts >= date_from)
         if date_to is not None:
@@ -749,6 +758,7 @@ class AuditRepo:
         user_email: str | None = None,
         action: str | None = None,
         object_name: str | None = None,
+        object_id: str | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
     ) -> list[AuditLog]:
@@ -756,7 +766,7 @@ class AuditRepo:
             stmt = select(AuditLog).order_by(AuditLog.ts.desc(), AuditLog.id.desc())
             stmt = self._filtered(
                 stmt, user_id=user_id, user_email=user_email, action=action, object_name=object_name,
-                date_from=date_from, date_to=date_to,
+                object_id=object_id, date_from=date_from, date_to=date_to,
             )
             stmt = stmt.offset(offset).limit(limit)
             rows = list(s.scalars(stmt))
@@ -771,6 +781,7 @@ class AuditRepo:
         user_email: str | None = None,
         action: str | None = None,
         object_name: str | None = None,
+        object_id: str | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
     ) -> int:
@@ -778,7 +789,7 @@ class AuditRepo:
             stmt = select(func.count()).select_from(AuditLog)
             stmt = self._filtered(
                 stmt, user_id=user_id, user_email=user_email, action=action, object_name=object_name,
-                date_from=date_from, date_to=date_to,
+                object_id=object_id, date_from=date_from, date_to=date_to,
             )
             return s.scalar(stmt) or 0
 

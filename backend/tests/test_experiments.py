@@ -369,11 +369,54 @@ def test_experiment_audit_visible_to_any_logged_in_user(app_client):
     from abkit.db.repositories import AuditRepo
 
     _login(app_client, email="viewer@co.com", role="viewer")
-    _make_experiment("exp_audit")
-    AuditRepo().log(action="design", object_type="experiment", object_name="exp_audit", user_email="someone@co.com")
+    exp = _make_experiment("exp_audit")
+    # object_id, not just object_name — matches how abkit/jobs.py::_audit
+    # actually writes entries in production (see bug fix п.15: History is
+    # filtered by object_id now, not object_name).
+    AuditRepo().log(
+        action="design", object_type="experiment", object_id=str(exp.id),
+        object_name="exp_audit", user_email="someone@co.com",
+    )
 
     resp = app_client.get("/api/v1/experiments/exp_audit/audit")
     assert resp.status_code == 200
     body = resp.json()
     assert body["total"] == 1
     assert body["items"][0]["action"] == "design"
+
+
+def test_experiment_audit_history_scoped_to_object_id_not_name(app_client):
+    """Bug fix п.15: delete an experiment, create a new one under the SAME
+    name — the new row gets a fresh uuid (server_default gen_random_uuid()),
+    so its History must show only ITS OWN events, not the deleted
+    experiment's (including its own delete audit entry) just because the
+    name matches."""
+    from abkit.db.repositories import AuditRepo, ExperimentRepo
+
+    _login(app_client, email="owner_audit_reuse@co.com", role="admin")
+    owner_id = UserRepo().get_by_email("owner_audit_reuse@co.com").id
+    old_exp = _make_experiment("reused_name_exp", owner_id=owner_id)
+    old_id = old_exp.id
+    AuditRepo().log(
+        action="experiment.create", object_type="experiment", object_id=str(old_id),
+        object_name="reused_name_exp", user_email="owner_audit_reuse@co.com",
+    )
+    ExperimentRepo().delete("reused_name_exp")
+    AuditRepo().log(
+        action="experiment.delete", object_type="experiment", object_id=str(old_id),
+        object_name="reused_name_exp", user_email="owner_audit_reuse@co.com",
+    )
+
+    new_exp = _make_experiment("reused_name_exp", owner_id=owner_id)
+    assert new_exp.id != old_id  # fresh uuid, not the deleted row reused
+    AuditRepo().log(
+        action="experiment.create", object_type="experiment", object_id=str(new_exp.id),
+        object_name="reused_name_exp", user_email="owner_audit_reuse@co.com",
+    )
+
+    resp = app_client.get("/api/v1/experiments/reused_name_exp/audit")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 1
+    assert body["items"][0]["action"] == "experiment.create"
+    assert body["items"][0]["object_id"] == str(new_exp.id)
