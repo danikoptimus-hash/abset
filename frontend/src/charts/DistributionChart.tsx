@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { EChartsInstance } from 'echarts-for-react'
-import { Segmented, Typography } from 'antd'
+import { Alert, Segmented, Typography } from 'antd'
 import { chartColors, echartsZoomSliderStyle } from './theme'
 import type { Distribution, Histogram } from '../pages/experiment/analyzeTypes'
 
@@ -16,6 +16,8 @@ function binLabels(edges: number[]): string[] {
   return labels
 }
 
+type RangeMode = 'clipped' | 'full_range' | 'positive_only'
+
 function ContinuousDistributionChart({
   distribution, controlName, treatName,
 }: {
@@ -23,8 +25,19 @@ function ContinuousDistributionChart({
   controlName: string
   treatName: string
 }) {
-  const [range, setRange] = useState<'clipped' | 'full_range'>('clipped')
-  const hist: Histogram = distribution[range]
+  const hasClip = distribution.n_above_p99 > 0
+  const hasZeros = distribution.has_zeros
+  const [range, setRange] = useState<RangeMode>(hasClip ? 'clipped' : 'full_range')
+
+  // "Positive only" reads from its own precomputed bundle (histogram AND
+  // ECDF recomputed on the zero-excluded subset — the shared
+  // control_ecdf/treatment_ecdf above are always the full, unfiltered
+  // data); Clipped/Full range keep reading the original two fields.
+  const hist: Histogram = range === 'positive_only' ? distribution.positive_only.histogram : distribution[range]
+  const controlEcdf = range === 'positive_only' ? distribution.positive_only.control_ecdf : distribution.control_ecdf
+  const treatmentEcdf =
+    range === 'positive_only' ? distribution.positive_only.treatment_ecdf : distribution.treatment_ecdf
+
   // Item 2.5 (e2e coverage): dataZoom itself is canvas-drawn, not a DOM
   // element Playwright can read the state of directly — mirror the current
   // zoom window (as reported by ECharts' own datazoom event, the same
@@ -42,7 +55,14 @@ function ContinuousDistributionChart({
     xAxis: [
       { type: 'category', data: binLabels(hist.bin_edges), gridIndex: 0, axisLabel: { show: false } },
       {
+        // Bug fix: this axis used to always auto-scale to the FULL
+        // unclipped ECDF data regardless of the toggle — control_ecdf/
+        // treatment_ecdf were never clipped in the first place, so
+        // "Clipped at P99" showed a correct footnote next to an axis that
+        // silently still spanned the full range. Explicit max = the P99
+        // threshold when clipped; auto (undefined) otherwise.
         type: 'value', gridIndex: 1, name: 'Value', scale: true,
+        max: range === 'clipped' ? distribution.p99_threshold ?? undefined : undefined,
         axisLine: { lineStyle: { color: chartColors.axisLine } },
       },
     ],
@@ -78,30 +98,36 @@ function ContinuousDistributionChart({
         itemStyle: { color: TREATMENT_COLOR, opacity: 0.55 },
       },
       {
-        name: controlName, type: 'line', data: distribution.control_ecdf, xAxisIndex: 1, yAxisIndex: 1,
+        name: controlName, type: 'line', data: controlEcdf, xAxisIndex: 1, yAxisIndex: 1,
         showSymbol: false, lineStyle: { color: CONTROL_COLOR },
       },
       {
-        name: treatName, type: 'line', data: distribution.treatment_ecdf, xAxisIndex: 1, yAxisIndex: 1,
+        name: treatName, type: 'line', data: treatmentEcdf, xAxisIndex: 1, yAxisIndex: 1,
         showSymbol: false, lineStyle: { color: TREATMENT_COLOR },
       },
     ],
   }
 
+  const modeOptions = [
+    ...(hasClip ? [{ label: 'Clipped at P99', value: 'clipped' }] : []),
+    { label: 'Full range', value: 'full_range' },
+    // Only offered when the metric actually has zeros — with none, this
+    // mode would be pixel-identical to Full range, just a confusing
+    // no-op option.
+    ...(hasZeros ? [{ label: 'Positive only', value: 'positive_only' }] : []),
+  ]
+
   return (
     <div>
-      {distribution.n_above_p99 > 0 && (
+      {(hasClip || hasZeros) && (
         <Segmented
           size="small"
           value={range}
           onChange={(v) => {
-            setRange(v as 'clipped' | 'full_range')
+            setRange(v as RangeMode)
             setZoomRange({ start: 0, end: 100 })
           }}
-          options={[
-            { label: 'Clipped at P99', value: 'clipped' },
-            { label: 'Full range', value: 'full_range' },
-          ]}
+          options={modeOptions}
           style={{ marginBottom: 8 }}
         />
       )}
@@ -139,6 +165,19 @@ function ContinuousDistributionChart({
           For clarity, the axis is clipped at the 99th percentile ({distribution.p99_threshold?.toFixed(4)}).{' '}
           {distribution.n_above_p99} observations ({distribution.pct_above_p99.toFixed(1)}%) are above the threshold.
         </Typography.Text>
+      )}
+      {range === 'positive_only' && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginTop: 4 }}
+          message={
+            `Zeros excluded for display: control ${distribution.positive_only.pct_zero_control.toFixed(1)}%, ` +
+            `treatment ${distribution.positive_only.pct_zero_treatment.toFixed(1)}%. Statistical results are ` +
+            'computed on ALL data. Comparing positive values between groups is exploratory — treatment can ' +
+            'change the composition of converters.'
+          }
+        />
       )}
     </div>
   )

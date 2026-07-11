@@ -80,6 +80,47 @@ def _histogram_pair(
     return [float(x) for x in bin_edges], [float(x) for x in control_hist], [float(x) for x in treatment_hist]
 
 
+def _positive_only_distribution(
+    control_clean: pd.Series, treatment_clean: pd.Series, nbins: int
+) -> dict[str, Any]:
+    """"Positive only" display mode: exact-zero observations dropped from
+    BOTH groups' histogram and ECDF. Display-only by construction — this
+    lives in chart_data.py, which runs strictly AFTER Experiment.analyze()
+    has already produced effects/p-values/CIs/verdicts from the unfiltered
+    data (abkit/analysis, abkit/design); nothing here feeds back into that.
+
+    Always shows the full positive range, not intersected with the P99 clip
+    — combining both would need a 4th bin/ECDF pair for a rarely-needed
+    edge case (P99-clipped AND positive-only at once); "Positive only"
+    trades the P99 clip for its own filter instead of stacking them.
+    """
+    control_pos = control_clean[control_clean > 0]
+    treatment_pos = treatment_clean[treatment_clean > 0]
+    n_control, n_treatment = len(control_clean), len(treatment_clean)
+    pct_zero_control = (n_control - len(control_pos)) / n_control * 100 if n_control else 0.0
+    pct_zero_treatment = (n_treatment - len(treatment_pos)) / n_treatment * 100 if n_treatment else 0.0
+
+    combined_pos = pd.concat([control_pos, treatment_pos])
+    if len(combined_pos) == 0:
+        empty_hist = {"bin_edges": [], "control_counts": [], "treatment_counts": []}
+        return {
+            "histogram": empty_hist, "control_ecdf": [], "treatment_ecdf": [],
+            "pct_zero_control": pct_zero_control, "pct_zero_treatment": pct_zero_treatment,
+        }
+
+    lo = float(combined_pos.min())
+    hi = float(combined_pos.max())
+    edges, control_counts, treatment_counts = _histogram_pair(control_pos, treatment_pos, lo, hi, nbins, None)
+
+    return {
+        "histogram": {"bin_edges": edges, "control_counts": control_counts, "treatment_counts": treatment_counts},
+        "control_ecdf": _downsample_ecdf(control_pos.to_numpy()),
+        "treatment_ecdf": _downsample_ecdf(treatment_pos.to_numpy()),
+        "pct_zero_control": pct_zero_control,
+        "pct_zero_treatment": pct_zero_treatment,
+    }
+
+
 def _continuous_distribution(control: pd.Series, treatment: pd.Series) -> dict[str, Any]:
     control_clean = control.dropna()
     treatment_clean = treatment.dropna()
@@ -91,6 +132,11 @@ def _continuous_distribution(control: pd.Series, treatment: pd.Series) -> dict[s
         return {
             "kind": "continuous", "clipped": dict(empty_hist), "full_range": dict(empty_hist),
             "control_ecdf": [], "treatment_ecdf": [], "p99_threshold": None, "n_above_p99": 0, "pct_above_p99": 0.0,
+            "positive_only": {
+                "histogram": dict(empty_hist), "control_ecdf": [], "treatment_ecdf": [],
+                "pct_zero_control": 0.0, "pct_zero_treatment": 0.0,
+            },
+            "has_zeros": False,
         }
 
     threshold, n_above, pct_above = p99_clip_stats(combined)
@@ -118,6 +164,10 @@ def _continuous_distribution(control: pd.Series, treatment: pd.Series) -> dict[s
         "p99_threshold": p99_threshold,
         "n_above_p99": n_above,
         "pct_above_p99": pct_above,
+        # "Positive only" display mode (report feature) — a third
+        # precomputed bundle, same shape/spirit as clipped/full_range above.
+        "positive_only": _positive_only_distribution(control_clean, treatment_clean, nbins),
+        "has_zeros": bool((combined == 0).any()),
     }
 
 

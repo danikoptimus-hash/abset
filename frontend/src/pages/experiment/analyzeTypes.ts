@@ -50,6 +50,14 @@ export interface Histogram {
   treatment_counts: number[]
 }
 
+export interface PositiveOnlyDistribution {
+  histogram: Histogram
+  control_ecdf: [number, number][]
+  treatment_ecdf: [number, number][]
+  pct_zero_control: number
+  pct_zero_treatment: number
+}
+
 export interface ContinuousDistribution {
   kind: 'continuous'
   clipped: Histogram
@@ -59,6 +67,11 @@ export interface ContinuousDistribution {
   p99_threshold: number | null
   n_above_p99: number
   pct_above_p99: number
+  // "Positive only" display mode (report feature) — exact zeros excluded
+  // from both charts, display-only; has_zeros gates whether the toggle
+  // option even makes sense to offer (no zeros = identical to Full range).
+  positive_only: PositiveOnlyDistribution
+  has_zeros: boolean
 }
 
 export type Distribution = BinaryDistribution | ContinuousDistribution

@@ -335,6 +335,25 @@ The **Results** tab has, per metric:
   for deciding to stop a test early (see "peeking" in the FAQ below), and
   segment breakdowns get no multiple-testing correction — treat a segment-level
   finding as a hypothesis for a follow-up test, not as evidence on its own.
+- **Distribution chart display modes** (continuous metrics only) — a toggle
+  above the density/ECDF charts, up to three options depending on the data:
+  - **Clipped at P99** (default when there are outliers) — the axis is cut
+    at the 99th percentile so the bulk of the distribution isn't squashed by
+    a few extreme values; a footnote states the threshold and how many
+    observations are above it.
+  - **Full range** — no clipping, the true min-max span.
+  - **Positive only** (only offered when the metric actually has exact-zero
+    values, e.g. a monetary metric where most users spend nothing) — drops
+    zero observations from both charts so the shape of the distribution
+    among users with a nonzero value is actually visible, instead of one
+    spike at zero dwarfing everything else. This is a **display filter
+    only** — it never touches the effect, p-value, CI, or verdict, which
+    are always computed on the complete data; a caption states what
+    percentage of each group was excluded and flags that comparing only the
+    positive values is exploratory (treatment can change *who* has a
+    nonzero value, not just its size, which this view can't distinguish).
+  All three share the same zoom slider under the X axis (drag or scroll to
+  zoom in, same range for the histogram and the ECDF).
 
 ### 6. Publish, conclude, decide
 
