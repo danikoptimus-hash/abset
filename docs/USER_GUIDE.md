@@ -43,6 +43,16 @@ extending data collection inflates the false-positive rate); un-archiving
 warns you to make sure that's really the state you want. Moving forward, or
 archiving from anywhere, stays frictionless — only backward moves ask.
 
+The header (under **Last modified by ...**) and the Results tab (next to
+**Analyzed ... (run #N)**) show a compact line of whichever lifecycle dates
+are actually set — e.g. "Created Jul 2 · Started Jul 5 · Completed Jul 19" —
+hover any of them for the exact timestamp. The same dates appear in the
+header of both the design report and the analysis report. Moving an
+experiment backward clears the timestamp(s) for stages it no longer
+occupies — reopening a `completed` test back to `running` drops its
+Completed date — but the transition itself is still fully recorded in the
+audit log regardless.
+
 While an experiment is still `designed` (before you've moved it to
 `running`), its "⋯" menu offers **Redesign** — discard the current split,
 MDE table, and split checks, and reopen the design wizard pre-filled with
@@ -169,7 +179,10 @@ below for that flow instead). For ABSet split, pick the dataset from step 1
 **Groups & Metrics**:
 - Groups — name your arms and set their traffic split. Presets for the common
   shapes (`50/50`, `90/10`, `33/33/33`) plus a **Normalize** button if your
-  numbers don't add to 100%.
+  numbers don't add to 100%. Each group also has an optional multiline
+  **Description** field ("What does this variant show/do?") — it appears
+  under the group's name and proportion on the experiment's Design tab and in
+  the design report's groups table.
 - Metrics — at least one, each with:
   - **Type**: `continuous`, `binary`, or `ratio` (ratio metrics take a
     numerator/denominator column pair instead of a single column — for
@@ -181,6 +194,21 @@ below for that flow instead). For ABSet split, pick the dataset from step 1
     value before the test started. Supplying it is what enables **CUPED**
     (variance reduction using the correlation between pre- and post-period
     values) for that metric.
+
+**Variant flows (optional)** — a step right after Groups & Metrics for
+attaching visuals to each arm: one column per group (two groups split the row
+in half, three in thirds, more than three scroll horizontally), each with an
+optional title, a dropdown to bind the column to a specific group (defaults
+to the matching one, but you can repoint it as long as no two columns point
+at the same group), and a drag-and-drop zone for images (PNG/JPEG/WEBP, up to
+5MB each, up to 10 per group) with thumbnail previews, click-to-enlarge,
+delete, and drag-to-reorder. Leave it empty if you don't need it — nothing
+else in the wizard depends on it. Uploaded images show up as a **Variant
+flows** section on the Design tab (in the saved order, click any thumbnail to
+enlarge) and are embedded directly into the design report, so the report
+stays a single self-contained file with no external image links. Like group
+descriptions, this can only be changed via **Redesign** — there's no separate
+edit flow for it.
 
 **Parameters**:
 - **Experiment size** — pick one of: a target relative MDE, a target absolute
@@ -353,7 +381,10 @@ The **Results** tab has, per metric:
     positive values is exploratory (treatment can change *who* has a
     nonzero value, not just its size, which this view can't distinguish).
   All three share the same zoom slider under the X axis (drag or scroll to
-  zoom in, same range for the histogram and the ECDF).
+  zoom in, same range for the histogram and the ECDF). Like every chart in
+  the app and in the exported reports, hovering a bar or point shows the
+  exact numbers behind it — bin range/count/percentage here, effect/CI/
+  p-value on the forest plot, cumulative % on the lift chart, and so on.
 
 ### 6. Publish, conclude, decide
 
