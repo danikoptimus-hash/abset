@@ -18,3 +18,23 @@ export const echartsBaseOption = {
   textStyle: { fontFamily: 'Inter, -apple-system, Helvetica, Arial, sans-serif' },
   grid: { borderColor: chartColors.grid },
 }
+
+// Item 2: dataZoom slider styling — ECharts defaults to blue (handle,
+// filler, selected-range background); this reskins it to the same green
+// used for a significant effect everywhere else in the app, so it doesn't
+// look like a leftover default control.
+export const echartsZoomSliderStyle = {
+  borderColor: chartColors.grid,
+  fillerColor: 'rgba(46, 139, 109, 0.12)',
+  handleStyle: { color: chartColors.significantPositive, borderColor: chartColors.significantPositive },
+  moveHandleStyle: { color: chartColors.significantPositive },
+  dataBackground: {
+    lineStyle: { color: chartColors.axisLine },
+    areaStyle: { color: chartColors.grid },
+  },
+  selectedDataBackground: {
+    lineStyle: { color: chartColors.significantPositive },
+    areaStyle: { color: chartColors.significantPositive, opacity: 0.15 },
+  },
+  textStyle: { color: chartColors.axisLabel },
+}

@@ -256,3 +256,57 @@ test('post-data with duplicate unit ids makes Date column required and blocks Ru
     page.getByText(/significant positive|significant negative|no effect detected/).first(),
   ).toBeVisible({ timeout: 20_000 })
 })
+
+// Item 2: dataZoom slider (Superset-style) on the continuous-metric
+// distribution chart. A real drag on the canvas-drawn handle is too
+// pixel-fragile to simulate reliably — DistributionChart.tsx exposes the
+// live echarts instance on window specifically so a test can dispatchAction
+// a dataZoom (the same action ECharts itself dispatches on a real
+// drag/wheel) and read the result back, which is a more direct check of
+// "does the wiring work" than guessing handle coordinates.
+test('distribution chart has a dataZoom slider that changes the axis range', async ({ page, request }) => {
+  test.setTimeout(60_000)
+  const name = `analyze_zoom_e2e_${Date.now()}`
+  await seedExperiment(request, name)
+  await loginViaUi(page)
+
+  await page.goto(`/experiments/${name}`)
+  await page.getByRole('tab', { name: 'Analysis' }).click()
+  await page.getByRole('button', { name: /Generate demo post-period data/ }).click()
+  await expect(page.getByText(/Demo data generated:/)).toBeVisible({ timeout: 10_000 })
+  await page.getByRole('button', { name: 'Run analysis' }).click()
+  await expect(
+    page.getByText(/significant positive|significant negative|no effect detected/).first(),
+  ).toBeVisible({ timeout: 20_000 })
+
+  await expect(page.getByText('Distribution: control vs treatment')).toBeVisible()
+
+  // Two dataZoom components configured (slider + inside), both tied to the
+  // histogram's and the ECDF's x axes — confirms the slider is actually
+  // present in the chart, not just a canvas with no zoom wired up.
+  const dataZoomCount = await page.evaluate(
+    () => (window as unknown as { __abkitDistributionChart: { getOption: () => { dataZoom: unknown[] } } })
+      .__abkitDistributionChart.getOption().dataZoom.length,
+  )
+  expect(dataZoomCount).toBe(2)
+
+  const zoomState = page.getByTestId('distribution-zoom-range')
+  await expect(zoomState).toHaveAttribute('data-start', '0')
+  await expect(zoomState).toHaveAttribute('data-end', '100')
+
+  await page.evaluate(() => {
+    ;(window as unknown as { __abkitDistributionChart: { dispatchAction: (a: object) => void } })
+      .__abkitDistributionChart.dispatchAction({ type: 'dataZoom', start: 20, end: 70 })
+  })
+  await expect(zoomState).toHaveAttribute('data-start', '20')
+  await expect(zoomState).toHaveAttribute('data-end', '70')
+
+  // Toggling the P99 clip control resets the zoom back to full range,
+  // rather than reapplying a stale window to the new (full) axis extent.
+  const fullRangeToggle = page.getByText('Full range', { exact: true })
+  if (await fullRangeToggle.isVisible()) {
+    await fullRangeToggle.click()
+    await expect(zoomState).toHaveAttribute('data-start', '0')
+    await expect(zoomState).toHaveAttribute('data-end', '100')
+  }
+})

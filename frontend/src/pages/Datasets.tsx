@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Table, Drawer, Table as PreviewTable, Typography, Button, Space, message, Modal, Alert, Tooltip, Input, Select,
+  Table, Drawer, Table as PreviewTable, Typography, Button, Space, message, Modal, Alert, Tooltip, Input, Select, Tag,
 } from 'antd'
 import {
   PlusOutlined, ReloadOutlined, EditOutlined, DeleteOutlined, CheckSquareOutlined, CloseOutlined,
@@ -202,6 +202,44 @@ function DeleteDatasetAction({ dataset, onDeleted }: { dataset: DatasetOut; onDe
   )
 }
 
+// Item 1 bug fix: a dataset can be used by more than one experiment (or by
+// the same experiment for more than one purpose — design AND later
+// analyze) — experiment_datasets is a many-to-many table, so the column
+// shows every use, not just one. Collapses beyond 2 into a "+N" tag with a
+// tooltip listing the rest, same pattern as TagBadge/TagList's overflow.
+const KIND_LABELS: Record<string, string> = {
+  pre_design: 'design',
+  post_analysis: 'analysis',
+  validation: 'validation',
+}
+
+function ExperimentUsageCell({ experiments }: { experiments: DatasetOut['experiments'] }) {
+  if (!experiments || experiments.length === 0) return <>—</>
+  const MAX_VISIBLE = 2
+  const visible = experiments.slice(0, MAX_VISIBLE)
+  const overflow = experiments.slice(MAX_VISIBLE)
+  return (
+    <Space size={4} wrap>
+      {visible.map((use, i) => (
+        <Link key={`${use.experiment_id}-${use.kind}-${i}`} to={`/experiments/${use.experiment_name}`}>
+          {use.experiment_name} <Tag style={{ marginInlineEnd: 0 }}>{KIND_LABELS[use.kind] ?? use.kind}</Tag>
+        </Link>
+      ))}
+      {overflow.length > 0 && (
+        <Tooltip
+          title={overflow.map((use, i) => (
+            <div key={`${use.experiment_id}-${use.kind}-${i}`}>
+              {use.experiment_name} ({KIND_LABELS[use.kind] ?? use.kind})
+            </div>
+          ))}
+        >
+          <Tag>+{overflow.length}</Tag>
+        </Tooltip>
+      )}
+    </Space>
+  )
+}
+
 export function DatasetsPage() {
   const [page, setPage] = useState(1)
   const [q, setQ] = useState('')
@@ -366,8 +404,8 @@ export function DatasetsPage() {
           { title: 'Source', dataIndex: 'source', render: (source: string) => <SourceTag source={source} /> },
           {
             title: 'Experiment',
-            dataIndex: 'experiment_name',
-            render: (name: string | null) => (name ? <Link to={`/experiments/${name}`}>{name}</Link> : '—'),
+            key: 'experiments',
+            render: (_, record: DatasetOut) => <ExperimentUsageCell experiments={record.experiments} />,
           },
           { title: 'Rows', dataIndex: 'n_rows' },
           { title: 'Uploaded By', dataIndex: 'uploaded_by_email' },

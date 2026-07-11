@@ -22,7 +22,13 @@ from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 
 from abkit.auth.guards import CurrentUser
 from abkit.dataset_files import read_dataset_file
-from abkit.db.repositories import DatabaseConnectionRepo, DatasetRepo, ExperimentRepo, UserRepo
+from abkit.db.repositories import (
+    DatabaseConnectionRepo,
+    DatasetRepo,
+    ExperimentDatasetRepo,
+    ExperimentRepo,
+    UserRepo,
+)
 from abkit.db.store import DbExperimentStore
 from backend.deps import get_current_user, get_job_runner, require_min_role
 from backend.errors import APIError
@@ -33,6 +39,7 @@ from backend.schemas.datasets import (
     BulkDeleteDatasetsSkipped,
     ColumnValueCount,
     ColumnValuesResponse,
+    DatasetExperimentUse,
     DatasetFromSqlRequest,
     DatasetOut,
     DatasetPreview,
@@ -53,7 +60,11 @@ router = APIRouter(prefix="/datasets", tags=["datasets"])
 _VALID_KINDS = ("pre_design", "post_analysis", "validation")
 
 
-def _to_dataset_out(d, exp_name_by_id: dict, email_by_id: dict, connection_name_by_id: dict) -> DatasetOut:
+def _to_dataset_out(
+    d, exp_name_by_id: dict, email_by_id: dict, connection_name_by_id: dict,
+    links_by_dataset: dict | None = None,
+) -> DatasetOut:
+    links = (links_by_dataset or {}).get(d.id, [])
     return DatasetOut(
         id=str(d.id), experiment_id=str(d.experiment_id) if d.experiment_id else None,
         experiment_name=exp_name_by_id.get(d.experiment_id),
@@ -65,6 +76,23 @@ def _to_dataset_out(d, exp_name_by_id: dict, email_by_id: dict, connection_name_
         connection_name=connection_name_by_id.get(d.connection_id) if d.connection_id else None,
         sql_text=d.sql_text, fetched_at=d.fetched_at,
         source_schema=d.source_schema, source_table=d.source_table,
+        # Item 1 bug fix: one entry per real (experiment, kind) use, from
+        # experiment_datasets — not the legacy single experiment_id/kind
+        # pair above, which only ever reflects a dataset's creation-time
+        # experiment (or none, for a standalone upload later picked for
+        # analyze/validate on some other experiment).
+        experiments=[
+            # experiment_id is ON DELETE CASCADE from experiments, so a
+            # dangling link (no matching name) shouldn't be possible — the
+            # filter is a defensive no-op, not a real case to handle.
+            DatasetExperimentUse(
+                experiment_id=str(link.experiment_id),
+                experiment_name=exp_name_by_id[link.experiment_id],
+                kind=link.kind,
+            )
+            for link in links
+            if link.experiment_id in exp_name_by_id
+        ],
     )
 
 
@@ -89,8 +117,14 @@ def list_datasets(
     exp_name_by_id = {e.id: e.name for e in ExperimentRepo().list_all()}
     email_by_id = {u.id: u.email for u in UserRepo().list_all()}
     connection_name_by_id = {c.id: c.display_name for c in DatabaseConnectionRepo().list_all()}
+    links_by_dataset: dict = {}
+    for link in ExperimentDatasetRepo().list_all():
+        links_by_dataset.setdefault(link.dataset_id, []).append(link)
 
-    items = [_to_dataset_out(d, exp_name_by_id, email_by_id, connection_name_by_id) for d in page_items]
+    items = [
+        _to_dataset_out(d, exp_name_by_id, email_by_id, connection_name_by_id, links_by_dataset)
+        for d in page_items
+    ]
     return PaginatedDatasets(items=items, total=total, page=page, page_size=page_size)
 
 

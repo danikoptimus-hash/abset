@@ -1408,6 +1408,23 @@ export interface components {
              */
             updated_at: string;
         };
+        /**
+         * DatasetExperimentUse
+         * @description One (experiment, kind) row from experiment_datasets — item 1 bug fix:
+         *     the Datasets list column used to read only datasets.experiment_id (the
+         *     single legacy PRIMARY/first-use field), which stays null for a dataset
+         *     uploaded standalone and only later picked for analyze/validate on an
+         *     experiment it wasn't created under — this is the many-to-many source of
+         *     truth, one entry per actual use.
+         */
+        DatasetExperimentUse: {
+            /** Experiment Id */
+            experiment_id: string;
+            /** Experiment Name */
+            experiment_name: string;
+            /** Kind */
+            kind: string;
+        };
         /** DatasetFromSqlRequest */
         DatasetFromSqlRequest: {
             /** Connection Id */
@@ -1474,6 +1491,11 @@ export interface components {
             source_schema?: string | null;
             /** Source Table */
             source_table?: string | null;
+            /**
+             * Experiments
+             * @default []
+             */
+            experiments: components["schemas"]["DatasetExperimentUse"][];
         };
         /** DatasetPreview */
         DatasetPreview: {

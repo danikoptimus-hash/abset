@@ -124,3 +124,44 @@ test('Live search filters the Datasets table without pressing Enter, Source filt
   await page.getByTitle('SQL', { exact: true }).click()
   await expect(page.getByRole('row', { name: new RegExp(otherName) })).not.toBeVisible()
 })
+
+// Item 1 bug fix: a dataset picked from the Analyze tab's existing-dataset
+// search (uploaded standalone, no experiment_name at upload time) used to
+// show no experiment at all in the Datasets list, even after being used —
+// the list read the wrong (legacy, single-owner) field. Real UI path: seed
+// an experiment, upload a dataset with no experiment tie, run analysis on
+// it, then check the Datasets list shows the experiment tagged "analysis".
+test('analyzing a standalone dataset makes it show the experiment (analysis) in the Datasets list', async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(30_000)
+  const expName = `dataset_link_e2e_${Date.now()}`
+  await seedExperiment(request, expName)
+
+  const filename = `standalone_post_${Date.now()}.csv`
+  const csv = 'user_id,revenue\n' + Array.from({ length: 100 }, (_, i) => `u_${expName}_${i},${100 + (i % 10)}`).join('\n')
+  await uploadDataset(request, csv, filename)
+
+  await loginViaUi(page)
+  await page.goto(`/experiments/${expName}`)
+  await page.getByRole('tab', { name: 'Analysis' }).click()
+
+  const datasetSelect = page.getByRole('combobox', { name: 'post-period-dataset-select' })
+  await datasetSelect.click()
+  await datasetSelect.fill(filename)
+  await page.getByTitle(filename).click()
+  await expect(page.getByText(new RegExp(`Data ready: ${filename.replace('.', '\\.')}`))).toBeVisible()
+
+  await page.getByRole('button', { name: 'Run analysis' }).click()
+  await expect(
+    page.getByText(/significant positive|significant negative|no effect detected/).first(),
+  ).toBeVisible({ timeout: 20_000 })
+
+  await page.goto('/datasets')
+  await page.getByPlaceholder('Search datasets...').fill(filename)
+  const row = page.getByRole('row', { name: new RegExp(filename) })
+  await expect(row).toBeVisible()
+  await expect(row.getByRole('link', { name: expName })).toBeVisible()
+  await expect(row.getByText('analysis', { exact: true })).toBeVisible()
+})

@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import ReactECharts from 'echarts-for-react'
+import type { EChartsInstance } from 'echarts-for-react'
 import { Segmented, Typography } from 'antd'
-import { chartColors } from './theme'
+import { chartColors, echartsZoomSliderStyle } from './theme'
 import type { Distribution, Histogram } from '../pages/experiment/analyzeTypes'
 
 const CONTROL_COLOR = '#8C9AA6'
@@ -24,11 +25,17 @@ function ContinuousDistributionChart({
 }) {
   const [range, setRange] = useState<'clipped' | 'full_range'>('clipped')
   const hist: Histogram = distribution[range]
+  // Item 2.5 (e2e coverage): dataZoom itself is canvas-drawn, not a DOM
+  // element Playwright can read the state of directly — mirror the current
+  // zoom window (as reported by ECharts' own datazoom event, the same
+  // start/end an echarts instance's getOption() would show) into a data-*
+  // attribute a test can assert on. { start: 0, end: 100 } = full range.
+  const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
 
   const option = {
     grid: [
-      { left: 60, right: 20, top: 30, height: '38%' },
-      { left: 60, right: 20, top: '58%', height: '32%' },
+      { left: 60, right: 20, top: 30, height: '32%' },
+      { left: 60, right: 20, top: '52%', bottom: 70 },
     ],
     tooltip: { trigger: 'axis' },
     legend: { data: [controlName, treatName], top: 0 },
@@ -38,6 +45,24 @@ function ContinuousDistributionChart({
         type: 'value', gridIndex: 1, name: 'Value', scale: true,
         axisLine: { lineStyle: { color: chartColors.axisLine } },
       },
+    ],
+    // Item 2: a slider (Superset-style) plus wheel/pinch zoom, both tied to
+    // the histogram AND the ECDF's x axes at once (xAxisIndex: [0, 1]) —
+    // one instance/option already holds both grids, so no echarts.connect()
+    // is needed to keep them in sync. Operates inside whatever range is
+    // currently shown (clipped-at-P99 or full) — the Segmented toggle below
+    // resets it to 0-100% via the `key={range}` remount, not by fighting
+    // over start/end state here. start/end must mirror zoomRange (the last
+    // value the datazoom event reported) — without it, every re-render
+    // rebuilds this option WITHOUT an explicit start/end, and ECharts reads
+    // that as "reset to default", fighting the drag/scroll that just
+    // happened a moment earlier.
+    dataZoom: [
+      {
+        type: 'slider', xAxisIndex: [0, 1], bottom: 8, height: 22,
+        start: zoomRange.start, end: zoomRange.end, ...echartsZoomSliderStyle,
+      },
+      { type: 'inside', xAxisIndex: [0, 1], start: zoomRange.start, end: zoomRange.end },
     ],
     yAxis: [
       { type: 'value', name: 'Density', gridIndex: 0, axisLine: { lineStyle: { color: chartColors.axisLine } } },
@@ -69,7 +94,10 @@ function ContinuousDistributionChart({
         <Segmented
           size="small"
           value={range}
-          onChange={(v) => setRange(v as 'clipped' | 'full_range')}
+          onChange={(v) => {
+            setRange(v as 'clipped' | 'full_range')
+            setZoomRange({ start: 0, end: 100 })
+          }}
           options={[
             { label: 'Clipped at P99', value: 'clipped' },
             { label: 'Full range', value: 'full_range' },
@@ -77,7 +105,35 @@ function ContinuousDistributionChart({
           style={{ marginBottom: 8 }}
         />
       )}
-      <ReactECharts option={option} style={{ height: 420 }} />
+      {/* key={range}: forces a clean remount instead of an ECharts option
+          merge, so switching Clipped/Full range always resets the zoom to
+          0-100% rather than reapplying a stale window to a new axis extent. */}
+      <ReactECharts
+        key={range}
+        option={option}
+        style={{ height: 480 }}
+        onEvents={{
+          datazoom: (params: { start?: number; end?: number; batch?: { start: number; end: number }[] }) => {
+            const { start, end } = params.batch ? params.batch[0] : params
+            if (start !== undefined && end !== undefined) setZoomRange({ start, end })
+          },
+        }}
+        onChartReady={(instance: EChartsInstance) => {
+          // Item 2.5 (e2e coverage): a drag on a canvas-drawn slider handle
+          // is too pixel-fragile to simulate reliably in Playwright — this
+          // exposes the real instance so a test can dispatchAction a
+          // dataZoom (the same action type ECharts itself dispatches on a
+          // real drag/scroll) and read the resulting extremes back, instead
+          // of guessing handle coordinates.
+          ;(window as unknown as { __abkitDistributionChart?: unknown }).__abkitDistributionChart = instance
+        }}
+      />
+      <span
+        data-testid="distribution-zoom-range"
+        data-start={zoomRange.start}
+        data-end={zoomRange.end}
+        style={{ display: 'none' }}
+      />
       {range === 'clipped' && distribution.n_above_p99 > 0 && (
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           For clarity, the axis is clipped at the 99th percentile ({distribution.p99_threshold?.toFixed(4)}).{' '}

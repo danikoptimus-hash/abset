@@ -6,6 +6,19 @@ from typing import Any
 from pydantic import BaseModel
 
 
+class DatasetExperimentUse(BaseModel):
+    """One (experiment, kind) row from experiment_datasets — item 1 bug fix:
+    the Datasets list column used to read only datasets.experiment_id (the
+    single legacy PRIMARY/first-use field), which stays null for a dataset
+    uploaded standalone and only later picked for analyze/validate on an
+    experiment it wasn't created under — this is the many-to-many source of
+    truth, one entry per actual use."""
+
+    experiment_id: str
+    experiment_name: str
+    kind: str
+
+
 class DatasetOut(BaseModel):
     id: str
     experiment_id: str | None
@@ -29,6 +42,12 @@ class DatasetOut(BaseModel):
     # diverged. See abkit/db/models.py::Dataset for the full rationale.
     source_schema: str | None = None
     source_table: str | None = None
+    # Item 1 bug fix: every experiment that has actually used this dataset
+    # (design/analyze/validate), from experiment_datasets — the Datasets
+    # list column renders all of these, not just the legacy single
+    # experiment_id/experiment_name pair above (kept for other consumers,
+    # e.g. the design-dataset lookup, per CLAUDE.md's backward-compat note).
+    experiments: list[DatasetExperimentUse] = []
 
 
 class DatasetFromSqlRequest(BaseModel):

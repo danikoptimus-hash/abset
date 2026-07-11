@@ -638,6 +638,18 @@ class ExperimentDatasetRepo:
                 )
             )
 
+    def list_all(self) -> list[ExperimentDataset]:
+        """Item 1 bug fix (Datasets list column): the list page needs every
+        dataset's full set of (experiment, kind) uses, not just one — same
+        "load everything, group in Python" pattern list_datasets() already
+        uses for exp_name_by_id/email_by_id (this table is expected to stay
+        small enough that this beats an N+1 query per dataset row)."""
+        with session_scope() as s:
+            rows = list(s.scalars(select(ExperimentDataset).order_by(ExperimentDataset.created_at)))
+            for r in rows:
+                s.expunge(r)
+            return rows
+
 
 class ResultRepo:
     def create(

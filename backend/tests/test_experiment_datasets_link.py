@@ -87,6 +87,99 @@ def test_design_analyze_validate_each_record_a_dataset_link(app_client, tmp_path
     assert kinds_by_dataset[post_dataset_id] == {"post_analysis", "validation"}
 
 
+def test_datasets_list_shows_all_linked_experiments_with_kind_badges(app_client, tmp_path, monkeypatch):
+    """Item 1 bug fix: GET /datasets used to read datasets.experiment_id (the
+    legacy single-owner field, only ever set at creation) instead of
+    experiment_datasets — a post-analysis dataset uploaded standalone (no
+    experiment_name at upload time) showed no experiment at all in the list,
+    even though the link was correctly written when analysis ran. The list
+    endpoint's `experiments` field must show it, tagged post_analysis."""
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+
+    design_dataset_id = _upload_csv(app_client, _design_csv())
+    design_resp = app_client.post(
+        "/api/v1/design",
+        json={
+            "config": {
+                "name": "list_link_exp", "unit_col": "user_id", "groups": {"control": 0.5, "treatment": 0.5},
+                "metrics": [{"name": "revenue", "type": "continuous", "role": "primary"}],
+                "sample_size": 200, "split_method": "simple", "isolation": "off",
+            },
+            "dataset_id": design_dataset_id,
+        },
+    )
+    job = _poll_job(app_client, design_resp.json()["job_id"])
+    assert job["status"] == "completed", job
+
+    # Uploaded standalone — no experiment_name, matching the real bug report
+    # (a dataset picked from the Analyze tab's existing-dataset search, not
+    # created under this experiment).
+    post_dataset_id = _upload_csv(app_client, _design_csv(), kind="post_analysis")
+    analyze_resp = app_client.post(
+        "/api/v1/experiments/list_link_exp/analyze", json={"dataset_id": post_dataset_id},
+    )
+    analyze_job = _poll_job(app_client, analyze_resp.json()["job_id"])
+    assert analyze_job["status"] == "completed", analyze_job
+
+    list_resp = app_client.get("/api/v1/datasets", params={"page_size": 200})
+    assert list_resp.status_code == 200, list_resp.text
+    items = {d["id"]: d for d in list_resp.json()["items"]}
+
+    post_ds = items[post_dataset_id]
+    assert post_ds["experiment_id"] is None  # legacy field never set for a standalone upload
+    assert [(u["experiment_name"], u["kind"]) for u in post_ds["experiments"]] == [
+        ("list_link_exp", "post_analysis")
+    ]
+
+    design_ds = items[design_dataset_id]
+    assert [(u["experiment_name"], u["kind"]) for u in design_ds["experiments"]] == [
+        ("list_link_exp", "pre_design")
+    ]
+
+
+def test_datasets_list_shows_multiple_uses_of_the_same_dataset(app_client, tmp_path, monkeypatch):
+    """A dataset reused across experiments, or by the same experiment for
+    more than one purpose, must show every use — not just the first one."""
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+
+    shared_dataset_id = _upload_csv(app_client, _design_csv())
+
+    for exp_name in ("multi_use_a", "multi_use_b"):
+        design_resp = app_client.post(
+            "/api/v1/design",
+            json={
+                "config": {
+                    "name": exp_name, "unit_col": "user_id", "groups": {"control": 0.5, "treatment": 0.5},
+                    "metrics": [{"name": "revenue", "type": "continuous", "role": "primary"}],
+                    "sample_size": 200, "split_method": "simple", "isolation": "off",
+                },
+                "dataset_id": shared_dataset_id,
+            },
+        )
+        job = _poll_job(app_client, design_resp.json()["job_id"])
+        assert job["status"] == "completed", job
+
+    # Same dataset, re-analyzed for one of the two experiments too — now
+    # linked under BOTH kinds for that one experiment, plus pre_design for
+    # the other.
+    analyze_resp = app_client.post(
+        "/api/v1/experiments/multi_use_a/analyze", json={"dataset_id": shared_dataset_id},
+    )
+    analyze_job = _poll_job(app_client, analyze_resp.json()["job_id"])
+    assert analyze_job["status"] == "completed", analyze_job
+
+    list_resp = app_client.get("/api/v1/datasets", params={"page_size": 200})
+    items = {d["id"]: d for d in list_resp.json()["items"]}
+    uses = {(u["experiment_name"], u["kind"]) for u in items[shared_dataset_id]["experiments"]}
+    assert uses == {
+        ("multi_use_a", "pre_design"),
+        ("multi_use_a", "post_analysis"),
+        ("multi_use_b", "pre_design"),
+    }
+
+
 def test_demo_post_data_is_tagged_demo_source_and_linked(app_client, tmp_path, monkeypatch):
     monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
     _login(app_client)
