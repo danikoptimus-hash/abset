@@ -66,10 +66,22 @@ def test_cuped_rho_none_when_covariate_variance_zero():
     assert result_ctx.cuped_rho is None
 
 
-def test_cuped_requires_covariate():
-    ctx = make_ctx([1.0, 2.0, 3.0, 4.0], ["control", "control", "treatment", "treatment"])
-    with pytest.raises(ValueError, match="covariate"):
-        CUPED().apply(ctx)
+def test_cuped_skips_gracefully_and_warns_when_covariate_missing():
+    """Regression (ref edb716f1's follow-on): metric.pre_col is declared at
+    design time, but an actual analysis run's data may not have that column
+    (wrong export, or the pre-period simply isn't tracked yet). This used to
+    raise ValueError uncaught, crashing the whole designed pipeline (unlike
+    compare_methods' alt chains, which already tolerate a per-chain failure)
+    into an opaque 'Internal processing error' — now degrades the same way
+    the zero-variance-covariate case already does: warn and pass values
+    through unchanged so the rest of the chain (e.g. WelchTTest) still runs."""
+    values = pd.Series([1.0, 2.0, 3.0, 4.0])
+    group = pd.Series(["control", "control", "treatment", "treatment"])
+    ctx = make_ctx(values, group)
+
+    result_ctx = CUPED().apply(ctx)
+    assert any("missing from this data" in w for w in result_ctx.warnings)
+    pd.testing.assert_series_equal(result_ctx.values, values)
 
 
 def test_cuped_imputes_nan_covariate_and_warns():

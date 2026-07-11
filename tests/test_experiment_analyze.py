@@ -290,6 +290,50 @@ def test_analyze_raises_clear_error_when_post_data_has_own_group_column(tmp_path
         experiment.analyze(post_data)
 
 
+def test_analyze_succeeds_with_warning_when_declared_pre_col_missing_from_post_data(tmp_path):
+    """Regression (found while reproducing ref edb716f1's real dataset end to
+    end, a second crash past the group/stratum fix above): a metric that
+    declares pre_col at design time, analyzed against post-data that lacks
+    that column, used to make the designed pipeline's CUPED step raise a raw
+    ValueError uncaught — unlike compare_methods' alt chains (already
+    tolerant of a per-chain failure), the designed chain has no verdict
+    without a caught exception, so the whole job crashed into an opaque
+    'Internal processing error' instead of just skipping CUPED and reporting
+    plain Welch, same as the design report already does for a metric with no
+    pre_col declared at all."""
+    rng = np.random.default_rng(0)
+    n = 4000
+    design_data = pd.DataFrame(
+        {
+            "user_id": [f"u{i}" for i in range(n)],
+            "revenue": rng.normal(100, 20, size=n),
+            "revenue_pre": rng.normal(95, 18, size=n),
+        }
+    )
+    config = DesignConfig(
+        name="cuped_missing_precol_exp",
+        unit_col="user_id",
+        groups={"control": 0.5, "treatment": 0.5},
+        metrics=[MetricConfig(name="revenue", type="continuous", pre_col="revenue_pre")],
+        sample_size=n,
+        split_method="simple",
+        seed=42,
+    )
+    experiment = Experiment.design(config, design_data, experiments_dir=tmp_path)
+    assignments = experiment.assignments
+    n_assigned = len(assignments)
+    post_data = pd.DataFrame(
+        {
+            "user_id": list(assignments["unit_id"]),
+            "revenue": np.random.default_rng(1).normal(100, 20, size=n_assigned),
+        }
+    )
+    results = experiment.analyze(post_data)
+    revenue_result = results["revenue"][0]
+    assert revenue_result is not None
+    assert any("pre-period covariate" in w for w in revenue_result.warnings)
+
+
 def test_analyze_progress_callback_reports_stages_in_order(tmp_path):
     """UI (app.py) показывает прогресс через st.status по этапам analyze() —
     нужна гарантия, что callback реально вызывается на каждом этапе (join,

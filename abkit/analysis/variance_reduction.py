@@ -21,7 +21,19 @@ class CUPED(Step):
 
     def apply(self, ctx: MetricContext) -> MetricContext:
         if ctx.covariate is None:
-            raise ValueError("CUPED requires ctx.covariate (pre_col); it is not set")
+            # Regression (found while chasing ref edb716f1): metric.pre_col is a
+            # design-time DECLARATION, not a guarantee about every future
+            # analysis run's data — a post-period file that lacks that column
+            # (wrong export, or the pre-period simply isn't tracked yet) used
+            # to raise here uncaught, crashing the whole designed pipeline
+            # (unlike compare_methods' alt chains, which already tolerate a
+            # per-chain failure) into an opaque "Internal processing error".
+            # Same graceful-degradation shape as the var_x == 0 case below:
+            # skip the correction, let the rest of the chain run on raw values.
+            ctx.warnings.append(
+                "CUPED: pre-period covariate column is missing from this data — correction not applied"
+            )
+            return ctx
 
         covariate = ctx.covariate.copy()
         n_missing = int(covariate.isna().sum())
