@@ -42,6 +42,27 @@ def test_join_with_assignments_raises_on_duplicate_data():
         join_with_assignments(assignments, data, "user_id")
 
 
+def test_join_with_assignments_raises_clear_error_on_group_column_collision():
+    """Regression (ref edb716f1): a post-period export with its own "group"
+    column used to make pandas silently rename both sides to group_x/group_y,
+    surfacing later as a raw KeyError('group') instead of a clear message."""
+    assignments = make_assignments(10)
+    data = pd.DataFrame(
+        {"user_id": [f"u{i}" for i in range(10)], "group": ["control"] * 10, "revenue": range(10)}
+    )
+    with pytest.raises(AnalysisError, match="'group'"):
+        join_with_assignments(assignments, data, "user_id")
+
+
+def test_join_with_assignments_raises_clear_error_on_stratum_column_collision():
+    assignments = make_assignments(10)
+    data = pd.DataFrame(
+        {"user_id": [f"u{i}" for i in range(10)], "stratum": ["x"] * 10, "revenue": range(10)}
+    )
+    with pytest.raises(AnalysisError, match="'stratum'"):
+        join_with_assignments(assignments, data, "user_id")
+
+
 def test_check_data_loss_no_loss_is_symmetric():
     assignments = make_assignments(100)
     present_ids = pd.Series(assignments["unit_id"])

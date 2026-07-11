@@ -151,6 +151,9 @@ def check_no_duplicates(data: pd.DataFrame, unit_col: str) -> None:
         )
 
 
+_RESERVED_ASSIGNMENT_COLUMNS = ("group", "stratum", "assigned_at")
+
+
 def join_with_assignments(
     assignments: pd.DataFrame, data: pd.DataFrame, unit_col: str
 ) -> pd.DataFrame:
@@ -161,8 +164,26 @@ def join_with_assignments(
     приводится к str (astype+strip) перед merge — ID это идентификатор, а не
     число, и старые assignments.parquet (файловый режим, до этой правки)
     могут все еще хранить unit_id числовым.
+
+    Regression (ref edb716f1): `assignments` always has `group`/`stratum`/
+    `assigned_at` columns. If the uploaded post-period `data` happens to
+    carry a column with one of those same names (e.g. exporting your own
+    "group" column alongside the metrics), pandas' merge silently renames
+    BOTH sides' copies to `<name>_x`/`<name>_y` instead of erroring — so
+    `merged["group"]` below (and everywhere downstream) raised a raw,
+    unguarded `KeyError: 'group'` that surfaced only as an opaque "Internal
+    processing error". Reject the collision up front with an actionable
+    message instead.
     """
     check_no_duplicates(data, unit_col)
+    collisions = [c for c in _RESERVED_ASSIGNMENT_COLUMNS if c in data.columns]
+    if collisions:
+        cols = ", ".join(repr(c) for c in collisions)
+        raise AnalysisError(
+            f"The uploaded data has column(s) {cols} that collide with ABKit's own "
+            "group-assignment columns of the same name (recorded at design time). "
+            "Rename or drop them in your post-period dataset before analyzing."
+        )
     assignments = assignments.assign(unit_id=normalize_id_series(assignments["unit_id"]))
     data = data.assign(**{unit_col: normalize_id_series(data[unit_col])})
     return assignments.merge(data, left_on="unit_id", right_on=unit_col, how="inner")

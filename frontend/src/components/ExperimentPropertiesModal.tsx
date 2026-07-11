@@ -59,6 +59,8 @@ export function ExperimentPropertiesModal({ name, onCancel, onSaved }: Props) {
   // Enter, which becomes a plain string in the form value either way. What
   // "is this new or existing" resolves to is decided at Save time (below),
   // not here — this Select only ever deals in tag NAMES.
+  const currentNameValue = Form.useWatch('name', form)
+
   const [tagSearch, setTagSearch] = useState('')
   const { data: tagOptions } = useQuery({
     queryKey: ['tags-typeahead', tagSearch],
@@ -150,6 +152,14 @@ export function ExperimentPropertiesModal({ name, onCancel, onSaved }: Props) {
           <Form.Item name="name" label="Name" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
+          {currentNameValue && currentNameValue !== properties.name && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16, marginTop: -8 }}
+              message="Renaming changes the experiment's URL — existing links and bookmarks will stop working."
+            />
+          )}
           <Form.Item label="Owner">
             <Input
               disabled

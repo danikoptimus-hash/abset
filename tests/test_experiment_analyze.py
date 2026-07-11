@@ -265,6 +265,31 @@ def test_analyze_raises_clear_error_when_unit_col_missing_from_post_data(tmp_pat
         experiment.analyze(post_data)
 
 
+def test_analyze_raises_clear_error_when_post_data_has_own_group_column(tmp_path):
+    """Regression (ref edb716f1, a real user report): a post-period export
+    that carries its own 'group' column (e.g. re-exporting the assignment it
+    already knows, alongside the metrics) used to make pandas' merge inside
+    checks.join_with_assignments() silently rename BOTH sides' 'group' to
+    'group_x'/'group_y' — the downstream `merged["group"]` access then raised
+    a raw KeyError, surfacing only as an opaque 'Internal processing error'
+    instead of telling the user what actually went wrong. None of the
+    existing analyze fixtures had this collision (post_data is always built
+    without a 'group' column), which is why it slipped through undetected."""
+    experiment = design_simple_experiment(tmp_path)
+    assignments = experiment.assignments
+    n = len(assignments)
+    post_data = pd.DataFrame(
+        {
+            "user_id": list(assignments["unit_id"]),
+            "group": list(assignments["group"]),
+            "revenue": np.random.default_rng(1).normal(100, 20, size=n),
+            "clicks": np.random.default_rng(1).binomial(1, 0.1, size=n),
+        }
+    )
+    with pytest.raises(AnalysisError, match="'group'"):
+        experiment.analyze(post_data)
+
+
 def test_analyze_progress_callback_reports_stages_in_order(tmp_path):
     """UI (app.py) показывает прогресс через st.status по этапам analyze() —
     нужна гарантия, что callback реально вызывается на каждом этапе (join,
