@@ -146,17 +146,25 @@ the optional columns matter: attribute columns for stratification ("recommended
 them"). No data on hand yet? Use **Demo Data** to generate a synthetic dataset
 and try the whole flow risk-free.
 
-Write down your hypothesis before you look at any results — the app gives you
-a dedicated **Hypothesis** text block on the experiment page for exactly this,
-so the prediction is on record before the outcome could bias how you phrase
-it.
+Write down your hypothesis before you look at any results — the design
+wizard's second step (**Groups & Metrics**) has an optional **Hypothesis**
+field for exactly this, with an in-app hint on how to phrase one ("If we
+change X, it will affect Y, which we will observe as a change in metric Z").
+Whatever you type there is saved straight into the experiment page's
+**Hypothesis** text block, so the prediction is on record before the outcome
+could bias how you phrase it. You can skip it in the wizard and fill the
+block in later instead — both write to the same place.
 
 ### 2. Design wizard
 
 Four steps: **Data → Groups & Metrics → Parameters → Run**.
 
-**Data** — pick the dataset from step 1 (search existing datasets or create a
-new one inline).
+**Data** — choose the split mode first: **ABKit split** (the flow described
+below — ABKit picks candidates, splits them, and stores assignments) or
+**External split** (the split already happened in an outside system, e.g.
+Firebase A/B Testing — see [External split mode](#7-external-split-mode-firebase-etc)
+below for that flow instead). For ABKit split, pick the dataset from step 1
+(search existing datasets or create a new one inline).
 
 **Groups & Metrics**:
 - Groups — name your arms and set their traffic split. Presets for the common
@@ -202,7 +210,7 @@ new one inline).
 metric (with and without CUPED, and ρ — the pre/post correlation CUPED
 exploits), and the split-quality checks below. Both the design report and the
 analysis report (Results tab) offer **View report** (opens in a new browser
-tab) and **Download** (saves it as `<experiment>_design_report.html` /
+tab) and **Download report** (saves it as `<experiment>_design_report.html` /
 `<experiment>_report.html`) — either way it's the same self-contained file
 (charts, logo, and CSS all inlined), so the downloaded copy opens correctly
 offline, with no server needed.
@@ -320,6 +328,53 @@ doing about it — ship, hold, iterate — then flip the experiment to
 collection is actually done. Published experiments become part of your
 organization's searchable history of what's been tried and what happened,
 instead of living in someone's notebook.
+
+### 7. External split mode (Firebase, etc.)
+
+If the random split already happened somewhere else (Firebase A/B Testing and
+similar remote-config/experimentation systems), pick **External split** on
+the wizard's first step instead of the default **ABKit split**. It changes
+the rest of the flow:
+
+- **No dataset step, no split, no assignments, no isolation.** ABKit isn't
+  picking or splitting anyone, so none of that applies — the wizard just
+  collects the declared design: name, optional hypothesis, group names with
+  their *expected* traffic proportions (needed later for the SRM check), and
+  metrics. Metric columns are typed in directly (there's no dataset yet to
+  pick columns from) rather than chosen from a dropdown.
+- **Expected sample size is optional and reference-only.** If you provide
+  one, the Design tab shows it as-is; ABKit doesn't compute an MDE table for
+  an external split (there's no pre-period data of your candidates to
+  compute variance from), and says so explicitly: "external design: power
+  calculated by the external system."
+- The experiment is created straight into `designed` status with an
+  **External split** badge next to the status badges on the experiment page.
+  There's no split to redo, so **Redesign** and **Download Samples** aren't
+  offered.
+
+**Analyzing an external experiment** adds one mandatory step before you can
+run analysis: after selecting your post-period dataset, a **Group
+assignment** block appears. Pick the **Group column** — whichever column in
+your data holds the variant each row belongs to (e.g. a Firebase experiment
+ID/variant column) — and ABKit shows you its distinct values with row counts.
+Map each value to one of your declared groups, or to **Exclude** for values
+that don't belong to this experiment (bot traffic, an unrelated variant,
+etc.); **Run analysis** stays disabled until every declared group has a
+mapped value. From there the pipeline is the familiar one:
+
+- **SRM** compares the *actual* proportions in your mapped data against the
+  proportions you declared at design time (instead of against an ABKit split
+  ratio — same check, different source for "expected").
+- The **Multiple testing correction** control appears under the same rule as
+  ABKit-split experiments — only when there's more than one hypothesis
+  (primary metrics × treatment groups).
+- The **data-loss table** (assigned vs. present) doesn't apply — there are no
+  assignments to compare against — and is replaced by a **group column
+  coverage** note: how many rows had a value that wasn't mapped to any
+  declared group and were excluded, and what fraction of the data that is.
+- **CUPED** still works exactly the same way, as long as your post-period
+  dataset also contains the pre-period column you declared on the metric.
+- Verdicts, the results table, forest plots, and the report are unchanged.
 
 ## Validation: is the engine honest on your data?
 
