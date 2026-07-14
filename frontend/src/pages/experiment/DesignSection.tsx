@@ -301,6 +301,26 @@ function mdeTable(computed: ComputedDesignSummary) {
   return <Table size="small" dataSource={rows} columns={columns} pagination={false} />
 }
 
+// Item 1.4: per-metric power warnings (e.g. the implausible-sample-size
+// units guard, or the pre-existing "not achievable" / "not enough data"
+// ones) were already computed and sent to design_report.html — but never
+// actually rendered on the Design tab itself, the page most people look at
+// first. Grouped by metric so a reader can tell which row a warning is
+// about without re-reading the MDE table above.
+function powerWarnings(computed: ComputedDesignSummary) {
+  const withWarnings = Object.entries(computed.power).filter(([, p]) => p.warnings.length > 0)
+  if (withWarnings.length === 0) return null
+  return (
+    <Space direction="vertical" style={{ width: '100%', marginTop: 12, marginBottom: 16 }}>
+      {withWarnings.flatMap(([metricName, p]) =>
+        p.warnings.map((w, i) => (
+          <Alert key={`${metricName}-${i}`} type="warning" showIcon message={`${metricName}: ${w}`} />
+        )),
+      )}
+    </Space>
+  )
+}
+
 function DesignDataSection({ name }: { name: string }) {
   const { data: dataset, isFetching: datasetLoading } = useQuery({
     queryKey: queryKeys.experimentDesignDataset(name),
@@ -388,6 +408,7 @@ export function DesignSection({ name, config, availableReports }: Props) {
         <>
           <Typography.Title level={5}>MDE Table</Typography.Title>
           {mdeTable(computed)}
+          {powerWarnings(computed)}
 
           <Typography.Title level={5} style={{ marginTop: 24 }}>
             Split Sanity Checks

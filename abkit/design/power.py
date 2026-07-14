@@ -29,6 +29,49 @@ class PowerResult:
     warnings: list[str] = field(default_factory=list)
 
 
+MIN_PLAUSIBLE_SAMPLE_SIZE_PER_GROUP = 10
+"""Below this, a computed required sample size is treated as an almost
+certain units mistake in the entered MDE rather than a real result — see
+implausible_sample_size_warning(). Not a statistical threshold (there's
+nothing special about 10 mathematically); it's a tripwire for the specific
+failure mode found in production: an absolute MDE meant as a percentage
+(e.g. "1" meaning 1%) typed into a field that expects a fraction (0.01),
+silently read as a MASSIVE effect size (100 percentage points), which then
+produces an implausibly tiny required n with no error anywhere in the
+chain — the math is unit-consistent throughout (abkit/config.py's
+mde_abs_input docstring), so nothing upstream ever raises on this; it just
+computes a technically-correct answer to the wrong question."""
+
+
+def implausible_sample_size_warning(
+    n_req: float, mde_abs_input: float | None, metric_type: str
+) -> str | None:
+    """None if `n_req` looks like a plausible experiment size; otherwise a
+    warning message explaining the likely units mistake. `mde_abs_input` —
+    the raw absolute-MDE value the user entered (same units as
+    DesignConfig.mde_abs_input: a proportion for binary/ratio metrics, the
+    metric's own units for continuous) — when available, the message
+    suggests the corrected value assuming the single most common real-world
+    mistake: a 100x scale error (a percentage typed where a fraction, or a
+    percentage-point value typed where a proportion, was expected). Phrased
+    in "pp / %" for binary/ratio metrics (proportion-scale, where that
+    mistake actually means something) and as a plain scale correction for
+    continuous metrics (no percentage-point concept in arbitrary units)."""
+    if n_req >= MIN_PLAUSIBLE_SAMPLE_SIZE_PER_GROUP:
+        return None
+    msg = (
+        f"Calculated sample size per group ({n_req:.3g}) is implausibly small. "
+        "Check your MDE units — this is almost always a units mistake, not a real result."
+    )
+    if mde_abs_input:
+        corrected = mde_abs_input / 100
+        if metric_type in ("binary", "ratio"):
+            msg += f" Did you mean {corrected:.4g} pp / {corrected:.4g}% instead of {mde_abs_input:.4g}?"
+        else:
+            msg += f" Did you mean {corrected:.4g} instead of {mde_abs_input:.4g} (a possible 100x scale mistake)?"
+    return msg
+
+
 def _z_scores(alpha: float, power: float) -> tuple[float, float]:
     z_alpha = sp_stats.norm.ppf(1 - alpha / 2)
     z_power = sp_stats.norm.ppf(power)

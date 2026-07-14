@@ -422,25 +422,50 @@ def _compute_power_results(
                     result.sample_size_per_group = n_req
                     result.mde_abs = p_treat - mean
                     result.mde_rel = config.mde
+                    implausible = power.implausible_sample_size_warning(
+                        n_req, config.mde_abs_input, metric.type
+                    )
+                    if implausible:
+                        warnings.append(implausible)
                     if rho is not None:
-                        result.sample_size_per_group_cuped = power.sample_size_binary_cuped(
+                        n_req_cuped = power.sample_size_binary_cuped(
                             mean, p_treat, rho, alpha=alpha, power=config.power, ratio=ratio
                         )
+                        result.sample_size_per_group_cuped = n_req_cuped
                         result.mde_abs_cuped = p_treat - mean
                         result.mde_rel_cuped = config.mde
+                        implausible_cuped = power.implausible_sample_size_warning(
+                            n_req_cuped, config.mde_abs_input, metric.type
+                        )
+                        if implausible_cuped and not implausible:
+                            warnings.append(implausible_cuped)
             else:
                 mde_abs = abs(config.mde * mean) if mean != 0 else abs(config.mde)
                 n_req = power.sample_size_continuous(std, mde_abs, alpha=alpha, power=config.power, ratio=ratio)
                 result.sample_size_per_group = n_req
                 result.mde_abs = mde_abs
                 result.mde_rel = config.mde
+                # Item 1 bug: unlike binary, a continuous/ratio metric has no
+                # (0, 1) bound to catch a wildly mis-scaled absolute MDE
+                # (e.g. a percentage typed where a fraction was expected) —
+                # it silently produces an oversized effect size and hence an
+                # implausibly tiny n, with nothing upstream ever raising.
+                implausible = power.implausible_sample_size_warning(n_req, config.mde_abs_input, metric.type)
+                if implausible:
+                    warnings.append(implausible)
                 if rho is not None:
                     std_cuped = std * power.cuped_variance_multiplier(rho) ** 0.5
-                    result.sample_size_per_group_cuped = power.sample_size_continuous(
+                    n_req_cuped = power.sample_size_continuous(
                         std_cuped, mde_abs, alpha=alpha, power=config.power, ratio=ratio
                     )
+                    result.sample_size_per_group_cuped = n_req_cuped
                     result.mde_abs_cuped = mde_abs
                     result.mde_rel_cuped = config.mde
+                    implausible_cuped = power.implausible_sample_size_warning(
+                        n_req_cuped, config.mde_abs_input, metric.type
+                    )
+                    if implausible_cuped and not implausible:
+                        warnings.append(implausible_cuped)
 
             if result.sample_size_per_group is not None and result.sample_size_per_group > n_control_available:
                 warnings.append(

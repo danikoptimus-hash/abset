@@ -148,6 +148,82 @@ def test_design_power_results_present_for_all_metrics(tmp_path):
     assert revenue_power.mde_rel == pytest.approx(0.1)
 
 
+def make_binary_baseline_data(n=200_000, p=0.17, seed=1):
+    rng = np.random.default_rng(seed)
+    return pd.DataFrame(
+        {
+            "user_id": [f"u{i}" for i in range(n)],
+            "platform": rng.choice(["ios", "android"], size=n),
+            "converted": rng.binomial(1, p, size=n),
+        }
+    )
+
+
+def test_design_abs_mde_binary_correctly_scaled_gives_plausible_sample_size_matching_statsmodels(tmp_path):
+    """Item 1 repro (correct-units side): baseline ~17%, absolute MDE of
+    exactly 1 percentage point (0.01, the CORRECT fraction-scale value, not
+    the raw "1" a user might type meaning "1%") must produce a required
+    sample size in the plausible thousands — cross-checked against
+    statsmodels, same reference used by tests/test_power.py."""
+    from statsmodels.stats.proportion import samplesize_proportions_2indep_onetail
+
+    data = make_binary_baseline_data()
+    actual_baseline = float(data["converted"].mean())
+    abs_mde = 0.01  # 1 percentage point, correctly expressed as a fraction
+    config = make_config(
+        metrics=[MetricConfig(name="converted", type="binary")],
+        strata=[],
+        mde=abs_mde / actual_baseline,
+        mde_abs_input=abs_mde,
+        mde_source_metric="converted",
+    )
+    experiment = Experiment.design(config, data, experiments_dir=tmp_path)
+    pr = experiment.report.power_results["converted"]
+
+    assert pr.warnings == []
+    assert pr.sample_size_per_group > 1000  # plausible thousands, not a handful
+    reference = samplesize_proportions_2indep_onetail(
+        diff=-abs_mde, prop2=actual_baseline + abs_mde, power=0.8, ratio=1.0, alpha=0.05, alternative="two-sided"
+    )
+    assert pr.sample_size_per_group == pytest.approx(reference, rel=0.05)
+
+
+def test_design_mde_rel_path_unaffected_by_implausible_n_guard(tmp_path):
+    """The plain relative-MDE path (no mde_abs_input at all) must keep
+    working exactly as before — the new guard only ever ADDS a warning for
+    genuinely implausible results, never changes a normal design's numbers
+    or raises where it didn't before."""
+    data = make_synthetic_data()
+    config = make_config()  # mde=0.1 (relative), no mde_abs_input
+    experiment = Experiment.design(config, data, experiments_dir=tmp_path)
+    for pr in experiment.report.power_results.values():
+        assert not any("implausibly small" in w for w in pr.warnings)
+
+
+def test_design_implausible_abs_mde_on_continuous_metric_warns_instead_of_silent_garbage(tmp_path):
+    """Item 1 repro (silent-failure side): unlike binary (bounded to (0, 1),
+    so a wildly mis-scaled input gets rejected as 'not achievable'),
+    continuous/ratio metrics have no such bound — unit-consistent math
+    happily computes a technically-correct answer to the wrong question,
+    silently producing an implausibly tiny n. This is the actual root cause
+    behind the reported "n almost 1" symptom."""
+    data = make_synthetic_data()  # revenue: mean~100, std~20
+    config = make_config(
+        metrics=[MetricConfig(name="revenue", type="continuous")],
+        strata=[],
+        mde=1.0,
+        mde_abs_input=100.0,  # absolute MDE as large as the baseline mean itself
+    )
+    experiment = Experiment.design(config, data, experiments_dir=tmp_path)
+    pr = experiment.report.power_results["revenue"]
+
+    assert pr.sample_size_per_group is not None
+    assert pr.sample_size_per_group < 10
+    assert len(pr.warnings) == 1
+    assert "implausibly small" in pr.warnings[0]
+    assert "Did you mean 1 " in pr.warnings[0]  # 100 / 100 = 1, the suggested corrected value
+
+
 def test_design_reload_via_load_matches(tmp_path):
     data = make_synthetic_data()
     config = make_config()

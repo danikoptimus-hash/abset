@@ -23,6 +23,7 @@ export function Step3Parameters({ state, setState }: Props) {
   const [baselineMean, setBaselineMean] = useState<number | null | 'loading'>(null)
 
   const mdeAbsMetric = state.metrics.find((m) => m.id === state.mdeAbsMetricId)
+  const isBinaryAbsMde = mdeAbsMetric?.type === 'binary'
 
   useEffect(() => {
     if (state.sizeMode !== 'mde_abs' || !mdeAbsMetric || !state.datasetId) return
@@ -130,18 +131,36 @@ export function Step3Parameters({ state, setState }: Props) {
             options={state.metrics.filter((m) => m.name).map((m) => ({ value: m.id, label: m.name }))}
           />
           <br />
+          {/* Item 1 bug fix: binary metrics store mde_abs everywhere else as
+              a fraction (0.01 = 1 percentage point) — a bare number box with
+              no unit cue is exactly how "1" (meant as "1%") gets typed and
+              silently read as 1.0 (100 percentage points). For binary, this
+              box shows/accepts PERCENTAGE POINTS and converts to the
+              fraction state.mdeAbsValue on every keystroke — the rest of the
+              app (relFromAbs below, Step4Review's submit) never sees pp,
+              only the already-converted fraction, unchanged from before. */}
           <InputNumber
             addonBefore="Absolute MDE"
-            step={0.01}
-            value={state.mdeAbsValue}
-            onChange={(v) => setState((prev) => ({ ...prev, mdeAbsValue: v ?? 0 }))}
+            addonAfter={isBinaryAbsMde ? 'pp' : undefined}
+            min={0}
+            step={isBinaryAbsMde ? 0.1 : 0.01}
+            value={isBinaryAbsMde ? state.mdeAbsValue * 100 : state.mdeAbsValue}
+            onChange={(v) =>
+              setState((prev) => ({ ...prev, mdeAbsValue: isBinaryAbsMde ? (v ?? 0) / 100 : (v ?? 0) }))
+            }
             style={{ width: 320 }}
           />
           {baselineMean === 'loading' && <Typography.Text type="secondary"> computing baseline...</Typography.Text>}
           {typeof baselineMean === 'number' && relFromAbs !== null && (
-            <Typography.Paragraph type="secondary" style={{ marginTop: 4 }}>
-              ≈ {(relFromAbs * 100).toFixed(1)}% relative MDE at the current mean {baselineMean.toFixed(4)}
+            <Typography.Paragraph type="secondary" style={{ marginTop: 4, marginBottom: 0 }}>
+              ≈ {(relFromAbs * 100).toFixed(1)}% relative MDE at the current mean{' '}
+              {isBinaryAbsMde ? `${(baselineMean * 100).toFixed(1)}%` : baselineMean.toFixed(4)}
             </Typography.Paragraph>
+          )}
+          {isBinaryAbsMde && typeof baselineMean === 'number' && (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              1 pp = conversion {(baselineMean * 100).toFixed(1)}% → {((baselineMean + 0.01) * 100).toFixed(1)}%
+            </Typography.Text>
           )}
           {baselineMean === null && mdeAbsMetric && (
             <Alert
