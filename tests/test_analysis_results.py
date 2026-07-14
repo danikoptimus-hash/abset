@@ -80,6 +80,36 @@ def test_detailed_rows_variance_reduction_technique_labels():
         ]
     )
     rows = {r["method"]: r["variance_reduction"] for r in results.detailed_rows("control")}
-    assert rows["CUPED + Welch t-test"] == "CUPED (14.2%)"
-    assert rows["Post-stratification"] == "PostStrat (20.0%)"
-    assert rows["RemoveOutliers + Welch t-test"] == "Outlier removal (37.0%)"
+    # Item 4.1 (consolidated package): 3 decimal places on the percentage.
+    assert rows["CUPED + Welch t-test"] == "CUPED (14.200%)"
+    assert rows["Post-stratification"] == "PostStrat (20.000%)"
+    assert rows["RemoveOutliers + Welch t-test"] == "Outlier removal (37.000%)"
+
+
+# Item 4.1/4.3 (consolidated package): detailed_display_rows() — the shared
+# source for both the CSV export and the HTML report (report.py) — formats
+# every numeric column to exactly 3 decimal places, as pre-formatted
+# strings (not bare floats) so trailing zeros survive str()/csv.DictWriter
+# instead of Python's default float repr dropping them.
+def test_detailed_display_rows_formats_numeric_columns_to_three_decimals():
+    results = AnalysisResults(
+        [
+            _make_result(
+                p_value=0.033333,
+                p_value_adjusted=0.066667,
+                effect_abs=5.0,
+                effect_rel=0.05,
+                ci_rel=(0.011111, 0.088888),
+                cuped_rho=0.7,
+                method="CUPED + Welch t-test",
+                variance_reduction=0.49,
+            )
+        ]
+    )
+    row = results.detailed_display_rows("control")[0]
+    assert row["Effect (abs.)"] == "5.000"
+    assert row["Lift %"] == "5.000"
+    assert row["95% CI of lift"] == "[1.111%, 8.889%]"
+    assert row["p-value"] == "0.033"
+    assert row["p-value (adj.)"] == "0.067"
+    assert row["CUPED rho"] == "0.700"

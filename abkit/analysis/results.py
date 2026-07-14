@@ -224,7 +224,9 @@ class AnalysisResults:
                     technique = "Outlier removal"
                 else:
                     technique = "yes"
-                variance_reduction_label = f"{technique} ({r.variance_reduction:.1%})"
+                # Item 4.1 (consolidated package): 3 decimal places on the
+                # percentage, matching the rest of the numeric columns.
+                variance_reduction_label = f"{technique} ({r.variance_reduction:.3%})"
 
             rows.append(
                 {
@@ -267,18 +269,28 @@ class AnalysisResults:
                 "Metric": row["metric"],
                 "Comparison group": row["group"],
                 "Method": row["method"],
-                "Effect (abs.)": row["effect_abs"],
+                # Item 4.1 (consolidated package): 3 decimal places across
+                # every numeric column (effect/lift/CI/p-value/p-adj/rho; n
+                # stays a plain int) — pre-formatted as strings (not
+                # round()ed floats) so trailing zeros survive into the CSV
+                # export and the HTML report, both of which just str() a
+                # raw float otherwise. f"{nan:.3f}" degrades to the literal
+                # "nan" string, same as the un-formatted float used to
+                # render before this — no separate NaN guard needed here.
+                "Effect (abs.)": f"{row['effect_abs']:.3f}",
                 "Lift %": (
-                    row["effect_rel"] * 100 if row["effect_rel"] == row["effect_rel"] else None
+                    f"{row['effect_rel'] * 100:.3f}" if row["effect_rel"] == row["effect_rel"] else None
                 ),
-                "95% CI of lift": f"[{row['ci_rel_lo'] * 100:.2f}%, {row['ci_rel_hi'] * 100:.2f}%]",
-                "p-value": row["p_value"],
-                "p-value (adj.)": row["p_value_adjusted"],
+                "95% CI of lift": f"[{row['ci_rel_lo'] * 100:.3f}%, {row['ci_rel_hi'] * 100:.3f}%]",
+                "p-value": f"{row['p_value']:.3f}",
+                "p-value (adj.)": (
+                    f"{row['p_value_adjusted']:.3f}" if row["p_value_adjusted"] is not None else None
+                ),
                 "Correction": row["correction_method"],
                 "n (control)": row["n_control"],
                 "n (test)": row["n_test"],
                 "Variance reduction": row["variance_reduction"],
-                "CUPED rho": row["cuped_rho"] if row["cuped_rho"] is None else round(row["cuped_rho"], 3),
+                "CUPED rho": row["cuped_rho"] if row["cuped_rho"] is None else f"{row['cuped_rho']:.3f}",
                 "Verdict": row["verdict"],
             }
             for row in rows
