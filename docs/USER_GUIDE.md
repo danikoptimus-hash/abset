@@ -260,21 +260,32 @@ edit flow for it.
   - `exclude_selected` — exclude participants of only specific tests you pick.
 - **Sample size** — click **Calculate sample size** to see how many users the
   target actually needs per group ("Required per group: N") against how many
-  are eligible in your dataset after isolation ("M eligible users"). Not
-  enough data for the target draws an explicit warning with options (a
-  larger MDE, lower power, or "use all available data"). Once calculated, a
-  **Group Proportions** block appears — defaulting to an equal split (50/50,
-  or an even share across more groups), the split that minimizes total
-  sample size. Edit any group's share by hand (a share too small for the
-  required size warns inline: "Group 'x' would get K < required N users —
-  power will be below target"), or click **Minimize control group** to set
-  control to the minimum needed for power and put the rest into treatment —
-  a common choice when you want to limit exposure to a change. Changing the
-  MDE, α, power, or metrics after calculating marks the result "stale" (a
-  nudge to recalculate — not a hard requirement, and your entered
-  proportions aren't discarded). Not part of External split mode, which has
-  no dataset to calculate a size from — proportions are set directly on the
-  Groups & Metrics step there instead.
+  are eligible in your dataset after isolation ("M eligible users"). **Next
+  is disabled until you've calculated and the result is still current** —
+  changing the MDE, α, power, strata, isolation, metrics, or the dataset
+  itself after calculating marks the result stale (a Next-blocking "Parameters
+  changed — recalculate" notice, not just a cosmetic nudge) and your entered
+  proportions aren't discarded. Not enough data for the target blocks Next
+  outright, with three ways forward: increase the MDE, lower the power
+  target, or click **use all available data anyway** — that switches to
+  "use all available data" mode and recalculates, so power reflects what you
+  actually have rather than a fixed target you can't reach; there's no
+  checkbox to just wave the warning away.
+  Once calculated, a **Group Proportions** block appears — defaulting to an
+  equal split (50/50, or an even share across more groups), the split that
+  minimizes total sample size. Each group has two linked fields — a share
+  (0–1) and a headcount (out of the eligible total) — edit either one and
+  the other updates to match. A share too small for the required size warns
+  inline ("Group 'x' would get K < required N users — power will be below
+  target"); unlike the aggregate shortfall above, this one has an explicit
+  "I understand ... proceed anyway" checkbox, since a lopsided split can be
+  a deliberate choice (e.g. limiting exposure to a risky change), not just a
+  data-availability wall. **Minimize control group** sets control to the
+  minimum needed for power and splits the rest equally across the treatment
+  group(s) — the caption states the exact numbers it will set before you
+  click it. Not part of External split mode, which has no dataset to
+  calculate a size from — proportions are set directly on the Groups &
+  Metrics step there instead.
 
 **Run** produces the split plus a design report: sample size / MDE table per
 metric (with and without CUPED, and ρ — the pre/post correlation CUPED
@@ -335,51 +346,54 @@ Once you have post-period data, open the experiment's **Analyze** tab:
    becomes **required** — you'll see how many users have multiple rows, and
    **Run analysis** stays disabled until you pick the column, since there's
    no way to know how to aggregate each user's rows into one otherwise.
-3. **Analysis method** — one row per metric, always visible (not tucked
-   inside Advanced options), showing exactly which statistical method will
-   decide that metric's verdict. It's pre-filled with the recommended method
-   from your design (Welch t-test for continuous, Z-test of proportions for
-   binary, CUPED+Welch/CUPED-adjusted when a pre-period column is set) —
-   marked "(recommended)" in the dropdown. The dropdown only offers methods
-   that make sense for that metric's type: continuous metrics never see
-   Z-test of proportions, and CUPED is only offered when the metric actually
-   has a pre-period column. If you pick anything other than the recommended
-   method, a banner explains what changed ("differs from the designed
-   method — power was calculated for Welch t-test") — this is informational,
-   not a block; the run proceeds with whatever you picked. Results reflect
-   this too: a manually-picked method's row in the Detailed results table
-   carries a **manually selected** tag next to the method name, so it's
-   obvious later (even after reloading the page) that the verdict didn't
-   come from the as-designed method.
-4. Open **Advanced options** if you need to change anything else — it's
-   collapsed by default so most runs don't need to touch it:
-   - **Multiple testing correction** — `holm` (default), `bonferroni`,
-     `fdr_bh` (Benjamini-Hochberg), or none. This only appears when your
-     design actually tests more than one hypothesis (more than one primary
-     metric, or more than one treatment group) — with a caption spelling out
-     exactly how many (metrics × treatment groups) and why it matters. With
-     a single hypothesis, any correction is a no-op, so the control (and the
-     **p-value (adj.)** / **Correction** columns in the results table) is
-     hidden rather than offered.
-   - **Compare alternative methods** — checked by default, so your designed
-     method is cross-checked against a standard set of alternatives without
-     having to think about it (these extra rows never factor into the
-     verdict — useful only for sanity-checking that the conclusion is
-     robust). The set depends on the metric's type:
-     - **Continuous**: Welch (raw and with 1% trimming), Welch+CUPED (if a
-       pre-period column is set), Bootstrap BCa, and Mann-Whitney.
-     - **Binary**: Chi-square test (a different implementation of the same
-       comparison your designed Z-test makes — a cross-check of the code,
-       not an alternative model), Bootstrap (percentile), and CUPED+Welch
-       t-test on the 0/1 values (if a pre-period column is set). Mann-Whitney
-       and outlier-trimming aren't offered for binary metrics — both are
-       meaningless on a 0/1 series.
-     
-     Uncheck it for faster runs on large datasets or weak machines —
-     Bootstrap in particular (10k iterations) is the heaviest of the bunch.
+3. **Analysis methods** — one multi-select row per metric, always visible,
+   listing exactly which statistical method(s) will be computed for that
+   metric. It's pre-filled with just the recommended method (Welch t-test for
+   continuous, Z-test of proportions for binary, CUPED+Welch/CUPED-adjusted
+   when a pre-period column is set), marked "(recommended)" — one method
+   selected is a pure calculation, no comparison rows. Check additional
+   methods to add them as a comparison (this replaces the old separate
+   "Compare alternative methods" checkbox — 2+ selected methods *is* the
+   comparison set now, exactly the ones you checked, not a fixed standard
+   list): these extra rows never factor into the verdict, useful only for
+   sanity-checking that the conclusion is robust. The list only offers
+   methods that make sense for that metric's type:
+   - **Continuous**: Welch (recommended), CUPED+Welch (if a pre-period
+     column is set), Mann-Whitney, Bootstrap BCa, RemoveOutliers+Welch.
+     Z-test of proportions never appears.
+   - **Binary**: Z-test of proportions (recommended), CUPED+Welch (if a
+     pre-period column is set), Chi-square test (a different implementation
+     of the same comparison the Z-test makes — a cross-check of the code,
+     not an alternative model), Bootstrap (percentile). Mann-Whitney and
+     outlier-trimming aren't offered — both are meaningless on a 0/1 series.
+   - **Ratio**: delta method only (the only method implemented for ratio
+     metrics currently).
+
+   Whichever method is **primary** decides the verdict — with only one
+   selected it's automatically primary; with 2+ selected, a small radio
+   picker underneath lets you choose which one (defaults to the recommended
+   one, or whichever you had before deselecting the old primary). Picking a
+   non-recommended method as primary shows a banner explaining what changed
+   ("differs from the designed method — power was calculated for Welch
+   t-test") — informational, not a block. Results reflect this too: a
+   manually-picked primary's row in the Detailed results table carries a
+   **manually selected** tag next to the method name, so it's obvious later
+   (even after reloading the page) that the verdict didn't come from the
+   as-designed method.
+4. **Multiple testing correction** — `holm` (default), `bonferroni`,
+   `fdr_bh` (Benjamini-Hochberg), or none. This only appears when your
+   design actually tests more than one hypothesis (more than one primary
+   metric, or more than one treatment group) — with a caption spelling out
+   exactly how many (metrics × treatment groups) and why it matters. With
+   a single hypothesis, any correction is a no-op, so the control (and the
+   **p-value (adj.)** / **Correction** columns in the results table) is
+   hidden rather than offered.
 5. **Run analysis**. This is an explicit step — preparing/uploading data does
    not run it automatically, so you control exactly when the (final,
-   decision-driving) analysis happens.
+   decision-driving) analysis happens. Heads up: selecting Bootstrap
+   (10k iterations) as one of several methods for a metric is the heaviest
+   combination on large datasets or weak machines — leave it unchecked for
+   faster runs if you don't specifically need it.
 
 ### 5. Reading results
 
@@ -397,7 +411,10 @@ The **Results** tab has, per metric:
   disagreement between methods usually means — outliers, skew, or a weak
   covariate for CUPED).
   `[Screenshot: forest plot with the designed method highlighted]`
-- **Detailed results table** columns worth knowing:
+- **Detailed results table** — every numeric column (effect, lift, CI bounds,
+  p-value, p-value (adj.), CUPED ρ, variance reduction) is shown to exactly 3
+  decimal places, consistently in the table itself, the CSV export, and the
+  HTML report. Columns worth knowing:
   - **Effect (abs.)** — absolute difference, test − control, in metric units.
   - **Lift %** — relative effect: (test − control) / control.
   - **95% CI of lift** — confidence interval of the *relative* effect, not of
@@ -592,12 +609,12 @@ running one.
   between tests.
 - **Verdict** — the app's automated read of a primary metric's designed-method
   result: significant positive/negative, no effect detected, or failed.
-- **Designed method** — the statistical method that decides a metric's
-  verdict for a given run: the recommended default from Design, unless you
-  picked a different one in the Analysis method selector for that run (then
-  it's flagged "manually selected" instead). Other methods computed via
-  "Compare alternative methods" are for robustness-checking only, regardless
-  of which method is designed.
+- **Designed method** (a.k.a. primary method) — the statistical method that
+  decides a metric's verdict for a given run: the recommended default from
+  Design, unless you picked a different one as primary in the Analysis
+  methods multi-select for that run (then it's flagged "manually selected"
+  instead). Any other methods you also selected for that metric are for
+  robustness-checking only, regardless of which one is primary.
 - **Variance reduction** — how much lower a method's effect-estimate variance
   is versus the raw data; only CUPED, outlier removal, and
   post-stratification have a mechanic for this (see the Detailed results
