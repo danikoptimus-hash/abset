@@ -15,6 +15,7 @@ DOCKER.md §12).
 
 from __future__ import annotations
 
+import math
 import time
 import uuid as uuid_mod
 from contextlib import contextmanager
@@ -25,7 +26,7 @@ import pandas as pd
 from abkit.access import require_experiment_edit_access
 from abkit.analysis.results import AnalysisResults
 from abkit.auth.guards import AuthError, CurrentUser, require_role
-from abkit.config import DesignConfig
+from abkit.config import DesignConfig, MetricConfig
 from abkit.experiment import Experiment
 from abkit.logging_config import get_logger
 
@@ -93,6 +94,99 @@ def run_design(
         object_type="experiment", object_id=str(exp_row.id), object_name=config.name,
     )
     return experiment
+
+
+def preview_sample_size(
+    current_user: CurrentUser,
+    data: pd.DataFrame,
+    *,
+    unit_col: str,
+    group_names: list[str],
+    metrics: list[MetricConfig],
+    alpha: float,
+    power_: float,
+    mde: float | None,
+    isolation_mode: str,
+    exclude_experiments: Any,
+    isolation_selected_experiments: list[str],
+    experiment_name: str | None,
+) -> dict[str, Any]:
+    """Design wizard, sample-size-first flow (CLAUDE.md item 3): 'Calculate
+    sample size' — no experiment is created, just isolation (real, against
+    other active experiments) + per-metric power calc against the given
+    dataset, with an EQUAL split across group_names standing in for the
+    real (not yet decided) proportions — exact for the equal-default
+    proportions shown right after, since an equal split always gives the
+    power formulas a treatment/control ratio of 1 regardless of how many
+    groups there are. Editor+ (same bar as run_design — this reads real
+    data and other experiments' assignments, not a public computation)."""
+    require_role(current_user, "editor")
+    from abkit import storage
+    from abkit.design import isolation as isolation_mod
+    from abkit.experiment import compute_power_results, infer_control_name
+    from abkit.experiment_store import get_experiment_store
+
+    if len(group_names) < 2:
+        raise storage.StorageError("At least two group names are required")
+
+    experiments_dir = storage.get_experiments_dir()
+    store = get_experiment_store(experiments_dir)
+    isolation_store = store if hasattr(store, "occupied_units") else None
+    isolation_result = isolation_mod.apply_isolation(
+        data=data,
+        unit_col=unit_col,
+        experiments_dir=experiments_dir,
+        mode=isolation_mode,
+        exclude_experiments=exclude_experiments,
+        current_experiment_name=experiment_name,
+        store=isolation_store,
+        selected_experiments=isolation_selected_experiments,
+    )
+    eligible_n = isolation_result.n_available
+
+    if mde is None or eligible_n == 0 or not metrics:
+        return {"eligible_n": eligible_n, "required_n_per_group": None, "per_metric": []}
+
+    equal_prop = 1.0 / len(group_names)
+    groups = {name: equal_prop for name in group_names}
+    control_name = infer_control_name(groups)
+    config = DesignConfig(
+        name=experiment_name or "__preview__",
+        unit_col=unit_col,
+        groups=groups,
+        metrics=metrics,
+        alpha=alpha,
+        power=power_,
+        mde=mde,
+        split_method="simple",
+    )
+    power_results = compute_power_results(config, isolation_result.candidates, control_name)
+
+    per_metric: list[dict[str, Any]] = []
+    primary_ns: list[int] = []
+    for metric in metrics:
+        pr = power_results.get(metric.name)
+        n_req = None
+        metric_warnings: list[str] = []
+        if pr is not None:
+            n_req = math.ceil(pr.sample_size_per_group) if pr.sample_size_per_group is not None else None
+            metric_warnings = pr.warnings
+            if metric.role == "primary" and n_req is not None:
+                primary_ns.append(n_req)
+        per_metric.append(
+            {
+                "metric": metric.name,
+                "baseline_mean": pr.baseline_mean if pr is not None else None,
+                "required_n_per_group": n_req,
+                "warnings": metric_warnings,
+            }
+        )
+
+    return {
+        "eligible_n": eligible_n,
+        "required_n_per_group": max(primary_ns) if primary_ns else None,
+        "per_metric": per_metric,
+    }
 
 
 def run_design_external(

@@ -45,6 +45,33 @@ export interface FlowColumnState {
 
 export type SizeMode = 'mde_rel' | 'mde_abs' | 'sample_size' | 'all'
 
+// Item 3 (sample-size-first wizard flow): result of POST
+// /datasets/{id}/sample-size-preview, cached in WizardState so the
+// proportions block (item 3.1d) has something to render/validate against
+// without re-fetching on every keystroke.
+export interface MetricSampleSizePreview {
+  metric: string
+  baselineMean: number | null
+  requiredN: number | null
+  warnings: string[]
+}
+
+export interface SampleSizeResult {
+  // null only for the Redesign-prefill placeholder (wizardStateFromConfig
+  // below) — the experiment's already-saved proportions are shown/editable
+  // right away without forcing a fresh Calculate click, but with no live
+  // eligible-count to display until the user does recalculate.
+  eligibleN: number | null
+  requiredNPerGroup: number | null
+  perMetric: MetricSampleSizePreview[]
+  // Snapshot (see sampleSizeInputsKey below) of the inputs THIS result was
+  // computed from — compared against the CURRENT snapshot to detect
+  // staleness (item 3.2: MDE/alpha/power/metrics changing after a
+  // calculation invalidates it) as a derived value, rather than manually
+  // intercepting every setState call that could invalidate it.
+  inputsKey: string
+}
+
 export interface WizardState {
   datasetId: string | null
   columns: string[]
@@ -83,6 +110,11 @@ export interface WizardState {
   splitMethod: 'simple' | 'stratified' | 'hash'
   isolation: 'exclude' | 'warn' | 'off' | 'exclude_selected'
   isolationSelected: string[]
+  // Item 3: null until "Calculate sample size" has run at least once (or,
+  // for Redesign, prefilled from the experiment's already-saved
+  // proportions — see wizardStateFromConfig below) — gates whether the
+  // proportions block renders at all (item 3.1c/d).
+  sampleSizeResult: SampleSizeResult | null
 }
 
 export function numericColumns(state: WizardState): string[] {
@@ -125,6 +157,36 @@ export function groupDescriptionsToApi(state: WizardState): Record<string, strin
 
 export function groupsSum(state: WizardState): number {
   return state.groups.reduce((acc, g) => acc + (g.prop || 0), 0)
+}
+
+// Item 3.1d: proportions reset to an equal split whenever the GROUP SET
+// changes (add/remove) — keeps state.groups numerically valid (sums to 1)
+// at all times even though, for the abkit-split flow, nothing edits `prop`
+// directly until the Calculate step. Also used for the "predfilled 50/50
+// (or equal for >2 groups)" default the first time Calculate succeeds.
+export function equalSplitGroups(groups: GroupFormRow[]): GroupFormRow[] {
+  const share = groups.length > 0 ? 1 / groups.length : 0
+  return groups.map((g) => ({ ...g, prop: share }))
+}
+
+// Item 3.2: which wizard inputs the last sample-size calculation reflects —
+// changing any of these (MDE/alpha/power/metrics, per spec) after a calc
+// makes the cached SampleSizeResult stale. Deliberately narrower than "every
+// input that could affect the result" (isolation/strata also affect
+// eligible_n) — matches the spec's explicit invalidation list; staleness is
+// a nudge to recalculate, not a hard block on proceeding.
+export function sampleSizeInputsKey(state: WizardState): string {
+  return JSON.stringify({
+    alpha: state.alpha,
+    power: state.power,
+    sizeMode: state.sizeMode,
+    mdeRel: state.mdeRel,
+    mdeAbsMetricId: state.mdeAbsMetricId,
+    mdeAbsValue: state.mdeAbsValue,
+    metrics: state.metrics.map((m) => ({
+      name: m.name.trim(), type: m.type, role: m.role, preCol: m.preCol, num: m.num, den: m.den,
+    })),
+  })
 }
 
 export function buildDesignConfig(state: WizardState): DesignConfig {
@@ -246,5 +308,15 @@ export function wizardStateFromConfig(config: DesignConfig): Partial<WizardState
     splitMethod: config.split_method,
     isolation: config.isolation,
     isolationSelected: config.isolation_selected_experiments ?? [],
+    // Redesign prefill: the experiment already has real (not equal-split)
+    // saved proportions — show the proportions block immediately instead
+    // of gating it behind a fresh Calculate click. inputsKey is a sentinel
+    // that can never match a real sampleSizeInputsKey() snapshot, so it
+    // always reads as stale (a nudge to recalculate, not a hard block —
+    // see Step3Parameters.tsx's SampleSizeSection).
+    sampleSizeResult:
+      config.groups && Object.keys(config.groups).length > 0
+        ? { eligibleN: null, requiredNPerGroup: null, perMetric: [], inputsKey: '__redesign_prefill__' }
+        : null,
   }
 }

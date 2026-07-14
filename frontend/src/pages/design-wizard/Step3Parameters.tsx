@@ -4,12 +4,14 @@ import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { SIZE_MODE_LABELS, SPLIT_METHOD_LABELS, ISOLATION_LABELS, NAN_STRATEGY_LABELS } from './helpTexts'
+import { SampleSizeSection } from './SampleSizeSection'
 import type { WizardState } from './types'
 import { PRODUCT_NAME } from '../../branding'
 
 interface Props {
   state: WizardState
   setState: (updater: (prev: WizardState) => WizardState) => void
+  isRedesign: boolean
 }
 
 function missingStats(state: WizardState, column: string): { count: number; pct: number } {
@@ -18,7 +20,7 @@ function missingStats(state: WizardState, column: string): { count: number; pct:
   return { count: missing, pct: sampled.length ? (missing / sampled.length) * 100 : 0 }
 }
 
-export function Step3Parameters({ state, setState }: Props) {
+export function Step3Parameters({ state, setState, isRedesign }: Props) {
   const isExternal = state.splitMode === 'external'
   const [baselineMean, setBaselineMean] = useState<number | null | 'loading'>(null)
 
@@ -271,6 +273,8 @@ export function Step3Parameters({ state, setState }: Props) {
           notFoundContent={activeExperiments?.length === 0 ? 'No active experiments to choose from' : undefined}
         />
       )}
+
+      <SampleSizeSection state={state} setState={setState} isRedesign={isRedesign} />
     </div>
   )
 }

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
+
+from abkit.config import MetricConfig
 
 
 class DatasetExperimentUse(BaseModel):
@@ -128,6 +130,50 @@ class MetricBaselineRequest(BaseModel):
 
 class MetricBaselineResponse(BaseModel):
     baseline_mean: float | None
+
+
+class SampleSizePreviewRequest(BaseModel):
+    """Design wizard, sample-size-first flow (CLAUDE.md item 3): 'Calculate
+    sample size' runs BEFORE group proportions are set, so it assumes an
+    equal split across group_names — for an equal split the treatment/
+    control ratio abkit/experiment.py::compute_power_results needs is
+    always 1 regardless of how many groups there are (avg_treatment_prop
+    == control_prop when every group gets 1/n), so this is exact for the
+    equal-default proportions shown right after, not just an approximation."""
+
+    unit_col: str
+    group_names: list[str]
+    metrics: list[MetricConfig]
+    alpha: float
+    power: float
+    # Relative MDE (fraction) — None means no MDE target (wizard sizeMode
+    # 'all'/'sample_size'): still computes eligible_n, just no
+    # required_n_per_group.
+    mde: float | None = None
+    isolation: Literal["exclude", "warn", "off", "exclude_selected"] = "exclude"
+    exclude_experiments: Literal["all_active"] | list[str] = "all_active"
+    isolation_selected_experiments: list[str] = []
+    # Current wizard draft name — excluded from isolation lookups, same as
+    # a real design excludes itself; optional since a fresh design may not
+    # have a name typed in yet.
+    experiment_name: str | None = None
+
+
+class MetricSampleSizePreview(BaseModel):
+    metric: str
+    baseline_mean: float | None
+    required_n_per_group: int | None
+    warnings: list[str]
+
+
+class SampleSizePreviewResponse(BaseModel):
+    eligible_n: int
+    # Max required_n_per_group across PRIMARY metrics (the binding
+    # constraint — an experiment is powered on its primary outcome(s)).
+    # None if mde was None, or the target isn't achievable for any primary
+    # metric.
+    required_n_per_group: int | None
+    per_metric: list[MetricSampleSizePreview]
 
 
 class DemoDesignDatasetResponse(BaseModel):

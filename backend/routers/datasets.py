@@ -49,9 +49,12 @@ from backend.schemas.datasets import (
     DuplicateCheckResponse,
     MetricBaselineRequest,
     MetricBaselineResponse,
+    MetricSampleSizePreview,
     PaginatedDatasets,
     PatchDatasetRequest,
     PatchDatasetResponse,
+    SampleSizePreviewRequest,
+    SampleSizePreviewResponse,
 )
 from backend.schemas.design import JobAccepted
 
@@ -370,6 +373,42 @@ def get_metric_baseline(
     metric = MetricConfig(name=body.name, type=body.type, pre_col=body.pre_col, num=body.num, den=body.den)
     baseline_mean = compute_metric_baseline_mean(metric, data)
     return MetricBaselineResponse(baseline_mean=baseline_mean)
+
+
+@router.post("/{dataset_id}/sample-size-preview", response_model=SampleSizePreviewResponse)
+def preview_sample_size(
+    dataset_id: str, body: SampleSizePreviewRequest, user: CurrentUser = Depends(get_current_user),
+) -> SampleSizePreviewResponse:
+    """Design wizard, sample-size-first flow (CLAUDE.md item 3): 'Calculate
+    sample size' — real isolation against other active experiments, plus a
+    per-metric power calc against the full dataset, run BEFORE the wizard
+    even has group proportions to submit. Reads the full dataset file (like
+    /metric-baseline above — the isolation candidate count and baseline
+    stats need to be exact, not a preview-sample estimate)."""
+    from abkit.jobs import preview_sample_size as _preview_sample_size
+
+    try:
+        parsed_id = uuid_mod.UUID(dataset_id)
+    except ValueError as e:
+        raise APIError(422, "validation_error", "Invalid dataset id") from e
+    ds = DatasetRepo().get_by_id(parsed_id)
+    if ds is None:
+        raise APIError(404, "not_found", f"Dataset '{dataset_id}' not found")
+
+    data = read_dataset_file(ds.storage_path)
+    result = _preview_sample_size(
+        user, data,
+        unit_col=body.unit_col, group_names=body.group_names, metrics=body.metrics,
+        alpha=body.alpha, power_=body.power, mde=body.mde, isolation_mode=body.isolation,
+        exclude_experiments=body.exclude_experiments,
+        isolation_selected_experiments=body.isolation_selected_experiments,
+        experiment_name=body.experiment_name,
+    )
+    return SampleSizePreviewResponse(
+        eligible_n=result["eligible_n"],
+        required_n_per_group=result["required_n_per_group"],
+        per_metric=[MetricSampleSizePreview(**m) for m in result["per_metric"]],
+    )
 
 
 @router.post("/from-sql", response_model=JobAccepted, status_code=202)

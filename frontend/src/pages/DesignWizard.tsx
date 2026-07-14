@@ -39,6 +39,7 @@ const INITIAL_STATE: WizardState = {
   splitMethod: 'stratified',
   isolation: 'exclude',
   isolationSelected: [],
+  sampleSizeResult: null,
 }
 
 function stepError(step: number, state: WizardState): string | null {
@@ -49,8 +50,16 @@ function stepError(step: number, state: WizardState): string | null {
   if (step === 1) {
     if (!state.name.trim()) return 'Enter an experiment name'
     if (!isExternal && !state.unitCol) return 'Select the unit column'
-    if (Math.abs(groupsSum(state) - 1) > 1e-6) return 'Group proportions must sum to 1'
+    // Item 3 (sample-size-first flow): for the abkit-split path, group
+    // PROPORTIONS aren't set until step 2 (Parameters, after Calculate) —
+    // only names matter here. External split is untouched (item 3.3):
+    // proportions are still entered directly on this step, so the sum
+    // still gates leaving it, same as before this package.
+    if (isExternal && Math.abs(groupsSum(state) - 1) > 1e-6) return 'Group proportions must sum to 1'
     if (!state.metrics.some((m) => m.name.trim())) return 'Add at least one metric'
+  }
+  if (step === 2 && !isExternal) {
+    if (Math.abs(groupsSum(state) - 1) > 1e-6) return 'Group proportions must sum to 1'
   }
   return null
 }
@@ -243,7 +252,7 @@ export function DesignWizardPage() {
       <div style={{ minHeight: 300 }}>
         {current === 0 && <Step1Data state={state} setState={setState} lockSplitMode={!!redesignName} />}
         {current === 1 && <Step2GroupsMetrics state={state} setState={setState} />}
-        {current === 2 && <Step3Parameters state={state} setState={setState} />}
+        {current === 2 && <Step3Parameters state={state} setState={setState} isRedesign={!!redesignName} />}
         {current === 3 && <Step4Review state={state} redesignName={redesignName} onSubmitted={markSaved} />}
       </div>
 

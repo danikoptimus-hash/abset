@@ -718,6 +718,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/datasets/{dataset_id}/sample-size-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Sample Size
+         * @description Design wizard, sample-size-first flow (CLAUDE.md item 3): 'Calculate
+         *     sample size' — real isolation against other active experiments, plus a
+         *     per-metric power calc against the full dataset, run BEFORE the wizard
+         *     even has group proportions to submit. Reads the full dataset file (like
+         *     /metric-baseline above — the isolation candidate count and baseline
+         *     stats need to be exact, not a preview-sample estimate).
+         */
+        post: operations["preview_sample_size_api_v1_datasets__dataset_id__sample_size_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/datasets/from-sql": {
         parameters: {
             query?: never;
@@ -2089,6 +2114,17 @@ export interface components {
             /** Default Methods */
             default_methods?: string[] | null;
         };
+        /** MetricSampleSizePreview */
+        MetricSampleSizePreview: {
+            /** Metric */
+            metric: string;
+            /** Baseline Mean */
+            baseline_mean: number | null;
+            /** Required N Per Group */
+            required_n_per_group: number | null;
+            /** Warnings */
+            warnings: string[];
+        };
         /** PaginatedAudit */
         PaginatedAudit: {
             /** Items */
@@ -2222,6 +2258,57 @@ export interface components {
             n_rows: number;
             /** Size Kb */
             size_kb: number;
+        };
+        /**
+         * SampleSizePreviewRequest
+         * @description Design wizard, sample-size-first flow (CLAUDE.md item 3): 'Calculate
+         *     sample size' runs BEFORE group proportions are set, so it assumes an
+         *     equal split across group_names — for an equal split the treatment/
+         *     control ratio abkit/experiment.py::compute_power_results needs is
+         *     always 1 regardless of how many groups there are (avg_treatment_prop
+         *     == control_prop when every group gets 1/n), so this is exact for the
+         *     equal-default proportions shown right after, not just an approximation.
+         */
+        SampleSizePreviewRequest: {
+            /** Unit Col */
+            unit_col: string;
+            /** Group Names */
+            group_names: string[];
+            /** Metrics */
+            metrics: components["schemas"]["MetricConfig"][];
+            /** Alpha */
+            alpha: number;
+            /** Power */
+            power: number;
+            /** Mde */
+            mde?: number | null;
+            /**
+             * Isolation
+             * @default exclude
+             * @enum {string}
+             */
+            isolation: "exclude" | "warn" | "off" | "exclude_selected";
+            /**
+             * Exclude Experiments
+             * @default all_active
+             */
+            exclude_experiments: "all_active" | string[];
+            /**
+             * Isolation Selected Experiments
+             * @default []
+             */
+            isolation_selected_experiments: string[];
+            /** Experiment Name */
+            experiment_name?: string | null;
+        };
+        /** SampleSizePreviewResponse */
+        SampleSizePreviewResponse: {
+            /** Eligible N */
+            eligible_n: number;
+            /** Required N Per Group */
+            required_n_per_group: number | null;
+            /** Per Metric */
+            per_metric: components["schemas"]["MetricSampleSizePreview"][];
         };
         /** SchemasResponse */
         SchemasResponse: {
@@ -3872,6 +3959,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MetricBaselineResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_sample_size_api_v1_datasets__dataset_id__sample_size_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SampleSizePreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SampleSizePreviewResponse"];
                 };
             };
             /** @description Validation Error */

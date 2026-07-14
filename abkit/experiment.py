@@ -371,9 +371,15 @@ def aggregate_post_data(
     return sorted_data.groupby(unit_col, as_index=False, sort=False).agg(agg_dict)
 
 
-def _compute_power_results(
+def compute_power_results(
     config: DesignConfig, candidates: pd.DataFrame, control_name: str
 ) -> dict[str, power.PowerResult]:
+    """Public (was module-private) since abkit/jobs.py::preview_sample_size
+    (wizard item 3, 'Calculate sample size' — computed on isolated
+    candidates BEFORE group proportions are decided, with an equal-split
+    config.groups dict standing in for the real ones) now reuses this
+    directly rather than duplicating the per-metric baseline/variance/
+    sample-size branching logic."""
     treatment_names = [g for g in config.groups if g != control_name]
     n_comparisons = max(len(treatment_names), 1)
     control_prop = config.groups[control_name]
@@ -642,7 +648,7 @@ class Experiment:
                     )
 
         cb("Computing power...")
-        power_results = _compute_power_results(config, candidates, control_name)
+        power_results = compute_power_results(config, candidates, control_name)
 
         cb("Building strata...")
         stratum = build_strata(

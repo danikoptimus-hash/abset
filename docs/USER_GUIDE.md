@@ -184,12 +184,18 @@ below for that flow instead). For ABSet split, pick the dataset from step 1
 (search existing datasets or create a new one inline).
 
 **Groups & Metrics**:
-- Groups — name your arms and set their traffic split. Presets for the common
-  shapes (`50/50`, `90/10`, `33/33/33`) plus a **Normalize** button if your
-  numbers don't add to 100%. Each group also has an optional multiline
-  **Description** field ("What does this variant show/do?") — it appears
-  under the group's name and proportion on the experiment's Design tab and in
-  the design report's groups table.
+- Groups — name your arms (e.g. `control`, `treatment`) and add as many as
+  you need. **Traffic split (proportions) isn't set here** — it's set on the
+  Parameters step, after calculating how much data the experiment actually
+  needs (see "Sample size" below), so you're not guessing a split before you
+  know the target. External split is the exception (there's no dataset to
+  calculate a size from): proportions, presets (`50/50`, `90/10`,
+  `33/33/33`), and a **Normalize** button are still right here — see
+  [External split mode](#7-external-split-mode-firebase-etc) below. Each
+  group also has an optional multiline **Description** field ("What does
+  this variant show/do?") — it appears under the group's name (and
+  proportion, once set) on the experiment's Design tab and in the design
+  report's groups table.
 - Metrics — at least one, each with:
   - **Type**: `continuous`, `binary`, or `ratio` (ratio metrics take a
     numerator/denominator column pair instead of a single column — for
@@ -218,13 +224,25 @@ descriptions, this can only be changed via **Redesign** — there's no separate
 edit flow for it.
 
 **Parameters**:
+- **Significance level (α)** and **Power** — editable (defaults `0.05` /
+  `0.8`, allowed ranges `0.001–0.2` / `0.5–0.99`). These aren't just design-
+  time numbers: α is the threshold Analysis/Results use to call a result
+  significant (a p-value only counts if it's below α), and validation's
+  expected false-positive rate is this same α — change it here, and the
+  verdict threshold and validation's expectations both follow, everywhere.
 - **Experiment size** — pick one of: a target relative MDE, a target absolute
   MDE, a fixed sample size, or "use all available data". Relative MDE is
   expressed as a fraction of the current mean (e.g. `0.05` = detect a 5%
-  lift); absolute MDE is in the metric's own units, with a live-computed
-  hint showing what that works out to as a relative MDE against the current
-  baseline. Whichever you pick, the wizard back-computes and shows you the
-  others.
+  lift). Absolute MDE is in the metric's own units for `continuous`/`ratio`
+  metrics; for **`binary`** metrics it's entered and shown in **percentage
+  points**, not a raw fraction — a 17.4% baseline conversion rate with a 1pp
+  target reads "1 pp = conversion 17.4% → 18.4%", and typing "1" means 1
+  percentage point, not 100 (a bare fraction field here was a real, reported
+  bug: it read "1" as 1.0, i.e. 100 percentage points, silently computing a
+  nonsense sample size). Whichever mode you pick, the wizard back-computes
+  and shows you the others. If a computed sample size ever comes out
+  implausibly small, a warning explains it's almost certainly a units
+  mistake in the MDE (not a real result) and suggests the likely fix.
   `[Screenshot: Parameters step with the MDE mode selector and computed sample size]`
 - **Strata** — categorical columns to stratify the split on, so group balance
   holds within each stratum, not just overall.
@@ -240,6 +258,23 @@ edit flow for it.
   - `warn` — show the overlap and ask you to confirm before proceeding.
   - `off` — exclude no one; a deliberate overlap risk.
   - `exclude_selected` — exclude participants of only specific tests you pick.
+- **Sample size** — click **Calculate sample size** to see how many users the
+  target actually needs per group ("Required per group: N") against how many
+  are eligible in your dataset after isolation ("M eligible users"). Not
+  enough data for the target draws an explicit warning with options (a
+  larger MDE, lower power, or "use all available data"). Once calculated, a
+  **Group Proportions** block appears — defaulting to an equal split (50/50,
+  or an even share across more groups), the split that minimizes total
+  sample size. Edit any group's share by hand (a share too small for the
+  required size warns inline: "Group 'x' would get K < required N users —
+  power will be below target"), or click **Minimize control group** to set
+  control to the minimum needed for power and put the rest into treatment —
+  a common choice when you want to limit exposure to a change. Changing the
+  MDE, α, power, or metrics after calculating marks the result "stale" (a
+  nudge to recalculate — not a hard requirement, and your entered
+  proportions aren't discarded). Not part of External split mode, which has
+  no dataset to calculate a size from — proportions are set directly on the
+  Groups & Metrics step there instead.
 
 **Run** produces the split plus a design report: sample size / MDE table per
 metric (with and without CUPED, and ρ — the pre/post correlation CUPED

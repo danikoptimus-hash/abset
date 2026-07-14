@@ -2,7 +2,7 @@ import { Typography, Input, InputNumber, Button, Select, Space, Alert, Card, Tag
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import { GROUP_PRESETS } from './helpTexts'
 import { FlowImagesSection } from './FlowImagesSection'
-import { numericColumns, nextId, groupsSum } from './types'
+import { numericColumns, nextId, groupsSum, equalSplitGroups } from './types'
 import type { WizardState, MetricFormRow } from './types'
 
 interface Props {
@@ -38,19 +38,40 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
     return values.length > 0 && values.every((v) => v === 0 || v === 1 || v === true || v === false)
   })
 
+  // Item 3 (sample-size-first flow): for the abkit-split path, proportions
+  // move to the Parameters step (after "Calculate sample size") — this
+  // step only collects group NAMES/descriptions now. Adding/removing a
+  // group re-equalizes props immediately so state.groups stays numerically
+  // valid (sums to 1) at all times even though nothing here edits `prop`
+  // directly. External split is untouched (item 3.3): there's no dataset
+  // to calculate a sample size from, so proportions are still entered
+  // directly here, exactly as before this package.
+  const addGroup = () =>
+    setState((prev) => {
+      const withNew = [...prev.groups, { id: nextId('group'), name: '', prop: 0, description: '' }]
+      return { ...prev, groups: isExternal ? withNew : equalSplitGroups(withNew) }
+    })
+  const removeGroup = (id: string) =>
+    setState((prev) => {
+      const remaining = prev.groups.filter((x) => x.id !== id)
+      return { ...prev, groups: isExternal ? remaining : equalSplitGroups(remaining) }
+    })
+
   return (
     <div>
       <Typography.Title level={5}>Groups</Typography.Title>
-      <Space style={{ marginBottom: 12 }}>
-        {Object.keys(GROUP_PRESETS).map((preset) => (
-          <Button key={preset} size="small" onClick={() => applyPreset(preset)}>
-            {preset}
+      {isExternal && (
+        <Space style={{ marginBottom: 12 }}>
+          {Object.keys(GROUP_PRESETS).map((preset) => (
+            <Button key={preset} size="small" onClick={() => applyPreset(preset)}>
+              {preset}
+            </Button>
+          ))}
+          <Button size="small" onClick={normalize}>
+            Normalize
           </Button>
-        ))}
-        <Button size="small" onClick={normalize}>
-          Normalize
-        </Button>
-      </Space>
+        </Space>
+      )}
 
       {state.groups.map((g) => (
         <div key={g.id} style={{ marginBottom: 12 }}>
@@ -66,22 +87,21 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
                 }))
               }
             />
-            <InputNumber
-              min={0}
-              max={1}
-              step={0.05}
-              value={g.prop}
-              onChange={(v) =>
-                setState((prev) => ({
-                  ...prev,
-                  groups: prev.groups.map((x) => (x.id === g.id ? { ...x, prop: v ?? 0 } : x)),
-                }))
-              }
-            />
-            <Button
-              icon={<DeleteOutlined />}
-              onClick={() => setState((prev) => ({ ...prev, groups: prev.groups.filter((x) => x.id !== g.id) }))}
-            />
+            {isExternal && (
+              <InputNumber
+                min={0}
+                max={1}
+                step={0.05}
+                value={g.prop}
+                onChange={(v) =>
+                  setState((prev) => ({
+                    ...prev,
+                    groups: prev.groups.map((x) => (x.id === g.id ? { ...x, prop: v ?? 0 } : x)),
+                  }))
+                }
+              />
+            )}
+            <Button icon={<DeleteOutlined />} onClick={() => removeGroup(g.id)} />
           </Space>
           <Input.TextArea
             placeholder="What does this variant show/do? (optional)"
@@ -97,24 +117,21 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
           />
         </div>
       ))}
-      <Button
-        icon={<PlusOutlined />}
-        onClick={() =>
-          setState((prev) => ({
-            ...prev,
-            groups: [...prev.groups, { id: nextId('group'), name: '', prop: 0, description: '' }],
-          }))
-        }
-        style={{ marginBottom: 12 }}
-      >
+      <Button icon={<PlusOutlined />} onClick={addGroup} style={{ marginBottom: 12 }}>
         Add Group
       </Button>
-      <Alert
-        type={sumOk ? 'success' : 'warning'}
-        showIcon
-        message={`Sum of proportions: ${sum.toFixed(3)}${sumOk ? '' : ' — must equal 1'}`}
-        style={{ marginBottom: 24 }}
-      />
+      {isExternal ? (
+        <Alert
+          type={sumOk ? 'success' : 'warning'}
+          showIcon
+          message={`Sum of proportions: ${sum.toFixed(3)}${sumOk ? '' : ' — must equal 1'}`}
+          style={{ marginBottom: 24 }}
+        />
+      ) : (
+        <Typography.Paragraph type="secondary" style={{ fontSize: 12, maxWidth: 500, marginBottom: 24 }}>
+          Group sizes (proportions) are set on the next step, after calculating the required sample size.
+        </Typography.Paragraph>
+      )}
 
       <FlowImagesSection state={state} setState={setState} />
 

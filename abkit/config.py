@@ -58,7 +58,7 @@ class DesignConfig(BaseModel):
     mde: float | None = None
     """Относительный MDE — доля (fraction), НЕ процент: 0.05 = +5% relative
     lift. Единственное поле, которое реально участвует в расчете мощности
-    (abkit/experiment.py::_compute_power_results) — mde_abs_input ниже
+    (abkit/experiment.py::compute_power_results) — mde_abs_input ниже
     только для трассируемости UI-ввода, само по себе на расчет не влияет."""
     mde_abs_input: float | None = None
     """Введенный пользователем абсолютный MDE, В ЕДИНИЦАХ МЕТРИКИ — контракт
