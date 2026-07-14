@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Typography, Radio, InputNumber, Select, Alert, Space } from 'antd'
+import { Typography, Radio, InputNumber, Select, Alert, Space, Tooltip } from 'antd'
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
@@ -183,6 +183,32 @@ export function Step3Parameters({ state, setState }: Props) {
           style={{ marginBottom: 24, width: 320 }}
         />
       )}
+
+      <Typography.Title level={5}>Statistical Parameters</Typography.Title>
+      <Space style={{ marginBottom: 24 }}>
+        <Tooltip title="Significance level (α) — the risk of a false positive: declaring an effect when there isn't one. Lower α = stricter evidence required, but needs more data.">
+          <InputNumber
+            addonBefore="Significance level (α)"
+            min={0.001}
+            max={0.2}
+            step={0.01}
+            value={state.alpha}
+            onChange={(v) => setState((prev) => ({ ...prev, alpha: v ?? 0.05 }))}
+            style={{ width: 260 }}
+          />
+        </Tooltip>
+        <Tooltip title="Power — the chance of detecting a real effect of the target size, if one exists. Higher power = more confidence in a null result, but needs more data.">
+          <InputNumber
+            addonBefore="Power"
+            min={0.5}
+            max={0.99}
+            step={0.01}
+            value={state.power}
+            onChange={(v) => setState((prev) => ({ ...prev, power: v ?? 0.8 }))}
+            style={{ width: 200 }}
+          />
+        </Tooltip>
+      </Space>
 
       <Typography.Title level={5}>Strata</Typography.Title>
       <Select

@@ -159,6 +159,67 @@ test('absolute MDE for a binary metric uses percentage points, not raw fractions
   await expect(page.getByText(/clicks:.*implausibly small/)).not.toBeVisible()
 })
 
+// Item 2: alpha/power are now editable wizard fields that flow through to
+// the experiment's config — not the hardcoded 0.05/0.8 every design used
+// to get regardless of what (if anything) the user picked. This proves
+// the wiring end to end (wizard input -> submitted config -> Design tab
+// display); the verdict-threshold LOGIC itself (does a p=0.03 result read
+// "no effect" at alpha=0.01 but "significant" at alpha=0.05) is proven
+// precisely at the unit level in tests/test_analysis_results.py — an
+// exact p-value isn't controllable from a real analysis run here, so this
+// test doesn't try to reproduce that part.
+test('a custom significance level set in the wizard is reflected in the experiment config', async ({ page }) => {
+  test.setTimeout(60_000)
+  await loginViaUi(page)
+
+  await page.getByRole('button', { name: 'Create A/B Test' }).click()
+  await page.getByRole('button', { name: 'Demo Data' }).click()
+  await expect(page.getByText(/Data loaded: 5000 rows/)).toBeVisible({ timeout: 15_000 })
+  await page.getByRole('button', { name: 'Next' }).click()
+
+  const expName = `wizard_alpha_e2e_${Date.now()}`
+  await page.getByPlaceholder('Experiment name').fill(expName)
+  await page.getByRole('button', { name: 'Next' }).click()
+
+  // Demo data sets sizeMode='sample_size' (matching the dataset's row
+  // count) — Step3 also renders a "Sample size" InputNumber ahead of the
+  // Statistical Parameters block in that mode, so a plain ordinal
+  // getByRole('spinbutton').first()/.nth(1) would silently land on the
+  // WRONG field (found by an intermediate .toHaveValue() check during
+  // development — the "0.001" ended up in the sample-size field instead).
+  // Scoped by the AntD Space.Compact wrapper's addon text instead, which
+  // doesn't depend on how many other numeric fields render before it.
+  // 0.001 is alpha's own allowed minimum (spec range 0.001-0.2).
+  const alphaInput = page
+    .locator('.ant-space-compact', { hasText: 'Significance level' })
+    .getByRole('spinbutton')
+  await alphaInput.click()
+  await alphaInput.press('Control+A')
+  await alphaInput.pressSequentially('0.001')
+  await alphaInput.press('Tab')
+  await expect(alphaInput).toHaveValue('0.001')
+
+  const powerInput = page.locator('.ant-space-compact', { hasText: 'Power' }).getByRole('spinbutton')
+  await powerInput.click()
+  await powerInput.press('Control+A')
+  await powerInput.pressSequentially('0.95')
+  await powerInput.press('Tab')
+  await expect(powerInput).toHaveValue('0.95')
+
+  await page.getByText(/exclude — exclude participants/).click()
+  await page.getByText(/off — exclude no one/).click()
+  await page.getByRole('button', { name: 'Next' }).click()
+
+  await page.getByRole('button', { name: 'Design' }).click()
+  await expect(page).toHaveURL(new RegExp(`/experiments/${expName}$`), { timeout: 20_000 })
+
+  // The Design tab's config summary already showed alpha/power before this
+  // package — confirming it reflects the wizard input, not the old
+  // hardcoded default.
+  await expect(page.getByText(/α=0\.001/)).toBeVisible()
+  await expect(page.getByText(/power=0\.95/)).toBeVisible()
+})
+
 // Stage 3: optional per-group "what does this variant show/do?" description,
 // entered in the wizard's Groups & Metrics step, shown on the Design tab and
 // in design_report.html — editable only via Redesign afterwards.

@@ -74,6 +74,8 @@ export interface WizardState {
   strata: string[]
   nanStrategy: 'separate_stratum' | 'drop' | 'error'
   sizeMode: SizeMode
+  alpha: number
+  power: number
   mdeRel: number
   mdeAbsMetricId: string | null
   mdeAbsValue: number
@@ -132,8 +134,8 @@ export function buildDesignConfig(state: WizardState): DesignConfig {
     groups: groupsToApi(state),
     group_descriptions: groupDescriptionsToApi(state),
     metrics: metricsToApi(state),
-    alpha: 0.05,
-    power: 0.8,
+    alpha: state.alpha,
+    power: state.power,
     split_source: 'abkit',
     split_method: state.splitMethod,
     strata: state.strata,
@@ -168,8 +170,8 @@ export function buildExternalDesignConfig(state: WizardState): DesignConfig {
     groups: groupsToApi(state),
     group_descriptions: groupDescriptionsToApi(state),
     metrics: metricsToApi(state),
-    alpha: 0.05,
-    power: 0.8,
+    alpha: state.alpha,
+    power: state.power,
     split_source: 'external',
     split_method: 'simple',
     strata: [],
@@ -235,6 +237,8 @@ export function wizardStateFromConfig(config: DesignConfig): Partial<WizardState
     strata: config.strata ?? [],
     nanStrategy: config.nan_strategy ?? 'separate_stratum',
     sizeMode,
+    alpha: config.alpha ?? 0.05,
+    power: config.power ?? 0.8,
     mdeRel: config.mde ?? 0.05,
     mdeAbsMetricId: mdeSourceMetric?.id ?? null,
     mdeAbsValue: config.mde_abs_input ?? 0,

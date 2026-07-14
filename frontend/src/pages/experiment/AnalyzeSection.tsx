@@ -30,7 +30,7 @@ interface PreparedDataset {
 }
 
 export function AnalyzeSection({
-  experimentName, hasAssignments, family, splitSource, declaredGroups, unitCol,
+  experimentName, hasAssignments, family, splitSource, declaredGroups, unitCol, alpha,
 }: {
   experimentName: string
   hasAssignments: boolean
@@ -49,6 +49,9 @@ export function AnalyzeSection({
   // prepared dataset to decide whether Date column is required. Not used
   // for external-split experiments (no unit_col-based assignments join).
   unitCol: string
+  // The experiment's configured significance level (config.alpha) — drives
+  // the Verdict cards/table here the same way it drives the HTML report.
+  alpha: number
 }) {
   const queryClient = useQueryClient()
   const [prepared, setPrepared] = useState<PreparedDataset | null>(null)
@@ -431,7 +434,7 @@ export function AnalyzeSection({
         </Button>
       )}
 
-      {results && <AnalyzeResults data={results} />}
+      {results && <AnalyzeResults data={results} alpha={alpha} />}
     </div>
   )
 }

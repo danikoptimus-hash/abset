@@ -239,7 +239,7 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
             daily_htmls.append((treat_name, fig_to_html_div(fig)))
 
         verdicts = {
-            r.treatment_group: results.verdict(metric_name, treatment_group=r.treatment_group)
+            r.treatment_group: results.verdict(metric_name, treatment_group=r.treatment_group, alpha=config.alpha)
             for r in metric_results
             if r.is_designed_method
         }
@@ -258,12 +258,12 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
             )
         )
 
-    detailed_rows = results.detailed_display_rows(control_name)
+    detailed_rows = results.detailed_display_rows(control_name, alpha=config.alpha)
     detailed_columns = list(detailed_rows[0].keys()) if detailed_rows else []
     # detailed_display_rows() no longer carries a "Designed" column (UX
     # package, 5.1) — the designed-method row is still bolded, using the
     # flag from the internal (non-display) detailed_rows(), same order.
-    detailed_designed_flags = [row["designed"] for row in results.detailed_rows(control_name)]
+    detailed_designed_flags = [row["designed"] for row in results.detailed_rows(control_name, alpha=config.alpha)]
 
     template = _env.get_template("report.html.j2")
     return template.render(

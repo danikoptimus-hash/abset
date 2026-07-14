@@ -459,6 +459,7 @@ export function ExperimentPage() {
                 splitSource={String(data.config.split_source ?? 'abkit')}
                 declaredGroups={Object.keys((data.config.groups as Record<string, number>) ?? {})}
                 unitCol={String(data.config.unit_col ?? '')}
+                alpha={Number(data.config.alpha ?? 0.05)}
               />
             ),
           },
@@ -482,6 +483,7 @@ export function ExperimentPage() {
                   ])
                 }
                 onRemoveBlock={(id) => setDraftBlocks((prev) => prev.filter((x) => x.id !== id))}
+                alpha={Number(data.config.alpha ?? 0.05)}
               />
             ),
           },

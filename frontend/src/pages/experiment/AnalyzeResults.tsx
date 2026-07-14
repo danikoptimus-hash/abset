@@ -33,10 +33,15 @@ export function VerdictCards({
   results,
   selectedMetric,
   onSelectMetric,
+  alpha = 0.05,
 }: {
   results: TestResultOut[]
   selectedMetric?: string
   onSelectMetric?: (metric: string) => void
+  // Defaults to 0.05 only for callers that genuinely have no experiment
+  // config in scope (there are none left after item 2 — kept as a safety
+  // net, not a real fallback path).
+  alpha?: number
 }) {
   const designed = results.filter((r) => r.is_designed_method)
   const byMetric = resultsByMetric(designed)
@@ -45,7 +50,7 @@ export function VerdictCards({
     <Row gutter={16} style={{ marginBottom: 24 }}>
       {Object.entries(byMetric).map(([metric, rows]) =>
         rows.map((r) => {
-          const v = verdict(r)
+          const v = verdict(r, alpha)
           const active = interactive && selectedMetric === metric
           return (
             <Col key={`${metric}_${r.treatment_group}`}>
@@ -99,7 +104,7 @@ export function VerdictCards({
   )
 }
 
-export function AnalyzeResults({ data }: { data: AnalysisResultsOut }) {
+export function AnalyzeResults({ data, alpha }: { data: AnalysisResultsOut; alpha: number }) {
   const byMetric = resultsByMetric(data.results)
   const { checks } = data.chart_data
   const metricNames = Object.keys(byMetric)
@@ -133,7 +138,7 @@ export function AnalyzeResults({ data }: { data: AnalysisResultsOut }) {
         </Space>
       )}
 
-      <VerdictCards results={data.results} selectedMetric={activeMetric} onSelectMetric={setSelectedMetric} />
+      <VerdictCards results={data.results} selectedMetric={activeMetric} onSelectMetric={setSelectedMetric} alpha={alpha} />
 
       <Typography.Title level={5}>Sanity checks (on post-period data)</Typography.Title>
       <Space wrap style={{ marginBottom: 8 }}>

@@ -30,6 +30,8 @@ const INITIAL_STATE: WizardState = {
   strata: [],
   nanStrategy: 'separate_stratum',
   sizeMode: 'all',
+  alpha: 0.05,
+  power: 0.8,
   mdeRel: 0.05,
   mdeAbsMetricId: null,
   mdeAbsValue: 0,

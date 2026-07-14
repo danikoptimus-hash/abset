@@ -142,7 +142,8 @@ class AnalysisResults:
         import csv
 
         control_name = self._context.get("control_name", "") if self._context else ""
-        rows = self.detailed_display_rows(control_name)
+        alpha = self._context["config"].alpha if self._context else 0.05
+        rows = self.detailed_display_rows(control_name, alpha=alpha)
         if not rows:
             return
         with open(path, "w", newline="", encoding="utf-8") as f:

@@ -89,6 +89,7 @@
 
 <section id="section-power">
   <h2>Power and MDE</h2>
+  <p>Significance level (α): <strong>{{ '%.3f' % config.alpha }}</strong> · Power: <strong>{{ '%.2f' % config.power }}</strong></p>
   <table>
     <tr>
       <th>Metric</th><th>MDE (rel.)</th><th title="abs = rel × baseline">MDE (abs.)</th>
@@ -115,6 +116,13 @@
       <td>{{ '%.0f' % row.sample_size if row.sample_size is not none else '-' }}</td>
       <td>{{ '%.3f' % row.rho if row.rho is not none else '-' }}</td>
     </tr>
+    {% if row.warnings %}
+    <tr>
+      <td colspan="7">
+        <div class="warnings"><ul>{% for w in row.warnings %}<li>{{ row.metric }}: {{ w }}</li>{% endfor %}</ul></div>
+      </td>
+    </tr>
+    {% endif %}
     {% endfor %}
   </table>
   {{ help_details('mde_table', True) }}

@@ -55,6 +55,21 @@ def test_run_aa_fpr_within_tolerance_for_honest_pipeline():
         assert m.passed, f"{m.metric}/{m.method}: FPR={m.fpr:.4f}, CI=[{m.ci_low:.4f},{m.ci_high:.4f}]"
 
 
+# Item 2.4: validation's expected FPR must track the experiment's OWN
+# configured alpha, not a hardcoded 5% — run_aa's rejection rate is driven
+# by config.alpha throughout abkit/validation/simulation.py (n_rejected =
+# sum(p < config.alpha for p in pvals), passed = ci_low <= config.alpha <=
+# ci_high), so an honest A/A pipeline with alpha=0.01 should reject ~1% of
+# the time, not ~5%.
+def test_run_aa_fpr_tracks_configured_alpha_not_hardcoded_005():
+    data = make_data(n=3000)
+    config = make_config(alpha=0.01)
+    report = run_aa(data, config, n_sims=800, seed=3, show_progress=False)
+    for m in report.methods:
+        assert m.passed, f"{m.metric}/{m.method}: FPR={m.fpr:.4f} should be near 1%, CI=[{m.ci_low:.4f},{m.ci_high:.4f}]"
+        assert m.fpr < 0.03  # nowhere near the old hardcoded 5% ballpark
+
+
 def test_run_aa_compare_methods_adds_more_chains():
     data = make_data()
     config = make_config(metrics=[MetricConfig(name="revenue", type="continuous")])

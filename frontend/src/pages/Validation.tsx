@@ -237,7 +237,9 @@ export function ValidationPage() {
       <Typography.Title level={4} style={{ marginBottom: 4 }}>Validation (A/A, A/B)</Typography.Title>
       <Typography.Paragraph type="secondary" style={{ maxWidth: 720 }}>
         Validation checks that the statistical engine is honest on your data before you trust real test results.
-        A/A simulations verify the false positive rate stays at alpha (~5%) when there is no true effect; A/B
+        A/A simulations verify the false positive rate stays at alpha
+        {experimentDetail ? ` (${(Number(experimentDetail.config.alpha ?? 0.05) * 100).toFixed(1)}%, this experiment's configured significance level)` : ''}{' '}
+        when there is no true effect; A/B
         simulations verify the engine detects an effect of a given size (empirical power).
       </Typography.Paragraph>
       <Collapse
@@ -402,16 +404,23 @@ export function ValidationPage() {
       )}
       {phase === 'failed' && error && <Alert type="error" showIcon message={error} style={{ marginBottom: 24, maxWidth: 480 }} />}
 
-      {phase === 'completed' && result && <ValidationResults result={result} />}
+      {phase === 'completed' && result && (
+        <ValidationResults result={result} alpha={Number(experimentDetail?.config.alpha ?? 0.05)} />
+      )}
     </div>
   )
 }
 
-function ValidationResults({ result }: { result: ValidateResult }) {
+// Item 2.2/2.4: expected FPR is the EXPERIMENT'S OWN configured alpha, not
+// a hardcoded 5% — matches abkit/validation/simulation.py's
+// passed=bool(ci_low <= config.alpha <= ci_high), which already used
+// config.alpha throughout (the display text just used to lag behind it).
+function ValidationResults({ result, alpha }: { result: ValidateResult; alpha: number }) {
+  const alphaPct = (alpha * 100).toFixed(2)
   return (
     <div>
       <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
-        Validated with {result.dataset_filename ?? 'dataset'} (id {result.dataset_id.slice(0, 8)}…)
+        Validated with {result.dataset_filename ?? 'dataset'} (id {result.dataset_id.slice(0, 8)}…) — target alpha: {alphaPct}%
       </Typography.Paragraph>
 
       <Typography.Title level={5}>A/A: empirical FPR (false-positive rate)</Typography.Title>
@@ -447,9 +456,10 @@ function ValidationResults({ result }: { result: ValidateResult }) {
             children: (
               <Typography.Paragraph>
                 Each row is one metric × method × comparison group. FPR is the share of the {result.aa.methods[0]?.n_sims ?? 'N'} A/A
-                simulations that came back significant despite no real difference — it should sit close to 5%. The verdict is
-                &quot;honest&quot; when the 95% CI covers 5%; &quot;lying&quot; means the method is producing significantly more (or fewer) false
-                positives than it claims to.
+                simulations that came back significant despite no real difference — it should sit close to {alphaPct}%
+                (this experiment&apos;s configured significance level). The verdict is &quot;honest&quot; when the 95% CI covers{' '}
+                {alphaPct}%; &quot;lying&quot; means the method is producing significantly more (or fewer) false positives than it
+                claims to.
               </Typography.Paragraph>
             ),
           },

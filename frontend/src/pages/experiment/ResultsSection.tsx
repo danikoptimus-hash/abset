@@ -21,10 +21,14 @@ interface Props {
   onChangeBlock: (id: string | null, patch: Partial<BlockDraft>) => void
   onAddBlock: () => void
   onRemoveBlock: (id: string | null) => void
+  // Item 2: the experiment's configured significance level, driving the
+  // Verdict column/cards here the same way it drives Design/Analysis/the
+  // HTML report — see DetailedResultsTable's alpha prop.
+  alpha: number
 }
 
 export function ResultsSection({
-  experimentName, familySize, createdAt, startedAt, completedAt, blocks, editing, onChangeBlock, onAddBlock, onRemoveBlock,
+  experimentName, familySize, createdAt, startedAt, completedAt, blocks, editing, onChangeBlock, onAddBlock, onRemoveBlock, alpha,
 }: Props) {
   // Same query key as AnalyzeSection (Analysis tab) — shares the react-query
   // cache entry, so opening the Results tab directly (deep link/reload)
@@ -47,7 +51,7 @@ export function ResultsSection({
             <LifecycleDates createdAt={createdAt} startedAt={startedAt} completedAt={completedAt} />
           </div>
 
-          <VerdictCards results={results.results} />
+          <VerdictCards results={results.results} alpha={alpha} />
 
           <Typography.Title level={4} style={{ marginTop: 8 }}>
             Detailed Results Table
@@ -58,6 +62,7 @@ export function ResultsSection({
             correction={results.correction ?? 'none'}
             experimentName={experimentName}
             showCorrection={familySize > 1}
+            alpha={alpha}
           />
           <HelpCollapse chartType="verdicts_table" table />
 
