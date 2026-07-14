@@ -1310,11 +1310,6 @@ export interface components {
              * @default holm
              */
             correction: string;
-            /**
-             * Compare Methods
-             * @default false
-             */
-            compare_methods: boolean;
             /** Date Col */
             date_col?: string | null;
             /** Group Column */
@@ -1322,6 +1317,10 @@ export interface components {
             /** Group Mapping */
             group_mapping?: {
                 [key: string]: string;
+            } | null;
+            /** Methods */
+            methods?: {
+                [key: string]: string[];
             } | null;
         };
         /** AuditEntryOut */

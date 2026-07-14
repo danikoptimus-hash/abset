@@ -165,7 +165,8 @@ test('correction selector appears when an external experiment declares more than
   await selectComboboxOption(page, 'map-B', 'treatment_a')
   await selectComboboxOption(page, 'map-C', 'treatment_b')
 
-  await page.getByText('Advanced options').click()
+  // Item 3 (consolidated package): correction now lives in the main options
+  // flow (no "Advanced options" collapse to open anymore).
   await expect(page.getByText(/Your design tests 2 hypotheses/)).toBeVisible()
   await expect(page.getByText('Multiple testing correction')).toBeVisible()
 })

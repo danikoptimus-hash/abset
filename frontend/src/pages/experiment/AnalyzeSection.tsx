@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Button, Select, Checkbox, Typography, Alert, Progress, Tooltip, Collapse, Table } from 'antd'
+import { Button, Select, Radio, Typography, Alert, Progress, Tooltip, Table } from 'antd'
 import { ThunderboltOutlined, ReloadOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
@@ -67,23 +67,47 @@ export function AnalyzeSection({
   const [groupMapping, setGroupMapping] = useState<Record<string, string>>({})
 
   const [correction, setCorrection] = useState('holm')
-  // Default on (5-part package pt.4, an approved deviation from an earlier
-  // "remove the checkbox" request): most users benefit from seeing method
-  // agreement without thinking about it. Left as a checkbox — not removed —
-  // because compare_methods (especially Bootstrap, 10k iterations) is
-  // noticeably slower/heavier on large datasets or weak machines.
-  const [compareMethods, setCompareMethods] = useState(true)
   const [dateCol, setDateCol] = useState<string | undefined>(undefined)
   const showCorrection = family.familySize > 1
   const effectiveCorrection = showCorrection ? correction : 'none'
 
-  // Item 2 (explicit method selection): metric name -> chosen method id.
-  // Absent from this map == "use the recommended default" — a metric never
-  // NEEDS an entry here, so a fresh Analysis tab (nothing touched yet)
-  // still submits the exact same defaults as before this package.
-  const [methodOverrides, setMethodOverrides] = useState<Record<string, string>>({})
+  // Item 3 (consolidated package, multi-select methods): replaces both the
+  // old single-method override AND the separate "Compare alternative
+  // methods" checkbox — a metric's comparison set is now exactly whichever
+  // extra methods the user multi-selects (2+ selected = comparison, 1 =
+  // pure calculation), instead of a fixed standard set toggled on/off.
+  // methodSelections absent for a metric == just the recommended one; a
+  // fresh Analysis tab (nothing touched) still submits a single method per
+  // metric, matching what resolve_steps() would have picked anyway.
+  const [methodSelections, setMethodSelections] = useState<Record<string, string[]>>({})
+  // Which of the currently-selected ids is primary (drives the verdict).
+  // Absent == the recommended one (or the first selected, if the
+  // recommended one isn't in the current selection).
+  const [primaryMethod, setPrimaryMethod] = useState<Record<string, string>>({})
   const namedMetrics = metrics.filter((m) => m.name.trim())
-  const selectedMethodId = (m: AnalyzeMetric) => methodOverrides[m.name] ?? recommendedMethodId(m.type, m.hasPreCol)
+
+  const selectedMethodIds = (m: AnalyzeMetric): string[] =>
+    methodSelections[m.name] ?? [recommendedMethodId(m.type, m.hasPreCol)]
+  const primaryMethodId = (m: AnalyzeMetric): string => {
+    const selected = selectedMethodIds(m)
+    const p = primaryMethod[m.name]
+    return p && selected.includes(p) ? p : selected[0]
+  }
+  // Item 3.1: "нельзя снять [recommended], не выбрав другой основной" — at
+  // least one method must always stay selected (an empty multiselect is
+  // rejected outright), and if the CURRENT primary gets deselected, the
+  // first still-selected method is auto-promoted to primary rather than
+  // leaving a dangling reference — this guarantees a valid primary exists
+  // at all times without a separate "confirm removal" step.
+  const setSelectedMethodIds = (m: AnalyzeMetric, ids: string[]) => {
+    if (ids.length === 0) return
+    setMethodSelections((prev) => ({ ...prev, [m.name]: ids }))
+    if (!ids.includes(primaryMethodId(m))) {
+      setPrimaryMethod((prev) => ({ ...prev, [m.name]: ids[0] }))
+    }
+  }
+  const setPrimaryMethodId = (m: AnalyzeMetric, id: string) =>
+    setPrimaryMethod((prev) => ({ ...prev, [m.name]: id }))
 
   // null = follow the default (open until the first result exists, then
   // collapsed behind "Re-run analysis" — UX package, п.3).
@@ -198,16 +222,23 @@ export function AnalyzeSection({
     if (!prepared) return
     if (isExternal && (!groupColumn || !groupMappingComplete)) return
     reset()
-    // Item 2: always send the CURRENTLY EFFECTIVE method for every named
-    // metric, not just the ones the user actually touched — sending the
-    // recommended id for an untouched metric is harmless (produces the
-    // identical Step chain resolve_steps() would have picked anyway), and
-    // this way there's one code path instead of two.
-    const methods = Object.fromEntries(namedMetrics.map((m) => [m.name, selectedMethodId(m)]))
+    // Item 3: always send the CURRENTLY EFFECTIVE selection for every named
+    // metric, not just the ones the user actually touched — an untouched
+    // metric sends [recommended] (single method, harmless — identical to
+    // what resolve_steps() would have picked anyway), so there's one code
+    // path instead of two. Primary id goes first; the backend reads
+    // list[0] as designed, the rest as the comparison set.
+    const methods = Object.fromEntries(
+      namedMetrics.map((m) => {
+        const selected = selectedMethodIds(m)
+        const primary = primaryMethodId(m)
+        return [m.name, [primary, ...selected.filter((id) => id !== primary)]]
+      }),
+    )
     const { data, error } = await apiClient.POST('/api/v1/experiments/{name}/analyze', {
       params: { path: { name: experimentName } },
       body: {
-        dataset_id: prepared.id, correction: effectiveCorrection, compare_methods: compareMethods,
+        dataset_id: prepared.id, correction: effectiveCorrection,
         date_col: dateCol ?? null, methods,
         ...(isExternal ? { group_column: groupColumn, group_mapping: groupMapping } : {}),
       },
@@ -242,32 +273,60 @@ export function AnalyzeSection({
             {namedMetrics.length > 0 && (
               <div style={{ marginBottom: 12 }}>
                 <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>
-                  Analysis method
+                  Analysis methods
                 </Typography.Text>
                 {namedMetrics.map((m) => {
                   const options = methodOptions(m.type, m.hasPreCol)
-                  const current = selectedMethodId(m)
+                  const selected = selectedMethodIds(m)
+                  const primary = primaryMethodId(m)
                   return (
-                    <div key={m.name} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                      <Typography.Text style={{ width: 140, flexShrink: 0 }} ellipsis={{ tooltip: m.name }}>
-                        {m.name}
-                      </Typography.Text>
-                      <Select
-                        style={{ flex: 1 }}
-                        size="small"
-                        value={current}
-                        disabled={running}
-                        onChange={(id) => setMethodOverrides((prev) => ({ ...prev, [m.name]: id }))}
-                        options={options.map((o) => ({
-                          value: o.id,
-                          label: o.recommended ? `${o.label} (recommended)` : o.label,
-                        }))}
-                        aria-label={`method-select-${m.name}`}
-                      />
+                    <div key={m.name} style={{ marginBottom: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Typography.Text style={{ width: 140, flexShrink: 0 }} ellipsis={{ tooltip: m.name }}>
+                          {m.name}
+                        </Typography.Text>
+                        {/* Item 3.1: multi-select replaces both the single
+                            method dropdown and the "Compare alternative
+                            methods" checkbox — 2+ selected = comparison,
+                            1 = pure calculation. */}
+                        <Select
+                          mode="multiple"
+                          style={{ flex: 1 }}
+                          size="small"
+                          value={selected}
+                          disabled={running}
+                          onChange={(ids) => setSelectedMethodIds(m, ids)}
+                          options={options.map((o) => ({
+                            value: o.id,
+                            label: o.recommended ? `${o.label} (recommended)` : o.label,
+                          }))}
+                          aria-label={`method-select-${m.name}`}
+                        />
+                      </div>
+                      {selected.length > 1 && (
+                        <div style={{ marginLeft: 148, marginTop: 4 }}>
+                          <Typography.Text type="secondary" style={{ fontSize: 12, marginRight: 8 }}>
+                            Primary (drives verdict):
+                          </Typography.Text>
+                          <Radio.Group
+                            size="small"
+                            value={primary}
+                            disabled={running}
+                            onChange={(e) => setPrimaryMethodId(m, e.target.value)}
+                            aria-label={`primary-method-${m.name}`}
+                          >
+                            {selected.map((id) => (
+                              <Radio key={id} value={id}>
+                                {options.find((o) => o.id === id)?.label ?? id}
+                              </Radio>
+                            ))}
+                          </Radio.Group>
+                        </div>
+                      )}
                     </div>
                   )
                 })}
-                {namedMetrics.some((m) => selectedMethodId(m) !== recommendedMethodId(m.type, m.hasPreCol)) && (
+                {namedMetrics.some((m) => primaryMethodId(m) !== recommendedMethodId(m.type, m.hasPreCol)) && (
                   <Alert
                     type="info"
                     showIcon
@@ -275,7 +334,7 @@ export function AnalyzeSection({
                     message={
                       <>
                         {namedMetrics
-                          .filter((m) => selectedMethodId(m) !== recommendedMethodId(m.type, m.hasPreCol))
+                          .filter((m) => primaryMethodId(m) !== recommendedMethodId(m.type, m.hasPreCol))
                           .map((m) => (
                             <div key={m.name}>
                               <strong>{m.name}</strong>: differs from the designed method — power was calculated
@@ -288,43 +347,29 @@ export function AnalyzeSection({
                 )}
               </div>
             )}
-            <Collapse
-              size="small"
-              style={{ marginBottom: 12 }}
-              items={[
-                {
-                  key: 'advanced',
-                  label: 'Advanced options',
-                  children: (
-                    <>
-                      {showCorrection && (
-                        <div style={{ marginBottom: 12 }}>
-                          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>
-                            Multiple testing correction
-                          </Typography.Text>
-                          <Select
-                            style={{ width: '100%' }}
-                            value={correction}
-                            onChange={setCorrection}
-                            options={CORRECTION_OPTIONS}
-                            disabled={running}
-                          />
-                          <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 4, marginBottom: 0 }}>
-                            Your design tests {family.familySize} hypotheses ({family.primaryCount} primary metric
-                            {family.primaryCount === 1 ? '' : 's'} × {family.treatmentGroupCount} treatment group
-                            {family.treatmentGroupCount === 1 ? '' : 's'}) — correction controls the family-wise
-                            error rate.
-                          </Typography.Paragraph>
-                        </div>
-                      )}
-                      <Checkbox checked={compareMethods} onChange={(e) => setCompareMethods(e.target.checked)} disabled={running}>
-                        Compare alternative methods
-                      </Checkbox>
-                    </>
-                  ),
-                },
-              ]}
-            />
+            {/* Item 3.2: correction now lives in the main options flow (it
+                already had its own "only when family > 1" gate — no longer
+                tucked inside a removed "Advanced options" collapse). */}
+            {showCorrection && (
+              <div style={{ marginBottom: 12 }}>
+                <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>
+                  Multiple testing correction
+                </Typography.Text>
+                <Select
+                  style={{ width: '100%' }}
+                  value={correction}
+                  onChange={setCorrection}
+                  options={CORRECTION_OPTIONS}
+                  disabled={running}
+                />
+                <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 4, marginBottom: 0 }}>
+                  Your design tests {family.familySize} hypotheses ({family.primaryCount} primary metric
+                  {family.primaryCount === 1 ? '' : 's'} × {family.treatmentGroupCount} treatment group
+                  {family.treatmentGroupCount === 1 ? '' : 's'}) — correction controls the family-wise
+                  error rate.
+                </Typography.Paragraph>
+              </div>
+            )}
             {prepared && prepared.columns.length > 0 && (
               <div style={{ marginTop: 12 }}>
                 <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>

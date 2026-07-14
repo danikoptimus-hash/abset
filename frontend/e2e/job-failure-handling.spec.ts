@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { loginViaUi, seedExperiment, uploadDataset } from './helpers'
+import { clickSelectOption, loginViaUi, seedExperiment, uploadDataset } from './helpers'
 
 // Regression for the compare-methods crash bug: a failed analyze job must
 // show its real, human-readable error (job.error) instead of the generic
@@ -79,11 +79,13 @@ test('analyzing with post-data missing the unit column shows a clear error, not 
   await expect(page.getByText('Internal processing error')).not.toBeVisible()
 })
 
-// Regression for the compare-methods OOM bug itself: with the checkbox
-// checked, Bootstrap (the method that used to crash the process at scale)
-// runs as one of the alternative methods and must complete and render
-// normally at ordinary data sizes.
-test('Compare alternative methods completes and shows Bootstrap in the detailed results', async ({
+// Regression for the compare-methods OOM bug itself: with Bootstrap
+// explicitly added to the metric's method selection (item 3, consolidated
+// package — replaces the old "Compare alternative methods" checkbox),
+// Bootstrap (the method that used to crash the process at scale) runs as
+// one of the comparison methods and must complete and render normally at
+// ordinary data sizes.
+test('Selecting Bootstrap as an extra method completes and shows it in the detailed results', async ({
   page,
   request,
 }) => {
@@ -95,8 +97,12 @@ test('Compare alternative methods completes and shows Bootstrap in the detailed 
   await page.goto(`/experiments/${name}`)
   await page.getByRole('tab', { name: 'Analysis' }).click()
 
-  // Compare alternative methods is checked by default (5-part package
-  // pt.4) — no need to open Advanced options and check it manually.
+  const methodSelect = page.getByRole('combobox', { name: 'method-select-revenue' })
+  await methodSelect.click()
+  await expect(page.locator('.ant-select-item-option-content').first()).toBeVisible()
+  await clickSelectOption(page, 'Bootstrap (bca)')
+  await page.keyboard.press('Escape')
+
   await page.getByRole('button', { name: /Generate demo post-period data/ }).click()
   await expect(page.getByText(/Demo data generated:/)).toBeVisible({ timeout: 10_000 })
 

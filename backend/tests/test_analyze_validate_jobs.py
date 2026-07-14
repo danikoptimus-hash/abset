@@ -487,11 +487,12 @@ def test_deleting_analyzed_dataset_leaves_results_intact(app_client, tmp_path, m
     assert after.json()["results"] == before.json()["results"]
 
 
-# Item 2 (explicit method selection): AnalyzeRequest.methods is a
-# {metric_name: method_id} override, translated (backend/routers/
-# experiments.py) to the {metric_name: [Step, ...]} shape
-# Experiment.analyze()'s existing `methods` parameter already accepted —
-# the core support was already there, only the API surface was missing.
+# Item 3 (consolidated package, multi-select analysis methods):
+# AnalyzeRequest.methods is a {metric_name: [method_id, ...]} override
+# (first id = primary/designed, rest = comparison chains), translated
+# (backend/routers/experiments.py) to the {metric_name: [Step, ...]} /
+# {metric_name: [[Step, ...], ...]} shapes Experiment.analyze()'s `methods`/
+# `extra_methods` parameters accept.
 def test_analyze_with_explicit_method_override_changes_designed_result(app_client, tmp_path, monkeypatch):
     monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
     _login(app_client)
@@ -502,7 +503,7 @@ def test_analyze_with_explicit_method_override_changes_designed_result(app_clien
     )
     resp = app_client.post(
         "/api/v1/experiments/manual_method_exp/analyze",
-        json={"dataset_id": post_dataset_id, "methods": {"revenue": "mann_whitney"}},
+        json={"dataset_id": post_dataset_id, "methods": {"revenue": ["mann_whitney"]}},
     )
     assert resp.status_code == 202
     job = _poll_job(app_client, resp.json()["job_id"])
@@ -525,7 +526,7 @@ def test_analyze_with_unknown_metric_in_methods_override_fails_job(app_client, t
     )
     resp = app_client.post(
         "/api/v1/experiments/bad_method_exp/analyze",
-        json={"dataset_id": post_dataset_id, "methods": {"does_not_exist": "welch"}},
+        json={"dataset_id": post_dataset_id, "methods": {"does_not_exist": ["welch"]}},
     )
     assert resp.status_code == 202
     job = _poll_job(app_client, resp.json()["job_id"])
@@ -543,7 +544,7 @@ def test_analyze_with_unknown_method_id_fails_job(app_client, tmp_path, monkeypa
     )
     resp = app_client.post(
         "/api/v1/experiments/bad_method_id_exp/analyze",
-        json={"dataset_id": post_dataset_id, "methods": {"revenue": "not_a_real_method"}},
+        json={"dataset_id": post_dataset_id, "methods": {"revenue": ["not_a_real_method"]}},
     )
     assert resp.status_code == 202
     job = _poll_job(app_client, resp.json()["job_id"])
@@ -551,40 +552,86 @@ def test_analyze_with_unknown_method_id_fails_job(app_client, tmp_path, monkeypa
     assert "not_a_real_method" in job["error"]
 
 
-def test_analyze_method_override_with_compare_methods_keeps_extra_chains(app_client, tmp_path, monkeypatch):
-    """Item 2.4: compare_methods=True still runs its full standard set of
-    alternatives — the methods override only changes which one is
-    "designed" (drives the verdict), not the compare set's composition."""
+def test_analyze_with_empty_method_list_fails_job(app_client, tmp_path, monkeypatch):
+    """Item 3.1: a metric present in the override with an empty method list
+    is a client bug (the frontend never sends this — at least one method is
+    always selected), not a silent fallback to the default."""
     monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
     _login(app_client)
-    _design_experiment(app_client, "compare_with_override_exp")
+    _design_experiment(app_client, "empty_methods_exp")
 
     post_dataset_id = _upload_csv(
-        app_client, _post_csv(), kind="post_analysis", experiment_name="compare_with_override_exp"
+        app_client, _post_csv(), kind="post_analysis", experiment_name="empty_methods_exp"
     )
     resp = app_client.post(
-        "/api/v1/experiments/compare_with_override_exp/analyze",
+        "/api/v1/experiments/empty_methods_exp/analyze",
+        json={"dataset_id": post_dataset_id, "methods": {"revenue": []}},
+    )
+    assert resp.status_code == 202
+    job = _poll_job(app_client, resp.json()["job_id"])
+    assert job["status"] == "failed", job
+    assert "revenue" in job["error"]
+
+
+def test_analyze_method_override_with_multiple_selected_methods_produces_comparison_rows(
+    app_client, tmp_path, monkeypatch
+):
+    """Item 3.1/3.4: 2+ selected methods for a metric IS the comparison set
+    now (replaces the old compare_methods bool + fixed
+    compare_methods_chains() set) — the methods override's first id is
+    designed, the rest run as extra (non-designed) chains, exactly as
+    listed, nothing more and nothing less."""
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+    _design_experiment(app_client, "multiselect_exp")
+
+    post_dataset_id = _upload_csv(
+        app_client, _post_csv(), kind="post_analysis", experiment_name="multiselect_exp"
+    )
+    resp = app_client.post(
+        "/api/v1/experiments/multiselect_exp/analyze",
         json={
-            "dataset_id": post_dataset_id, "compare_methods": True,
-            "methods": {"revenue": "mann_whitney"},
+            "dataset_id": post_dataset_id,
+            "methods": {"revenue": ["mann_whitney", "welch", "remove_outliers_welch", "bootstrap_bca"]},
         },
     )
     job = _poll_job(app_client, resp.json()["job_id"])
     assert job["status"] == "completed", job
 
-    results = app_client.get("/api/v1/experiments/compare_with_override_exp/results").json()
+    results = app_client.get("/api/v1/experiments/multiselect_exp/results").json()
     revenue_results = [r for r in results["results"] if r["metric"] == "revenue"]
     designed = [r for r in revenue_results if r["is_designed_method"]]
     assert len(designed) == 1
     assert designed[0]["method"] == "Mann-Whitney (Hodges-Lehmann)"
-    # Standard continuous compare set (unchanged composition, item 2.4):
-    # Welch, RemoveOutliers+Welch, Bootstrap, MannWhitney — independent of
-    # what the designed method was overridden to.
+    # Exactly the three EXPLICITLY selected extras — not the old fixed
+    # standard set (which would also include a plain CUPED+Welch row if
+    # revenue had a pre_col, none of which was requested here).
     alt_methods = {r["method"] for r in revenue_results if not r["is_designed_method"]}
-    assert "Welch t-test" in alt_methods
-    assert "RemoveOutliers + Welch t-test" in alt_methods
-    assert "Bootstrap (bca)" in alt_methods
-    assert "Mann-Whitney (Hodges-Lehmann)" in alt_methods
+    assert alt_methods == {"Welch t-test", "RemoveOutliers + Welch t-test", "Bootstrap (bca)"}
+
+
+def test_analyze_method_override_with_single_selected_method_produces_one_row(app_client, tmp_path, monkeypatch):
+    """Item 3.1/3.4: exactly one selected method = pure calculation, no
+    comparison rows at all — not even the old fixed standard set."""
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+    _design_experiment(app_client, "singleselect_exp")
+
+    post_dataset_id = _upload_csv(
+        app_client, _post_csv(), kind="post_analysis", experiment_name="singleselect_exp"
+    )
+    resp = app_client.post(
+        "/api/v1/experiments/singleselect_exp/analyze",
+        json={"dataset_id": post_dataset_id, "methods": {"revenue": ["welch"]}},
+    )
+    job = _poll_job(app_client, resp.json()["job_id"])
+    assert job["status"] == "completed", job
+
+    results = app_client.get("/api/v1/experiments/singleselect_exp/results").json()
+    revenue_results = [r for r in results["results"] if r["metric"] == "revenue"]
+    assert len(revenue_results) == 1
+    assert revenue_results[0]["is_designed_method"] is True
+    assert revenue_results[0]["method"] == "Welch t-test"
 
 
 def test_analyze_with_remove_outliers_method_populates_variance_reduction(app_client, tmp_path, monkeypatch):
@@ -603,7 +650,7 @@ def test_analyze_with_remove_outliers_method_populates_variance_reduction(app_cl
     )
     resp = app_client.post(
         "/api/v1/experiments/outliers_method_exp/analyze",
-        json={"dataset_id": post_dataset_id, "methods": {"revenue": "remove_outliers_welch"}},
+        json={"dataset_id": post_dataset_id, "methods": {"revenue": ["remove_outliers_welch"]}},
     )
     assert resp.status_code == 202
     job = _poll_job(app_client, resp.json()["job_id"])

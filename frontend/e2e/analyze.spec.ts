@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { loginViaUi, seedExperiment, seedTwoMetricExperiment, uploadDataset } from './helpers'
+import { clickSelectOption, loginViaUi, seedExperiment, seedTwoMetricExperiment, uploadDataset } from './helpers'
 
 // FRONTEND.md §7 R6: "Playwright: демо пост-данные -> анализ -> вердикты и
 // forest plot видны -> экспорт таблицы."
@@ -178,40 +178,18 @@ test('clicking a metric card on Analysis switches which metric its analytics sho
   await expect(page.getByRole('heading', { name: 'revenue', level: 4 })).not.toBeVisible()
 })
 
-// UX package, item 2: compare_methods=True can recompute the exact same
-// designed chain as one of its "alternative" chains (revenue here has no
-// pre_col, so its designed chain is plain Welch t-test — the same as the
-// first alt chain compare_methods_chains() always includes) — Results must
-// show that as ONE row, not two differing only by correction/p-adj.
-test('Results shows exactly one designed-method row per metric even with compare_methods duplicates, and a CUPED rho column', async ({
-  page,
-  request,
-}) => {
-  test.setTimeout(60_000)
-  const name = `analyze_dedup_e2e_${Date.now()}`
-  await seedExperiment(request, name)
-  await loginViaUi(page)
-
-  await page.goto(`/experiments/${name}`)
-  await page.getByRole('tab', { name: 'Analysis' }).click()
-  // Compare alternative methods is checked by default (5-part package
-  // pt.4) — no need to open Advanced options and check it manually.
-  await page.getByRole('button', { name: /Generate demo post-period data/ }).click()
-  await expect(page.getByText(/Demo data generated:/)).toBeVisible({ timeout: 10_000 })
-  await page.getByRole('button', { name: 'Run analysis' }).click()
-  await expect(
-    page.getByText(/significant positive|significant negative|no effect detected/).first(),
-  ).toBeVisible({ timeout: 20_000 })
-
-  await page.getByRole('tab', { name: 'Results' }).click()
-  await expect(page.getByRole('columnheader', { name: /CUPED/ })).toBeVisible()
-
-  // exact: compare_methods also runs "RemoveOutliers + Welch t-test" as a
-  // genuinely different alternative — its cell text contains "Welch t-test"
-  // as a substring too, so a loose match would over-count.
-  const welchCells = page.getByRole('cell', { name: 'Welch t-test', exact: true })
-  await expect(welchCells).toHaveCount(1)
-})
+// Item 3 (consolidated package, multi-select methods): retired the old
+// "compare_methods=True can accidentally duplicate the designed chain"
+// scenario this test used to cover — that could only happen because the
+// FIXED standard compare set (compare_methods_chains()) sometimes repeated
+// the designed chain verbatim, and the new per-metric multi-select can't
+// select the same method id twice, so a real duplicate can no longer arise
+// through the UI at all (dedupeDesignedDuplicates()/detailed_rows()' dedup
+// stays in place defensively, still covered by Python-level tests, e.g.
+// tests/test_experiment_analyze.py::
+// test_detailed_rows_includes_all_comparisons_sorted_by_metric_then_method).
+// Its replacement — "selecting N methods produces N rows, the primary is
+// bolded" — is the method-selector test further down this file.
 
 // Item 2: a post-period dataset with duplicate unit ids (day-by-day data)
 // makes Date column required — analyze() can't aggregate without knowing
@@ -365,14 +343,15 @@ test('hovering the forest plot and the ECDF shows a tooltip with numbers', async
   await expect(page.getByText(/cumulative=\d/)).toBeVisible()
 })
 
-// Item 2 (explicit method selection), item 2.6: the per-metric method
-// selector on the Analysis tab is type-aware (no Z-test of proportions for a
-// continuous metric) and pre_col-aware (no CUPED option without a pre-period
-// column — seedExperiment's revenue metric has none). Picking a non-default
-// method (Mann-Whitney) becomes the designed method: the Results row is
-// bolded (rowClassName, tested generically elsewhere) and carries an explicit
+// Item 3 (consolidated package, multi-select methods): the per-metric
+// method selector on the Analysis tab is type-aware (no Z-test of
+// proportions for a continuous metric) and pre_col-aware (no CUPED option
+// without a pre-period column — seedExperiment's revenue metric has none).
+// Deselecting the recommended default (leaving only Mann-Whitney selected)
+// auto-promotes it to primary/designed: the Results row is bolded
+// (rowClassName, tested generically elsewhere) and carries an explicit
 // "manually selected" tag.
-test('Analysis method selector hides inapplicable methods and manually picking one is reflected in Results', async ({
+test('Analysis method selector hides inapplicable methods and picking a non-default one is reflected in Results', async ({
   page,
   request,
 }) => {
@@ -401,7 +380,11 @@ test('Analysis method selector hides inapplicable methods and manually picking o
   expect(optionTexts.some((t) => /Mann-Whitney/.test(t))).toBe(true)
   expect(optionTexts.some((t) => /Welch t-test.*recommended/.test(t))).toBe(true)
 
-  await page.getByTitle('Mann-Whitney (Hodges-Lehmann)').click()
+  // Add Mann-Whitney (mode="multiple" keeps the dropdown open), then toggle
+  // the default Welch selection back off — left with only Mann-Whitney
+  // selected, it becomes the sole (and thus primary) method.
+  await clickSelectOption(page, 'Mann-Whitney (Hodges-Lehmann)')
+  await clickSelectOption(page, 'Welch t-test (recommended)')
   await expect(
     page.getByText(/differs from the designed method — power was calculated for Welch t-test/),
   ).toBeVisible()
@@ -417,4 +400,72 @@ test('Analysis method selector hides inapplicable methods and manually picking o
   const designedRow = page.locator('tr.detailed-results-designed-row').filter({ hasText: 'revenue' })
   await expect(designedRow.getByText('Mann-Whitney (Hodges-Lehmann)')).toBeVisible()
   await expect(designedRow.getByText('manually selected')).toBeVisible()
+})
+
+// Item 3.4: selecting three methods for a metric produces three rows in the
+// Detailed Results Table, with the designed/primary one bolded — replaces
+// the retired "Compare alternative methods" checkbox (job-failure-handling.
+// spec.ts used to cover the equivalent "extra rows appear" case with it).
+test('selecting three methods produces three result rows with the primary bolded', async ({ page, request }) => {
+  test.setTimeout(60_000)
+  const name = `analyze_multiselect3_e2e_${Date.now()}`
+  await seedExperiment(request, name)
+  await loginViaUi(page)
+
+  await page.goto(`/experiments/${name}`)
+  await page.getByRole('tab', { name: 'Analysis' }).click()
+
+  const methodSelect = page.getByRole('combobox', { name: 'method-select-revenue' })
+  await methodSelect.click()
+  await expect(page.locator('.ant-select-item-option-content').first()).toBeVisible()
+  // Welch (recommended) is already selected by default — add two more,
+  // leaving the default as primary.
+  await clickSelectOption(page, 'Mann-Whitney (Hodges-Lehmann)')
+  await clickSelectOption(page, 'Bootstrap (bca)')
+  await page.keyboard.press('Escape')
+
+  await page.getByRole('button', { name: /Generate demo post-period data/ }).click()
+  await expect(page.getByText(/Demo data generated:/)).toBeVisible({ timeout: 10_000 })
+  await page.getByRole('button', { name: 'Run analysis' }).click()
+  await expect(
+    page.getByText(/significant positive|significant negative|no effect detected/).first(),
+  ).toBeVisible({ timeout: 20_000 })
+
+  await page.getByRole('tab', { name: 'Results' }).click()
+  await expect(page.getByRole('cell', { name: 'Welch t-test', exact: true })).toHaveCount(1)
+  await expect(page.getByRole('cell', { name: 'Mann-Whitney (Hodges-Lehmann)', exact: true })).toHaveCount(1)
+  await expect(page.getByRole('cell', { name: 'Bootstrap (bca)', exact: true })).toHaveCount(1)
+  const designedRow = page.locator('tr.detailed-results-designed-row').filter({ hasText: 'revenue' })
+  await expect(designedRow.getByText('Welch t-test', { exact: true })).toBeVisible()
+  await expect(designedRow.getByText('manually selected')).not.toBeVisible()
+})
+
+// Item 3.4: leaving just the single (recommended) default selected for a
+// metric produces exactly one row — no comparison rows at all, unlike the
+// old "Compare alternative methods" checkbox which defaulted to on.
+test('leaving the default single method selected produces exactly one result row', async ({ page, request }) => {
+  test.setTimeout(60_000)
+  const name = `analyze_singleselect_e2e_${Date.now()}`
+  await seedExperiment(request, name)
+  await loginViaUi(page)
+
+  await page.goto(`/experiments/${name}`)
+  await page.getByRole('tab', { name: 'Analysis' }).click()
+  // Nothing touched in the method selector — default is [Welch] only.
+  await page.getByRole('button', { name: /Generate demo post-period data/ }).click()
+  await expect(page.getByText(/Demo data generated:/)).toBeVisible({ timeout: 10_000 })
+  await page.getByRole('button', { name: 'Run analysis' }).click()
+  await expect(
+    page.getByText(/significant positive|significant negative|no effect detected/).first(),
+  ).toBeVisible({ timeout: 20_000 })
+
+  await page.getByRole('tab', { name: 'Results' }).click()
+  // Scoped to the Detailed Results Table specifically (identified by its
+  // "Metric" column header) — a bare 'tbody tr' matches rows in OTHER
+  // tables on the Results tab too (e.g. VerdictCards render no table, but
+  // other page tables do), which was over-counting.
+  const detailedTable = page.locator('table').filter({ has: page.getByRole('columnheader', { name: 'Metric' }) })
+  const revenueRows = detailedTable.locator('tbody tr').filter({ hasText: 'revenue' })
+  await expect(revenueRows).toHaveCount(1)
+  await expect(revenueRows.getByText('Welch t-test', { exact: true })).toBeVisible()
 })

@@ -801,25 +801,35 @@ def start_analyze(
         from abkit.jobs import run_analyze
 
         experiment = Experiment.load(name)
-        # Item 2 (explicit method selection): body.methods is {metric_name:
-        # method_id} (UI-facing strings) — translate to the {metric_name:
-        # [Step, ...]} shape Experiment.analyze()'s `methods` override
-        # expects. A metric absent from body.methods is absent here too,
-        # so resolve_steps() falls back to its usual default for it.
+        # Item 3 (consolidated package, multi-select methods): body.methods
+        # is {metric_name: [method_id, ...]} (UI-facing strings, first =
+        # primary) — translate to the two shapes Experiment.analyze() wants:
+        # `methods` (designed chain, from the FIRST id) and `extra_methods`
+        # (comparison chains, from the REST) — this fully replaces the old
+        # single-id `methods` override plus the separate `compare_methods`
+        # bool. A metric absent from body.methods keeps resolve_steps()'
+        # usual type/config-based default (no entry in either dict here).
         methods = None
+        extra_methods = None
         if body.methods:
             metrics_by_name = {m.name: m for m in experiment.config.metrics}
             methods = {}
-            for metric_name, method_id in body.methods.items():
+            extra_methods = {}
+            for metric_name, method_ids in body.methods.items():
                 metric = metrics_by_name.get(metric_name)
                 if metric is None:
                     raise checks.AnalysisError(f"Unknown metric '{metric_name}' in methods override")
-                methods[metric_name] = steps_for_method_id(metric, method_id, seed=experiment.config.seed)
+                if not method_ids:
+                    raise checks.AnalysisError(f"No analysis method selected for metric '{metric_name}'")
+                methods[metric_name] = steps_for_method_id(metric, method_ids[0], seed=experiment.config.seed)
+                extra_methods[metric_name] = [
+                    steps_for_method_id(metric, mid, seed=experiment.config.seed) for mid in method_ids[1:]
+                ]
         results = run_analyze(
             user, experiment, data, correction=body.correction,
-            compare_methods=body.compare_methods, date_col=body.date_col,
+            date_col=body.date_col,
             group_column=body.group_column, group_mapping=body.group_mapping,
-            methods=methods,
+            methods=methods, extra_methods=extra_methods,
             progress_callback=reporter.stage,
             # Stage 2 (report header dates): `exp` (the DB row, fetched
             # above before the job runs) has these; the in-memory

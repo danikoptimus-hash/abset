@@ -6,6 +6,24 @@ import { expect } from '@playwright/test'
 // (например http://localhost:8080/api/v1), см. .github/workflows/ci.yml.
 const API_BASE = process.env.E2E_API_BASE ?? 'http://localhost:8000/api/v1'
 
+// Item 3 (consolidated package, multi-select analysis methods): clicks an
+// option inside an OPEN AntD Select mode="multiple" dropdown by its exact
+// label. page.getByTitle(label) is ambiguous here — AntD puts the same
+// title attribute on BOTH the dropdown option AND the already-selected
+// tag rendered inside the combobox itself (`.ant-select-selection-item`),
+// so a plain getByTitle click hits "strict mode violation: resolved to 2
+// elements" once at least one option is already selected. Scoping to
+// `.ant-select-item-option-content` (the dropdown list only) resolves it;
+// an anchored regex keeps the match exact (a loose substring match would
+// also catch e.g. "RemoveOutliers + Welch t-test" when clicking
+// "Welch t-test").
+export async function clickSelectOption(page: Page, label: string) {
+  await page
+    .locator('.ant-select-item-option-content')
+    .filter({ hasText: new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) })
+    .click()
+}
+
 export async function loginViaUi(page: Page, email = 'admin@e2e.test', password = 'e2epass123') {
   await page.goto('/login')
   await page.getByLabel('Email').fill(email)

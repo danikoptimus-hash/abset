@@ -966,6 +966,7 @@ class Experiment:
         methods: dict[str, list[Step]] | None = None,
         correction: str = "holm",
         compare_methods: bool = False,
+        extra_methods: dict[str, list[list[Step]]] | None = None,
         date_col: str | None = None,
         agg_methods: dict[str, AggMethod] | None = None,
         progress_callback: Callable[[str], None] | None = None,
@@ -982,6 +983,23 @@ class Experiment:
         стандартный набор альтернатив (Welch сырой, +trim1%, +CUPED, Bootstrap BCa,
         Mann-Whitney) с is_designed_method=False — для устойчивости выводов, в вердикт
         и поправку на множественность не входят.
+
+        extra_methods: item 3 (consolidated package, multi-select analysis
+        methods) — {metric_name: [[Step, ...], ...]}, an EXPLICIT per-metric
+        override of which extra (non-designed) chains to run, REPLACING
+        compare_methods_chains()'s fixed standard set for any metric present
+        in this dict (absent metrics get no extras at all, even if
+        compare_methods=True — when extra_methods is provided the bool is
+        ignored entirely for metrics it covers). This is how the frontend's
+        per-metric multi-select ("designed + whichever else the user
+        checked = the comparison set") reaches the core: the React UI always
+        sends every named metric's full current selection, so extra_methods
+        being non-None means "the caller has fully specified the compare
+        set for every metric it names" — unlike compare_methods_chains()'s
+        fixed list, an empty list here means "no extras for this metric",
+        not "fall back to the default". None (the default) preserves the
+        original compare_methods bool behavior untouched, for callers that
+        never adopted per-metric selection (CLI, validation simulations).
 
         date_col: колонка с датой события. Если данные содержат несколько строк на
         юзера (разбивка по дням), date_col обязателен — иначе анализ падает с
@@ -1126,7 +1144,10 @@ class Experiment:
         for i, metric in enumerate(self.config.metrics, start=1):
             cb(f"Computing metric {i} of {n_metrics}: {metric.name}...")
             designed_steps = resolve_steps(metric, methods, seed=self.config.seed)
-            extra_chains = compare_methods_chains(metric, seed=self.config.seed) if compare_methods else []
+            if extra_methods is not None:
+                extra_chains = extra_methods.get(metric.name, [])
+            else:
+                extra_chains = compare_methods_chains(metric, seed=self.config.seed) if compare_methods else []
             raw_values.setdefault(metric.name, {})
 
             for treat_name in treatment_names:

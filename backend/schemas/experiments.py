@@ -133,7 +133,6 @@ class BulkDeleteResult(BaseModel):
 class AnalyzeRequest(BaseModel):
     dataset_id: str
     correction: str = "holm"
-    compare_methods: bool = False
     date_col: str | None = None
     # Item 12 (external split) — required when the experiment's
     # config.split_source == "external": there's no assignments join, the
@@ -142,13 +141,18 @@ class AnalyzeRequest(BaseModel):
     # for the normal split_source="abkit" flow.
     group_column: str | None = None
     group_mapping: dict[str, str] | None = None
-    # Item 2 (explicit method selection): metric name -> method id (e.g.
-    # "cuped_welch", "mann_whitney" — see abkit/experiment.py::
-    # steps_for_method_id and its frontend mirror,
-    # frontend/src/pages/experiment/methodOptions.ts). A metric absent from
-    # this dict keeps the type/config-based default (resolve_steps'
-    # fallback chain) — this is an override, not a required full mapping.
-    methods: dict[str, str] | None = None
+    # Item 3 (consolidated package, multi-select analysis methods): metric
+    # name -> ORDERED list of method ids (e.g. "cuped_welch",
+    # "mann_whitney" — see abkit/experiment.py::steps_for_method_id and its
+    # frontend mirror, frontend/src/pages/experiment/methodOptions.ts). The
+    # FIRST id is the designed/primary method (drives the verdict); any
+    # remaining ids run as comparison methods — this replaces the old
+    # single-method `methods: dict[str, str]` override AND the separate
+    # `compare_methods: bool` flag/fixed alternative set: the comparison set
+    # is now exactly whatever else the user multi-selected, per metric. A
+    # metric absent from this dict keeps the type/config-based default
+    # (single designed method, no extras).
+    methods: dict[str, list[str]] | None = None
 
 
 class AnalyzeDemoRequest(BaseModel):
