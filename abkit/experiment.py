@@ -1281,6 +1281,33 @@ class Experiment:
         all_results: list[TestResult] = []
         raw_values: dict[str, dict[str, pd.Series]] = {}
         segment_results: dict[str, dict[str, list[tuple[str, TestResult]]]] = {}
+        # Item 3 (per-dimension segment analysis): {dimension_label:
+        # {metric_name: {treat_name: [(value, TestResult), ...]}}} —
+        # dimension_label is one of self.config.strata's column names, or
+        # (when there's more than one) their " × " join for the combined
+        # cross-product, which duplicates segment_results' content under
+        # that label so the frontend/report have ONE structure to read
+        # instead of two. The combined "stratum" column IS the pipe-joined
+        # per-row string build_strata() produces at design time — cheaply
+        # decomposable back into individual dimension values by splitting
+        # on "|" (item 3.4: no re-read/re-bucketing of the original raw
+        # columns needed). Rows merged into "_other_" (small strata) or
+        # "_all_" (no strata configured) aren't decomposable and are
+        # excluded from the PER-DIMENSION breakdown only (not combined) —
+        # the same "too rare to say anything individually" reasoning that
+        # put them there in the first place.
+        segment_results_by_dimension: dict[str, dict[str, dict[str, list[tuple[str, TestResult]]]]] = {}
+        dimension_series: dict[str, pd.Series] = {}
+        if len(self.config.strata) > 1 and "stratum" in merged.columns:
+            split_cols = merged["stratum"].str.split("|", expand=True)
+            if split_cols.shape[1] == len(self.config.strata):
+                decomposable = ~merged["stratum"].isin(["_other_", "_all_"])
+                for i, col_name in enumerate(self.config.strata):
+                    dimension_series[col_name] = split_cols[i].where(decomposable)
+        combined_dimension_label = (
+            " × ".join(self.config.strata) if len(self.config.strata) > 1
+            else (self.config.strata[0] if self.config.strata else None)
+        )
         daily_results: dict[str, dict[str, pd.DataFrame]] = {}
 
         n_metrics = len(self.config.metrics)
@@ -1331,6 +1358,35 @@ class Experiment:
                             continue
                         seg_list.append((str(s), seg_ctx.result))
                     segment_results.setdefault(metric.name, {})[treat_name] = seg_list
+                    if combined_dimension_label:
+                        segment_results_by_dimension.setdefault(combined_dimension_label, {}).setdefault(
+                            metric.name, {}
+                        )[treat_name] = seg_list
+
+                # Item 3: same computation as the combined block above, but
+                # grouped by EACH stratification dimension alone instead of
+                # their cross-product — cheap (reuses dimension_series,
+                # already decomposed once before this loop) and exploratory
+                # in exactly the same sense as the combined segments.
+                for dim_label, dim_series in dimension_series.items():
+                    dim_values = dim_series.dropna().unique()
+                    if len(dim_values) < 2:
+                        continue
+                    dim_seg_list = []
+                    for v in sorted(dim_values, key=str):
+                        dim_subset = merged[dim_series == v]
+                        dim_seg_ctx = build_metric_context(
+                            metric, dim_subset, control_name, treat_name, self.config.alpha, False
+                        )
+                        try:
+                            dim_seg_ctx = Pipeline(designed_steps).run(dim_seg_ctx)
+                        except ValueError:
+                            continue
+                        dim_seg_list.append((str(v), dim_seg_ctx.result))
+                    if dim_seg_list:
+                        segment_results_by_dimension.setdefault(dim_label, {}).setdefault(
+                            metric.name, {}
+                        )[treat_name] = dim_seg_list
 
                 if date_col:
                     daily_results.setdefault(metric.name, {})[treat_name] = self._cumulative_lift(
@@ -1359,6 +1415,7 @@ class Experiment:
             loss=loss_result,
             raw_values=raw_values,
             segment_results=segment_results,
+            segment_results_by_dimension=segment_results_by_dimension,
             daily_results=daily_results,
             correction=correction,
             created_at=created_at,

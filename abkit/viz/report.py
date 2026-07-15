@@ -178,7 +178,10 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
     control_name = context["control_name"]
 
     raw_values: dict = context.get("raw_values", {})
-    segment_results: dict = context.get("segment_results", {})
+    # Item 3 (per-dimension segment analysis): segment_results_by_dimension
+    # already includes the combined (cross-product) dimension under its own
+    # label (abkit/experiment.py::Experiment.analyze()).
+    segment_results_by_dimension: dict = context.get("segment_results_by_dimension", {})
     daily_results: dict = context.get("daily_results", {})
 
     metrics_by_name = {m.name: m for m in config.metrics}
@@ -224,14 +227,22 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
                     )
             distribution_htmls.append((treat_name, fig_to_html_div(fig), caption))
 
-        segment_htmls = []
-        for treat_name, seg_list in segment_results.get(metric_name, {}).items():
-            if not seg_list:
-                continue
-            fig = segment_forest_plot(
-                seg_list, title=f"{metric_name} by stratum: {control_name} vs {treat_name}"
-            )
-            segment_htmls.append((treat_name, fig_to_html_div(fig)))
+        # Item 3.2: one subsection per stratification dimension (plus the
+        # combined cross-product, itself just another entry under its own
+        # " × "-joined label) — same exploratory framing as before, just no
+        # longer limited to the combined breakdown alone.
+        segment_sections = []
+        for dim_label, dim_results in segment_results_by_dimension.items():
+            dim_htmls = []
+            for treat_name, seg_list in dim_results.get(metric_name, {}).items():
+                if not seg_list:
+                    continue
+                fig = segment_forest_plot(
+                    seg_list, title=f"{metric_name} by {dim_label}: {control_name} vs {treat_name}"
+                )
+                dim_htmls.append((treat_name, fig_to_html_div(fig)))
+            if dim_htmls:
+                segment_sections.append((dim_label, dim_htmls))
 
         daily_htmls = []
         for treat_name, daily_df in daily_results.get(metric_name, {}).items():
@@ -255,7 +266,7 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
                 type=metric_config.type if metric_config else "continuous",
                 forest_html=forest_html,
                 distribution_htmls=distribution_htmls,
-                segment_htmls=segment_htmls,
+                segment_sections=segment_sections,
                 daily_htmls=daily_htmls,
                 verdicts=verdicts,
                 results=metric_results,

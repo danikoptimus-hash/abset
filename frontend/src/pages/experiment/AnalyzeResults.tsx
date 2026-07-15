@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Typography, Tag, Space, Card, Alert, Row, Col } from 'antd'
+import { Typography, Tag, Space, Card, Alert, Row, Col, Segmented } from 'antd'
 import { ForestPlotChart } from '../../charts/ForestPlotChart'
 import { DistributionChart } from '../../charts/DistributionChart'
 import { CumulativeLiftChart } from '../../charts/CumulativeLiftChart'
@@ -128,6 +128,18 @@ export function AnalyzeResults({ data, alpha }: { data: AnalysisResultsOut; alph
   const metricResults = activeMetric ? byMetric[activeMetric] : undefined
   const metricChart = activeMetric ? data.chart_data.metrics[activeMetric] : undefined
 
+  // Item 3 (per-dimension segment analysis): "Segment by" switches which
+  // stratification dimension's breakdown the forest plots below show —
+  // each dimension alone (e.g. "gender"), or their combination (e.g.
+  // "gender × country") when there's more than one. Falls back to
+  // whichever dimension is first if the previous selection doesn't exist
+  // for this metric (dimensions are usually the same across metrics since
+  // strata are experiment-wide, but this stays safe either way).
+  const [segmentDimension, setSegmentDimension] = useState<string | null>(null)
+  const dimensionLabels = metricChart ? Object.keys(metricChart.segments_by_dimension) : []
+  const activeDimension =
+    segmentDimension && dimensionLabels.includes(segmentDimension) ? segmentDimension : dimensionLabels[0]
+
   return (
     <div>
       {data.global_warnings.length > 0 && (
@@ -204,28 +216,41 @@ export function AnalyzeResults({ data, alpha }: { data: AnalysisResultsOut; alph
               </div>
             ))}
 
-          {metricChart &&
-            Object.entries(metricChart.segments).map(([treatName, segs]) => (
-              <div key={treatName}>
-                <Typography.Title level={5}>
-                  By segment: {metricChart.control_name} vs {treatName} <Tag>exploratory</Tag>
-                </Typography.Title>
-                <ForestPlotChart
-                  rows={segs.map((s) => ({
-                    label: s.stratum,
-                    effectRelPct: s.effect_rel * 100,
-                    ciLoPct: s.ci_rel[0] * 100,
-                    ciHiPct: s.ci_rel[1] * 100,
-                    highlighted: false,
-                    extraTooltipLines: [
-                      `n: ${metricChart.control_name}=${s.n[metricChart.control_name] ?? '—'}, ` +
-                        `${treatName}=${s.n[treatName] ?? '—'}`,
-                    ],
-                  }))}
-                />
-                <HelpCollapse chartType="segment_forest" />
-              </div>
-            ))}
+          {metricChart && dimensionLabels.length > 0 && activeDimension && (
+            <div>
+              {dimensionLabels.length > 1 && (
+                <Space style={{ marginBottom: 12 }}>
+                  <Typography.Text type="secondary">Segment by:</Typography.Text>
+                  <Segmented
+                    options={dimensionLabels}
+                    value={activeDimension}
+                    onChange={(v) => setSegmentDimension(v as string)}
+                  />
+                </Space>
+              )}
+              {Object.entries(metricChart.segments_by_dimension[activeDimension] ?? {}).map(([treatName, segs]) => (
+                <div key={treatName}>
+                  <Typography.Title level={5}>
+                    By {activeDimension}: {metricChart.control_name} vs {treatName} <Tag>exploratory</Tag>
+                  </Typography.Title>
+                  <ForestPlotChart
+                    rows={segs.map((s) => ({
+                      label: s.stratum,
+                      effectRelPct: s.effect_rel * 100,
+                      ciLoPct: s.ci_rel[0] * 100,
+                      ciHiPct: s.ci_rel[1] * 100,
+                      highlighted: false,
+                      extraTooltipLines: [
+                        `n: ${metricChart.control_name}=${s.n[metricChart.control_name] ?? '—'}, ` +
+                          `${treatName}=${s.n[treatName] ?? '—'}`,
+                      ],
+                    }))}
+                  />
+                  <HelpCollapse chartType="segment_forest" />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

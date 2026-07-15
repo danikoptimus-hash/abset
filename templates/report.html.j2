@@ -130,13 +130,16 @@
 
   <section id="section-segments">
     <h3>Effect by segment <span class="exploratory-tag">exploratory</span></h3>
-    {% if section.segment_htmls %}
+    {% if section.segment_sections %}
       <div class="warnings">{{ chart_warning('segment_forest') }}</div>
-      {% for treat_name, html in section.segment_htmls %}
-        <p>{{ section.name }}: {{ treat_name }} by stratum</p>
-        {{ html | safe }}
-        {{ help_details('segment_forest') }}
+      {% for dim_label, dim_htmls in section.segment_sections %}
+        <h4>By {{ dim_label }}</h4>
+        {% for treat_name, html in dim_htmls %}
+          <p>{{ section.name }}: {{ treat_name }} by {{ dim_label }}</p>
+          {{ html | safe }}
+        {% endfor %}
       {% endfor %}
+      {{ help_details('segment_forest') }}
     {% else %}
       <p>Not enough strata for a segment breakdown.</p>
     {% endif %}

@@ -887,3 +887,80 @@ def test_analyze_aa_false_positive_rate_in_expected_range(tmp_path):
 
     fpr = rejections / n_sims
     assert 0.035 <= fpr <= 0.065, f"Эмпирический FPR {fpr:.4f} вне ожидаемого диапазона"
+
+
+def test_analyze_computes_per_dimension_and_combined_segments(tmp_path):
+    """Item 3: with 2+ strata columns, segment_results_by_dimension carries
+    one entry per INDIVIDUAL column (gender alone, country alone) plus their
+    combination ("gender × country") — decomposed cheaply from the combined
+    "stratum" column rather than a separate pass over the raw columns."""
+    n = 2000
+    rng = np.random.default_rng(11)
+    design_data = pd.DataFrame(
+        {
+            "user_id": [f"u{i}" for i in range(n)],
+            "revenue": rng.normal(100, 20, size=n),
+            "gender": ["M" if i % 2 == 0 else "F" for i in range(n)],
+            "country": ["RU" if i % 4 < 2 else "KZ" for i in range(n)],
+        }
+    )
+    config = DesignConfig(
+        name="segment_dim_exp",
+        unit_col="user_id",
+        groups={"control": 0.5, "treatment": 0.5},
+        metrics=[MetricConfig(name="revenue", type="continuous", role="primary")],
+        strata=["gender", "country"],
+        sample_size=n,
+        split_method="stratified",
+        seed=7,
+    )
+    experiment = Experiment.design(config, design_data, experiments_dir=tmp_path)
+    assignments = experiment.assignments
+
+    post_data = pd.DataFrame(
+        {"user_id": assignments["unit_id"], "revenue": rng.normal(100, 20, size=len(assignments))}
+    )
+    results = experiment.analyze(post_data)
+    dims = results.context["segment_results_by_dimension"]
+
+    assert set(dims.keys()) == {"gender", "country", "gender × country"}
+    revenue_gender = dims["gender"]["revenue"]["treatment"]
+    assert {s for s, _r in revenue_gender} == {"M", "F"}
+    revenue_country = dims["country"]["revenue"]["treatment"]
+    assert {s for s, _r in revenue_country} == {"KZ", "RU"}
+    revenue_combined = dims["gender × country"]["revenue"]["treatment"]
+    assert len(revenue_combined) == 4
+
+
+def test_analyze_single_stratum_column_has_no_separate_combined_dimension(tmp_path):
+    """Item 3: with just ONE strata column, "combined" and "individual" are
+    the same thing — no separate " × "-joined entry, only the column's own
+    name (mirrors compute_strata_power_rows' item 2 convention)."""
+    n = 1000
+    rng = np.random.default_rng(12)
+    design_data = pd.DataFrame(
+        {
+            "user_id": [f"u{i}" for i in range(n)],
+            "revenue": rng.normal(100, 20, size=n),
+            "platform": ["ios" if i % 2 == 0 else "android" for i in range(n)],
+        }
+    )
+    config = DesignConfig(
+        name="segment_single_dim_exp",
+        unit_col="user_id",
+        groups={"control": 0.5, "treatment": 0.5},
+        metrics=[MetricConfig(name="revenue", type="continuous", role="primary")],
+        strata=["platform"],
+        sample_size=n,
+        split_method="stratified",
+        seed=8,
+    )
+    experiment = Experiment.design(config, design_data, experiments_dir=tmp_path)
+    assignments = experiment.assignments
+
+    post_data = pd.DataFrame(
+        {"user_id": assignments["unit_id"], "revenue": rng.normal(100, 20, size=len(assignments))}
+    )
+    results = experiment.analyze(post_data)
+    dims = results.context["segment_results_by_dimension"]
+    assert set(dims.keys()) == {"platform"}

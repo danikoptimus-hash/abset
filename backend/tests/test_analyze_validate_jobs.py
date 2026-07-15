@@ -440,7 +440,11 @@ def test_analyze_results_include_chart_data_for_continuous_binary_segments_and_d
     assert clicks_dist["kind"] == "binary"
     assert 0.0 <= clicks_dist["control"]["prop"] <= 1.0
 
-    assert len(next(iter(revenue["segments"].values()))) == 2  # ios/android
+    # Item 3: single stratum column ("platform") -> segments_by_dimension's
+    # only key is that column's own name (no separate "combined" dimension
+    # needed when there's just one).
+    assert set(revenue["segments_by_dimension"].keys()) == {"platform"}
+    assert len(next(iter(revenue["segments_by_dimension"]["platform"].values()))) == 2  # ios/android
     assert len(next(iter(revenue["daily"].values()))) == 2  # 2 дня
 
 

@@ -105,7 +105,13 @@ export interface MetricChartData {
   metric_type: 'continuous' | 'binary' | 'ratio'
   control_name: string
   distributions: Record<string, Distribution>
-  segments: Record<string, SegmentEffect[]>
+  // Item 3 (per-dimension segment analysis): {dimension_label: {treat_name:
+  // [...]}} — one entry per stratification dimension alone (e.g. "gender"),
+  // plus (when there's more than one) their combination under a
+  // " × "-joined label (e.g. "gender × country"). A single-dimension design
+  // has just that one column's own name as the only key — no separate
+  // "combined" entry duplicating it.
+  segments_by_dimension: Record<string, Record<string, SegmentEffect[]>>
   daily: Record<string, DailyLiftPoint[]>
 }
 

@@ -206,7 +206,11 @@ def build_chart_data(results: AnalysisResults) -> dict[str, Any]:
     config = context["config"]
     control_name = context["control_name"]
     raw_values: dict = context.get("raw_values", {})
-    segment_results: dict = context.get("segment_results", {})
+    # Item 3 (per-dimension segment analysis): segment_results_by_dimension
+    # already includes the combined (cross-product) dimension under its own
+    # label (abkit/experiment.py::Experiment.analyze()) — segment_results
+    # itself (the old, combined-only structure) isn't read here anymore.
+    segment_results_by_dimension: dict = context.get("segment_results_by_dimension", {})
     daily_results: dict = context.get("daily_results", {})
     metrics_by_name = {m.name: m for m in config.metrics}
 
@@ -228,21 +232,25 @@ def build_chart_data(results: AnalysisResults) -> dict[str, Any]:
                     else _continuous_distribution(control_series, treat_series)
                 )
 
-        segments: dict[str, Any] = {}
-        for treat_name, seg_list in segment_results.get(metric_name, {}).items():
-            if not seg_list:
-                continue
-            segments[treat_name] = [
-                {
-                    "stratum": stratum_name,
-                    "effect_rel": r.effect_rel,
-                    "ci_rel": list(r.ci_rel),
-                    # Stage 1 (chart tooltips): n per group, shown on hover —
-                    # not otherwise displayed anywhere for segment rows.
-                    "n": r.n,
-                }
-                for stratum_name, r in seg_list
-            ]
+        segments_by_dimension: dict[str, dict[str, Any]] = {}
+        for dim_label, dim_results in segment_results_by_dimension.items():
+            dim_segments: dict[str, Any] = {}
+            for treat_name, seg_list in dim_results.get(metric_name, {}).items():
+                if not seg_list:
+                    continue
+                dim_segments[treat_name] = [
+                    {
+                        "stratum": stratum_name,
+                        "effect_rel": r.effect_rel,
+                        "ci_rel": list(r.ci_rel),
+                        # Stage 1 (chart tooltips): n per group, shown on hover —
+                        # not otherwise displayed anywhere for segment rows.
+                        "n": r.n,
+                    }
+                    for stratum_name, r in seg_list
+                ]
+            if dim_segments:
+                segments_by_dimension[dim_label] = dim_segments
 
         daily: dict[str, Any] = {}
         for treat_name, daily_df in daily_results.get(metric_name, {}).items():
@@ -262,7 +270,7 @@ def build_chart_data(results: AnalysisResults) -> dict[str, Any]:
             "metric_type": metric_type,
             "control_name": control_name,
             "distributions": distributions,
-            "segments": segments,
+            "segments_by_dimension": segments_by_dimension,
             "daily": daily,
         }
 
