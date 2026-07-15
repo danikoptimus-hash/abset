@@ -168,6 +168,22 @@ def test_design_report_has_absolute_mde_columns(tmp_path):
     assert "pp</td>" in html
 
 
+def test_design_report_mde_values_have_three_decimal_places(tmp_path):
+    """Item 4.1/4.3: every MDE (rel./abs., with and without CUPED) value in
+    the design report is formatted to exactly 3 decimal places. Scoped to
+    the Power/MDE section specifically — other tables (group proportions,
+    strata NaN %) use their own, unrelated precision."""
+    import re
+
+    experiment = _demo_design(tmp_path)
+    html = (experiment.path / "design_report.html").read_text(encoding="utf-8")
+    power_section = html.split('id="section-power"')[1].split("</section>")[0]
+    # "12.345%" — 3 digits after the decimal point, not fewer/more.
+    rel_matches = re.findall(r"\d+\.(\d+)%", power_section)
+    assert rel_matches, "Expected at least one relative-MDE percentage in the report"
+    assert all(len(digits) == 3 for digits in rel_matches)
+
+
 def test_design_report_shows_strata_info_and_balance_table(tmp_path):
     """6-part package pt.10: explicit "Stratified by: ..." sentence plus a
     per-stratum-per-group balance table (the crosstab was already computed

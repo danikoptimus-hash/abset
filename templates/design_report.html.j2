@@ -101,17 +101,17 @@
     {% set abs_scale = 100 if row.metric_type == 'binary' else 1 %}
     <tr>
       <td>{{ row.metric }}</td>
-      <td>{{ '%.2f%%' % (row.mde_rel*100) if row.mde_rel is not none else '-' }}</td>
-      <td>{{ '%.2f%s' % (row.mde_abs*abs_scale, abs_unit) if row.mde_abs is not none else '-' }}</td>
+      <td>{{ '%.3f%%' % (row.mde_rel*100) if row.mde_rel is not none else '-' }}</td>
+      <td>{{ '%.3f%s' % (row.mde_abs*abs_scale, abs_unit) if row.mde_abs is not none else '-' }}</td>
       {% if row.mde_rel_cuped is none %}
       <td title="no pre-period column specified">-</td>
       <td title="no pre-period column specified">-</td>
       {% elif row.rho is not none and row.rho|abs < 0.1 %}
-      <td title="low correlation, negligible gain">{{ '%.2f%%' % (row.mde_rel_cuped*100) }}</td>
-      <td title="low correlation, negligible gain">{{ '%.2f%s' % (row.mde_abs_cuped*abs_scale, abs_unit) if row.mde_abs_cuped is not none else '-' }}</td>
+      <td title="low correlation, negligible gain">{{ '%.3f%%' % (row.mde_rel_cuped*100) }}</td>
+      <td title="low correlation, negligible gain">{{ '%.3f%s' % (row.mde_abs_cuped*abs_scale, abs_unit) if row.mde_abs_cuped is not none else '-' }}</td>
       {% else %}
-      <td>{{ '%.2f%%' % (row.mde_rel_cuped*100) }}</td>
-      <td>{{ '%.2f%s' % (row.mde_abs_cuped*abs_scale, abs_unit) if row.mde_abs_cuped is not none else '-' }}</td>
+      <td>{{ '%.3f%%' % (row.mde_rel_cuped*100) }}</td>
+      <td>{{ '%.3f%s' % (row.mde_abs_cuped*abs_scale, abs_unit) if row.mde_abs_cuped is not none else '-' }}</td>
       {% endif %}
       <td>{{ '%.0f' % row.sample_size if row.sample_size is not none else '-' }}</td>
       <td>{{ '%.3f' % row.rho if row.rho is not none else '-' }}</td>

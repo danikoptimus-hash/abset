@@ -235,9 +235,19 @@ function cupedCell(value: number | null, rho: number | null, format: (v: number)
 // abs = rel × baseline; binary metrics read as percentage points (the
 // baseline is itself a proportion, so raw units would be a tiny fraction
 // like 0.0096 — "pp" is what a reader expects from a conversion-rate MDE).
+// Item 4.1: 3 decimal places, matching the rest of the MDE table.
 function formatAbs(value: number | null, metricType: string): string {
   if (value == null) return '—'
-  return metricType === 'binary' ? `${(value * 100).toFixed(2)} pp` : value.toFixed(2)
+  return metricType === 'binary' ? `${(value * 100).toFixed(3)} pp` : value.toFixed(3)
+}
+
+// Item 4.2: binary baseline shown as a percentage ("17.400%"), not a raw
+// fraction (0.174) — continuous stays in the metric's own units, with
+// thousands separators for readability on larger numbers.
+function formatBaseline(value: number | null, metricType: string): string {
+  if (value == null) return '—'
+  if (metricType === 'binary') return `${(value * 100).toFixed(3)}%`
+  return value.toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
 }
 
 function mdeTable(computed: ComputedDesignSummary) {
@@ -258,8 +268,16 @@ function mdeTable(computed: ComputedDesignSummary) {
 
   const columns = [
     { title: 'Metric', dataIndex: 'metric' },
-    { title: 'Baseline', dataIndex: 'baseline', render: (v: number | null) => (v == null ? '—' : v.toFixed(4)) },
-    { title: 'MDE (rel.)', dataIndex: 'mde_rel', render: (v: number | null) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`) },
+    {
+      title: (
+        <Tooltip title="Average value before the test — conversion rate, shown as %, for binary metrics">
+          <span>Baseline</span>
+        </Tooltip>
+      ),
+      dataIndex: 'baseline',
+      render: (v: number | null, record: (typeof rows)[number]) => formatBaseline(v, record.metricType),
+    },
+    { title: 'MDE (rel.)', dataIndex: 'mde_rel', render: (v: number | null) => (v == null ? '—' : `${(v * 100).toFixed(3)}%`) },
     {
       title: (
         <Tooltip title="abs = rel × baseline">
@@ -276,7 +294,7 @@ function mdeTable(computed: ComputedDesignSummary) {
             title: 'MDE (rel., CUPED)',
             dataIndex: 'mde_rel_cuped',
             render: (v: number | null, record: (typeof rows)[number]) =>
-              cupedCell(v, record.rho, (x) => `${(x * 100).toFixed(1)}%`),
+              cupedCell(v, record.rho, (x) => `${(x * 100).toFixed(3)}%`),
           },
           {
             title: (
