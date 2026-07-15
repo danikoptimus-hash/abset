@@ -79,6 +79,7 @@ def _to_dataset_out(
         connection_name=connection_name_by_id.get(d.connection_id) if d.connection_id else None,
         sql_text=d.sql_text, fetched_at=d.fetched_at,
         source_schema=d.source_schema, source_table=d.source_table,
+        renamed_columns=d.renamed_columns,
         # Item 1 bug fix: one entry per real (experiment, kind) use, from
         # experiment_datasets — not the legacy single experiment_id/kind
         # pair above, which only ever reflects a dataset's creation-time
@@ -231,6 +232,7 @@ def preview_dataset(
     return DatasetPreview(
         filename=ds.filename, n_rows=ds.n_rows, columns=ds.columns,
         rows=preview_df.to_dict(orient="records"),
+        renamed_columns=ds.renamed_columns,
     )
 
 
@@ -527,6 +529,7 @@ def patch_dataset(
     result = run_update_dataset(
         user, dataset_id, name=body.name, connection_id=body.connection_id, sql_text=body.sql_text,
         source_schema=body.source_schema, source_table=body.source_table,
+        column_renames=body.column_renames,
     )
 
     job_id = None

@@ -190,6 +190,11 @@ class Dataset(Base):
     # fallback for rows this doesn't cover.
     source_schema: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_table: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Item 1 (upload rename step): {new_name: original_name}, only for
+    # columns actually renamed at upload confirmation — NULL when nothing
+    # was renamed, or for source in ('sql', 'demo') where this doesn't
+    # apply (item 1.4).
+    renamed_columns: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
 
 class ExperimentDataset(Base):

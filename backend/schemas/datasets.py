@@ -44,6 +44,10 @@ class DatasetOut(BaseModel):
     # diverged. See abkit/db/models.py::Dataset for the full rationale.
     source_schema: str | None = None
     source_table: str | None = None
+    # Item 1 (upload rename step): {new_name: original_name} for columns
+    # actually renamed at upload confirmation — None if nothing was renamed
+    # (the common case) or for source in ('sql', 'demo').
+    renamed_columns: dict[str, str] | None = None
     # Item 1 bug fix: every experiment that has actually used this dataset
     # (design/analyze/validate), from experiment_datasets — the Datasets
     # list column renders all of these, not just the legacy single
@@ -85,6 +89,9 @@ class DatasetPreview(BaseModel):
     n_rows: int
     columns: list[str]
     rows: list[dict[str, Any]]
+    # Item 1: same as DatasetOut.renamed_columns — surfaced here too so the
+    # preview drawer can show "renamed from X" without a second fetch.
+    renamed_columns: dict[str, str] | None = None
 
 
 class ColumnValueCount(BaseModel):
@@ -207,6 +214,11 @@ class PatchDatasetRequest(BaseModel):
     sql_text: str | None = None
     source_schema: str | None = None
     source_table: str | None = None
+    # Item 1 (upload rename step): {old_name: new_name} — only entries that
+    # actually change are required, but sending every current column
+    # mapped to itself is also fine (a no-op rename). source='upload' only;
+    # rejected for other sources (item 1.4).
+    column_renames: dict[str, str] | None = None
 
 
 class PatchDatasetResponse(BaseModel):

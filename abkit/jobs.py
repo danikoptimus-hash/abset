@@ -502,6 +502,7 @@ def run_update_dataset(
     sql_text: str | None = None,
     source_schema: str | None = None,
     source_table: str | None = None,
+    column_renames: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """PATCH /datasets/{id} (UX package, Datasets п.2.3) — owner or admin,
     same rule as delete. `name` (-> Dataset.filename) applies to any source.
@@ -520,7 +521,19 @@ def run_update_dataset(
     matches what that schema/table selection would generate — otherwise it
     omits them, which this function treats as "clear them", not "leave
     unchanged": a stale source_schema/source_table would be a lie about
-    where the (now hand-edited) query actually comes from."""
+    where the (now hand-edited) query actually comes from.
+
+    column_renames (item 1, upload rename confirmation): {old_name:
+    new_name} for source='upload' only — applied synchronously here (not a
+    background job, matching upload_dataset() itself, which is also
+    synchronous) by re-reading the CSV, renaming columns, and
+    re-materializing to parquet (upload_dataset's original file stays a raw
+    CSV; a rename re-lands the data as parquet, same storage format DB2's
+    SQL datasets already use — see abkit/dataset_files.py's extension
+    dispatch, which then just works unchanged). renamed_columns on the row
+    is {new_name: ORIGINAL_name} — resolved transitively through any prior
+    rename, so renaming twice (a -> b, then b -> c) still records
+    {c: a}, not {c: b}."""
     require_role(current_user, "viewer")
     from abkit import storage
     from abkit.db.repositories import DatasetRepo
@@ -552,6 +565,62 @@ def run_update_dataset(
             )
             changes["sql_text"] = {"old": ds.sql_text, "new": new_sql}
             needs_refetch = True
+
+    if column_renames:
+        if ds.source != "upload":
+            raise storage.StorageError(
+                f"Dataset '{ds.filename}' was not created via file upload — column renaming only applies to uploads"
+            )
+        import re
+        from pathlib import Path
+
+        from abkit.dataset_files import read_dataset_file
+
+        current_columns = list(ds.columns)
+        unknown = [c for c in column_renames if c not in current_columns]
+        if unknown:
+            raise storage.StorageError(f"Unknown column(s) to rename: {', '.join(unknown)}")
+
+        old_to_new = {c: column_renames.get(c, c).strip() for c in current_columns}
+        for new in old_to_new.values():
+            if not new:
+                raise storage.StorageError("Column names cannot be empty")
+            if re.search(r"[,\"'\\\n\r\t]", new):
+                raise storage.StorageError(
+                    f"Column name '{new}' contains a character that isn't allowed (, \" ' \\ or a newline/tab)"
+                )
+        new_names = list(old_to_new.values())
+        if len(set(new_names)) != len(new_names):
+            raise storage.StorageError("Column names must be unique")
+
+        if new_names != current_columns:
+            data = read_dataset_file(ds.storage_path)
+            data = data.rename(columns=old_to_new)
+
+            dest_path = Path(ds.storage_path).with_suffix(".parquet")
+            tmp_path = dest_path.with_name(dest_path.name + ".tmp")
+            data.to_parquet(tmp_path, index=False)
+            tmp_path.replace(dest_path)
+            old_path = Path(ds.storage_path)
+            if old_path != dest_path and old_path.exists():
+                old_path.unlink()
+
+            # Resolve transitively through any prior rename, so a second
+            # rename (b -> c, after an earlier a -> b) still records the
+            # true original {c: a}, not the intermediate {c: b}.
+            prior = dict(ds.renamed_columns or {})
+            merged: dict[str, str] = {}
+            for old, new in old_to_new.items():
+                original = prior.get(old, old)
+                if new != original:
+                    merged[new] = original
+
+            DatasetRepo().apply_column_renames(
+                ds.id, columns=new_names, renamed_columns=merged or None,
+                storage_path=str(dest_path), n_rows=len(data),
+                sha256=DatasetRepo.compute_sha256(data),
+            )
+            changes["columns"] = {"old": current_columns, "new": new_names}
 
     if changes:
         _audit(

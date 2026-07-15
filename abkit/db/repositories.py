@@ -529,6 +529,32 @@ class DatasetRepo:
                 raise RepoError(f"Dataset {dataset_id} not found")
             ds.filename = filename
 
+    def apply_column_renames(
+        self,
+        dataset_id: uuid_mod.UUID,
+        *,
+        columns: list[str],
+        renamed_columns: dict[str, str] | None,
+        storage_path: str,
+        n_rows: int,
+        sha256: str,
+    ) -> None:
+        """Item 1 (upload rename confirmation, source='upload' only): the
+        caller (abkit/jobs.py::run_update_dataset) already wrote the renamed
+        columns out to a new parquet file and computed its stats — this just
+        records the result. storage_path replaces the original CSV path
+        (upload columns are renamed by re-materializing to parquet, not by
+        rewriting the CSV in place)."""
+        with session_scope() as s:
+            ds = s.get(Dataset, dataset_id)
+            if ds is None:
+                raise RepoError(f"Dataset {dataset_id} not found")
+            ds.columns = columns
+            ds.renamed_columns = renamed_columns
+            ds.storage_path = storage_path
+            ds.n_rows = n_rows
+            ds.sha256 = sha256
+
     def update_sql_source(
         self,
         dataset_id: uuid_mod.UUID,

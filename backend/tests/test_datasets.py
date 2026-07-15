@@ -371,6 +371,131 @@ def test_patch_dataset_rejects_sql_fields_for_upload_source(app_client, tmp_path
     assert patch_resp.status_code == 404  # StorageError -> not_found, per backend/errors.py
 
 
+# Item 1 (upload rename step): column_renames re-materializes the CSV to
+# parquet with the new names — checked end to end via PATCH + preview
+# (dtypes/columns dispatch on file extension, abkit/dataset_files.py, so a
+# successful read-back with the new names IS the proof the file changed).
+def test_patch_dataset_renames_columns_and_records_original_names(app_client, tmp_path, monkeypatch):
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+    resp = app_client.post(
+        "/api/v1/datasets", data={"kind": "pre_design"},
+        files={"file": ("cust_mnt_v2.csv", "cust_id,amt\n1,10.5\n2,20.0\n", "text/csv")},
+    )
+    dataset_id = resp.json()["id"]
+
+    patch_resp = app_client.patch(
+        f"/api/v1/datasets/{dataset_id}",
+        json={"column_renames": {"cust_id": "customer_id", "amt": "amount"}},
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    body = patch_resp.json()["dataset"]
+    assert body["columns"] == ["customer_id", "amount"]
+    assert body["renamed_columns"] == {"customer_id": "cust_id", "amount": "amt"}
+
+    preview = app_client.get(f"/api/v1/datasets/{dataset_id}/preview").json()
+    assert preview["columns"] == ["customer_id", "amount"]
+    assert preview["rows"][0] == {"customer_id": 1, "amount": 10.5}
+    assert preview["renamed_columns"] == {"customer_id": "cust_id", "amount": "amt"}
+
+
+def test_patch_dataset_second_rename_tracks_true_original_name(app_client, tmp_path, monkeypatch):
+    """a -> b, then b -> c: renamed_columns must still point at 'a' (the
+    true original), not the intermediate 'b'."""
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+    resp = app_client.post(
+        "/api/v1/datasets", data={"kind": "pre_design"},
+        files={"file": ("t.csv", "a,other\n1,2\n", "text/csv")},
+    )
+    dataset_id = resp.json()["id"]
+
+    app_client.patch(f"/api/v1/datasets/{dataset_id}", json={"column_renames": {"a": "b"}})
+    patch_resp = app_client.patch(f"/api/v1/datasets/{dataset_id}", json={"column_renames": {"b": "c"}})
+    assert patch_resp.status_code == 200, patch_resp.text
+    body = patch_resp.json()["dataset"]
+    assert body["columns"] == ["c", "other"]
+    assert body["renamed_columns"] == {"c": "a"}
+
+
+def test_patch_dataset_rename_back_to_original_clears_the_entry(app_client, tmp_path, monkeypatch):
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+    resp = app_client.post(
+        "/api/v1/datasets", data={"kind": "pre_design"},
+        files={"file": ("t.csv", "a,other\n1,2\n", "text/csv")},
+    )
+    dataset_id = resp.json()["id"]
+
+    app_client.patch(f"/api/v1/datasets/{dataset_id}", json={"column_renames": {"a": "b"}})
+    patch_resp = app_client.patch(f"/api/v1/datasets/{dataset_id}", json={"column_renames": {"b": "a"}})
+    assert patch_resp.status_code == 200, patch_resp.text
+    body = patch_resp.json()["dataset"]
+    assert body["columns"] == ["a", "other"]
+    assert body["renamed_columns"] is None
+
+
+def test_patch_dataset_column_rename_rejects_empty_name(app_client, tmp_path, monkeypatch):
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+    resp = app_client.post(
+        "/api/v1/datasets", data={"kind": "pre_design"},
+        files={"file": ("t.csv", "a,b\n1,2\n", "text/csv")},
+    )
+    dataset_id = resp.json()["id"]
+
+    patch_resp = app_client.patch(f"/api/v1/datasets/{dataset_id}", json={"column_renames": {"a": "   "}})
+    assert patch_resp.status_code == 404  # StorageError -> not_found, per backend/errors.py
+
+
+def test_patch_dataset_column_rename_rejects_forbidden_character(app_client, tmp_path, monkeypatch):
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+    resp = app_client.post(
+        "/api/v1/datasets", data={"kind": "pre_design"},
+        files={"file": ("t.csv", "a,b\n1,2\n", "text/csv")},
+    )
+    dataset_id = resp.json()["id"]
+
+    patch_resp = app_client.patch(f"/api/v1/datasets/{dataset_id}", json={"column_renames": {"a": 'bad,name'}})
+    assert patch_resp.status_code == 404
+
+
+def test_patch_dataset_column_rename_rejects_duplicate_names(app_client, tmp_path, monkeypatch):
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+    resp = app_client.post(
+        "/api/v1/datasets", data={"kind": "pre_design"},
+        files={"file": ("t.csv", "a,b\n1,2\n", "text/csv")},
+    )
+    dataset_id = resp.json()["id"]
+
+    patch_resp = app_client.patch(f"/api/v1/datasets/{dataset_id}", json={"column_renames": {"a": "b"}})
+    assert patch_resp.status_code == 404
+
+
+def test_patch_dataset_column_rename_rejects_for_sql_source(app_client, tmp_path, monkeypatch):
+    """Item 1.4: renaming only applies to source='upload' — SQL column
+    names come from the query's own aliases. Admin login: sidesteps the
+    ownership check entirely (this test is about the source check, not
+    ownership — covered separately elsewhere)."""
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    UserRepo().create(email="admin_rename@co.com", first_name="A", password_hash=hash_password("pw12345"), role="admin")
+    app_client.post("/api/v1/auth/login", json={"email": "admin_rename@co.com", "password": "pw12345"})
+    dataset_id = _make_dataset_with_rows(tmp_path, "sql_ds.parquet", ["1,2"], ["a", "b"])
+    # No live DB connection needed — force source='sql' directly to
+    # simulate a real SQL-sourced row for this permission check.
+    from abkit.db.engine import session_scope
+    from abkit.db.models import Dataset
+
+    with session_scope() as s:
+        ds = s.get(Dataset, dataset_id)
+        ds.source = "sql"
+
+    patch_resp = app_client.patch(f"/api/v1/datasets/{dataset_id}", json={"column_renames": {"a": "alpha"}})
+    assert patch_resp.status_code == 404
+
+
 def _upload_owned(app_client, filename: str) -> str:
     resp = app_client.post(
         "/api/v1/datasets", data={"kind": "pre_design"},

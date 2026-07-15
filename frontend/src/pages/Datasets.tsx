@@ -495,7 +495,24 @@ export function DatasetsPage() {
             pagination={false}
             size="small"
             scroll={{ x: true }}
-            columns={preview.columns.map((col) => ({ title: col, dataIndex: col }))}
+            columns={preview.columns.map((col) => {
+              // Item 1.2: a renamed column shows where it came from — the
+              // mapping is {new_name: original_name}, keyed by the CURRENT
+              // (displayed) name, which is exactly `col` here.
+              const originalName = previewedDataset?.renamed_columns?.[col]
+              return {
+                title: originalName ? (
+                  <Tooltip title={`renamed from ${originalName}`}>
+                    <span>
+                      {col} <Typography.Text type="secondary" style={{ fontSize: 11 }}>*</Typography.Text>
+                    </span>
+                  </Tooltip>
+                ) : (
+                  col
+                ),
+                dataIndex: col,
+              }
+            })}
           />
         )}
       </Drawer>

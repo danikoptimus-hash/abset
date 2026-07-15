@@ -1695,6 +1695,10 @@ export interface components {
             source_schema?: string | null;
             /** Source Table */
             source_table?: string | null;
+            /** Renamed Columns */
+            renamed_columns?: {
+                [key: string]: string;
+            } | null;
             /**
              * Experiments
              * @default []
@@ -1713,6 +1717,10 @@ export interface components {
             rows: {
                 [key: string]: unknown;
             }[];
+            /** Renamed Columns */
+            renamed_columns?: {
+                [key: string]: string;
+            } | null;
         };
         /**
          * DatasetUsageResponse
@@ -2200,6 +2208,10 @@ export interface components {
             source_schema?: string | null;
             /** Source Table */
             source_table?: string | null;
+            /** Column Renames */
+            column_renames?: {
+                [key: string]: string;
+            } | null;
         };
         /** PatchDatasetResponse */
         PatchDatasetResponse: {
