@@ -5,6 +5,7 @@ import { apiClient } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { SIZE_MODE_LABELS, SPLIT_METHOD_LABELS, ISOLATION_LABELS, NAN_STRATEGY_LABELS } from './helpTexts'
 import { SampleSizeSection } from './SampleSizeSection'
+import { StrataPowerSection } from './StrataPowerSection'
 import type { WizardState } from './types'
 import { PRODUCT_NAME } from '../../branding'
 
@@ -275,6 +276,7 @@ export function Step3Parameters({ state, setState, isRedesign }: Props) {
       )}
 
       <SampleSizeSection state={state} setState={setState} isRedesign={isRedesign} />
+      <StrataPowerSection state={state} />
     </div>
   )
 }

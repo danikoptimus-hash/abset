@@ -55,6 +55,9 @@ from backend.schemas.datasets import (
     PatchDatasetResponse,
     SampleSizePreviewRequest,
     SampleSizePreviewResponse,
+    StrataPowerPreviewRequest,
+    StrataPowerPreviewResponse,
+    StrataPowerRow,
 )
 from backend.schemas.design import JobAccepted
 
@@ -410,6 +413,40 @@ def preview_sample_size(
         eligible_n=result["eligible_n"],
         required_n_per_group=result["required_n_per_group"],
         per_metric=[MetricSampleSizePreview(**m) for m in result["per_metric"]],
+    )
+
+
+@router.post("/{dataset_id}/strata-power-preview", response_model=StrataPowerPreviewResponse)
+def preview_strata_power(
+    dataset_id: str, body: StrataPowerPreviewRequest, user: CurrentUser = Depends(get_current_user),
+) -> StrataPowerPreviewResponse:
+    """Item 2 (strata power check) — wizard Parameters step, after the user
+    has calculated a sample size and set real group proportions: per
+    stratum-dimension achievable MDE at those actual proportions."""
+    from abkit.jobs import preview_strata_power as _preview_strata_power
+
+    try:
+        parsed_id = uuid_mod.UUID(dataset_id)
+    except ValueError as e:
+        raise APIError(422, "validation_error", "Invalid dataset id") from e
+    ds = DatasetRepo().get_by_id(parsed_id)
+    if ds is None:
+        raise APIError(404, "not_found", f"Dataset '{dataset_id}' not found")
+
+    data = read_dataset_file(ds.storage_path)
+    result = _preview_strata_power(
+        user, data,
+        unit_col=body.unit_col, groups=body.groups, metrics=body.metrics, strata=body.strata,
+        alpha=body.alpha, power_=body.power, isolation_mode=body.isolation,
+        exclude_experiments=body.exclude_experiments,
+        isolation_selected_experiments=body.isolation_selected_experiments,
+        experiment_name=body.experiment_name,
+    )
+    return StrataPowerPreviewResponse(
+        eligible_n=result["eligible_n"],
+        dimensions={
+            label: [StrataPowerRow(**r) for r in rows] for label, rows in result["dimensions"].items()
+        },
     )
 
 

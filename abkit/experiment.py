@@ -26,7 +26,7 @@ from abkit.analysis.variance_reduction import CUPED, PostStratification
 from abkit.config import DesignConfig, MetricConfig
 from abkit.design import isolation, power
 from abkit.design.splitter import split as run_split
-from abkit.design.stratification import build_strata, nan_counts_by_column
+from abkit.design.stratification import bucket_column, build_strata, nan_counts_by_column
 from abkit.idnorm import normalize_id_series
 from abkit.pipeline import MetricContext, Pipeline, Step
 from abkit.preprocessing.outliers import RemoveOutliers, Winsorize
@@ -569,6 +569,149 @@ def _power_results_to_dict(results: dict[str, power.PowerResult]) -> dict[str, A
         }
         for name, r in results.items()
     }
+
+
+@dataclass
+class StratumPowerRow:
+    """Item 2 (strata power check): one (dimension, stratum value,
+    treatment group, metric) combination — achievable MDE INSIDE that
+    stratum alone, at the CURRENT (already-chosen) group proportions.
+    Distinct from compute_power_results, which never looks inside strata."""
+
+    stratum: str
+    treatment_group: str
+    metric: str
+    n_control: int
+    n_treatment: int
+    mde_rel: float | None
+    mde_rel_cuped: float | None
+    status: Literal["ok", "weak", "insufficient"]
+
+
+# Below this per-stratum-per-group n, an achievable-MDE number is more noise
+# than signal (variance/rho estimates on <20 points are unstable) — flagged
+# "insufficient" outright rather than shown as a real (if huge) MDE value.
+# Same floor build_strata() already uses to merge small strata into
+# "_other_" for the real split (abkit/design/stratification.py), reused
+# here for the same "too small to say anything" reasoning.
+MIN_STRATUM_N_FOR_POWER_CHECK = 20
+
+# "ok" if the stratum's MDE is within 2x the OVERALL (whole-experiment)
+# achievable MDE for that metric — i.e. segment-level analysis on this
+# stratum can detect an effect not much larger than what the main analysis
+# can. Not a statistical standard, just the threshold item 2 asked for.
+WEAK_STRATUM_MDE_MULTIPLIER = 2.0
+
+
+def _stratum_status(
+    n_control: int, n_treatment: int, mde_rel: float | None, overall_mde_rel: float | None
+) -> Literal["ok", "weak", "insufficient"]:
+    if n_control < MIN_STRATUM_N_FOR_POWER_CHECK or n_treatment < MIN_STRATUM_N_FOR_POWER_CHECK:
+        return "insufficient"
+    if mde_rel is None or overall_mde_rel is None or overall_mde_rel == 0:
+        return "insufficient"
+    if abs(mde_rel) > WEAK_STRATUM_MDE_MULTIPLIER * abs(overall_mde_rel):
+        return "weak"
+    return "ok"
+
+
+def compute_strata_power_rows(
+    candidates: pd.DataFrame,
+    control_name: str,
+    groups: dict[str, float],
+    primary_metrics: list[MetricConfig],
+    strata_cols: list[str],
+    overall_mde_rel: dict[str, float],
+    alpha: float,
+    power_target: float,
+    n_buckets_continuous: int = 4,
+) -> dict[str, list[StratumPowerRow]]:
+    """Item 2 (strata power check, wizard Parameters step, after proportions
+    are set): for each stratification DIMENSION individually (e.g. "gender"
+    alone, "country" alone) and, if there's more than one, their COMBINATION
+    (e.g. "gender × country") — per stratum value, the sample size that
+    value actually gets at the CURRENT group proportions, and the MDE
+    achievable from just that subset. Scoped to primary metrics only (a
+    secondary metric doesn't drive a decision, so its segment power isn't
+    actionable at design time) and to continuous/binary metrics (ratio
+    metrics are skipped — same open scope gap as compare_methods_chains()
+    for continuous/binary, not attempted here either, given how rarely
+    ratio metrics are also the ones needing segment-level power checked).
+
+    Returns {dimension_label: [StratumPowerRow, ...]} — dimension_label is
+    a single column name, or "col_a × col_b × ..." for the combined one.
+    """
+    treatment_names = [g for g in groups if g != control_name]
+    metrics = [m for m in primary_metrics if m.type in ("continuous", "binary")]
+    if not metrics or not strata_cols:
+        return {}
+
+    dimensions: dict[str, pd.Series] = {
+        col: bucket_column(candidates[col], n_buckets_continuous) for col in strata_cols
+    }
+    if len(strata_cols) > 1:
+        combined = pd.DataFrame(dimensions).astype(str).agg("|".join, axis=1)
+        dimensions[" × ".join(strata_cols)] = combined
+
+    out: dict[str, list[StratumPowerRow]] = {}
+    for label, stratum_series in dimensions.items():
+        rows: list[StratumPowerRow] = []
+        for stratum_value, idx in stratum_series.groupby(stratum_series, observed=True).groups.items():
+            subset = candidates.loc[idx]
+            n_total = len(subset)
+            n_control = int(round(n_total * groups[control_name]))
+            for treat_name in treatment_names:
+                ratio = groups[treat_name] / groups[control_name] if groups[control_name] > 0 else 1.0
+                n_treatment = int(round(n_total * groups[treat_name]))
+                for metric in metrics:
+                    metric_values = metric_history_values(metric, subset)
+                    mean = float(metric_values.mean())
+                    std = float(metric_values.std(ddof=1)) if metric.type == "continuous" else None
+
+                    mde_rel = None
+                    mde_rel_cuped = None
+                    if n_control >= 2 and n_treatment >= 2 and mean != 0 and not pd.isna(mean):
+                        if metric.type == "binary":
+                            if 0 < mean < 1:
+                                mde_delta = power.mde_binary(
+                                    mean, n_control, alpha=alpha, power=power_target, ratio=ratio
+                                )
+                                mde_rel = mde_delta / mean
+                        elif std is not None and not pd.isna(std) and std > 0:
+                            mde_abs = power.mde_continuous(
+                                std, n_control, alpha=alpha, power=power_target, ratio=ratio
+                            )
+                            mde_rel = mde_abs / mean
+
+                        # CUPED variant: only when the metric declares a
+                        # pre-period column AND the stratum has enough
+                        # points for a not-too-noisy correlation estimate.
+                        if mde_rel is not None and metric.pre_col and metric.pre_col in subset.columns and n_total >= 5:
+                            pre_series = subset[metric.pre_col]
+                            if not pre_series.equals(metric_values):
+                                rho = power.correlation_with_pre(metric_values, pre_series)
+                                if metric.type == "binary":
+                                    mde_delta_cuped = power.mde_binary_cuped(
+                                        mean, rho, n_control, alpha=alpha, power=power_target, ratio=ratio
+                                    )
+                                    mde_rel_cuped = mde_delta_cuped / mean
+                                elif std is not None and std > 0:
+                                    std_cuped = std * power.cuped_variance_multiplier(rho) ** 0.5
+                                    mde_abs_cuped = power.mde_continuous(
+                                        std_cuped, n_control, alpha=alpha, power=power_target, ratio=ratio
+                                    )
+                                    mde_rel_cuped = mde_abs_cuped / mean
+
+                    status = _stratum_status(n_control, n_treatment, mde_rel, overall_mde_rel.get(metric.name))
+                    rows.append(
+                        StratumPowerRow(
+                            stratum=str(stratum_value), treatment_group=treat_name, metric=metric.name,
+                            n_control=n_control, n_treatment=n_treatment,
+                            mde_rel=mde_rel, mde_rel_cuped=mde_rel_cuped, status=status,
+                        )
+                    )
+        out[label] = rows
+    return out
 
 
 class Experiment:

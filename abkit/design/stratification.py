@@ -9,11 +9,16 @@ _NO_STRATA_VALUE = "_all_"
 _UNKNOWN_VALUE = "unknown"
 
 
-def _bucket_column(series: pd.Series, n_buckets: int) -> pd.Series:
+def bucket_column(series: pd.Series, n_buckets: int) -> pd.Series:
     """Бакетирует непрерывную колонку по квантилям; категориальные оставляет как есть.
 
     Пропуски (NaN) заменяются на строку "unknown" — юзеры с пропусками в этой
     колонке попадают в собственную (под)страту, а не приводят к ошибке.
+
+    Публичная (была module-private _bucket_column) — item 2 (strata power
+    check) переиспользует ее напрямую для бакетирования КАЖДОГО измерения
+    страт ПО ОТДЕЛЬНОСТИ (не только их декартова произведения, как здесь в
+    build_strata), той же логикой, что и реальный сплит.
     """
     nan_mask = series.isna()
     if pd.api.types.is_numeric_dtype(series) and series.nunique(dropna=True) > n_buckets:
@@ -51,7 +56,7 @@ def build_strata(
         return pd.Series([_NO_STRATA_VALUE] * len(data), index=data.index, name="stratum")
 
     bucketed = pd.DataFrame(
-        {col: _bucket_column(data[col], n_buckets_continuous) for col in strata_cols},
+        {col: bucket_column(data[col], n_buckets_continuous) for col in strata_cols},
         index=data.index,
     )
     stratum = bucketed.astype(str).agg("|".join, axis=1)

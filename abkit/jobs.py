@@ -189,6 +189,90 @@ def preview_sample_size(
     }
 
 
+def preview_strata_power(
+    current_user: CurrentUser,
+    data: pd.DataFrame,
+    *,
+    unit_col: str,
+    groups: dict[str, float],
+    metrics: list[MetricConfig],
+    strata: list[str],
+    alpha: float,
+    power_: float,
+    isolation_mode: str,
+    exclude_experiments: Any,
+    isolation_selected_experiments: list[str],
+    experiment_name: str | None,
+) -> dict[str, Any]:
+    """Item 2 (strata power check, wizard Parameters step): after the user
+    has calculated a sample size AND set real group proportions — per
+    stratum-dimension (each column alone, plus their combination) achievable
+    MDE at those ACTUAL proportions. Editor+ (same bar as
+    preview_sample_size — reads real data and other experiments'
+    assignments)."""
+    require_role(current_user, "editor")
+    from abkit import storage
+    from abkit.design import isolation as isolation_mod
+    from abkit.experiment import compute_power_results, compute_strata_power_rows, infer_control_name
+    from abkit.experiment_store import get_experiment_store
+
+    if len(groups) < 2:
+        raise storage.StorageError("At least two groups are required")
+    if not strata:
+        return {"eligible_n": 0, "dimensions": {}}
+
+    experiments_dir = storage.get_experiments_dir()
+    store = get_experiment_store(experiments_dir)
+    isolation_store = store if hasattr(store, "occupied_units") else None
+    isolation_result = isolation_mod.apply_isolation(
+        data=data,
+        unit_col=unit_col,
+        experiments_dir=experiments_dir,
+        mode=isolation_mode,
+        exclude_experiments=exclude_experiments,
+        current_experiment_name=experiment_name,
+        store=isolation_store,
+        selected_experiments=isolation_selected_experiments,
+    )
+    eligible_n = isolation_result.n_available
+    primary_metrics = [m for m in metrics if m.role == "primary"]
+    if eligible_n == 0 or not primary_metrics:
+        return {"eligible_n": eligible_n, "dimensions": {}}
+
+    control_name = infer_control_name(groups)
+    # Achievable MDE at the CURRENT proportions (mde=None, sample_size=None
+    # -> compute_power_results' "achievable at n_control_available" branch)
+    # — the baseline every per-stratum MDE is compared against (2x rule).
+    overall_config = DesignConfig(
+        name=experiment_name or "__strata_power_preview__",
+        unit_col=unit_col, groups=groups, metrics=metrics,
+        alpha=alpha, power=power_, split_method="simple",
+    )
+    overall_results = compute_power_results(overall_config, isolation_result.candidates, control_name)
+    overall_mde_rel = {
+        name: r.mde_rel for name, r in overall_results.items() if r.mde_rel is not None
+    }
+
+    dimensions = compute_strata_power_rows(
+        isolation_result.candidates, control_name, groups, primary_metrics, strata,
+        overall_mde_rel, alpha=alpha, power_target=power_,
+    )
+    return {
+        "eligible_n": eligible_n,
+        "dimensions": {
+            label: [
+                {
+                    "stratum": r.stratum, "treatment_group": r.treatment_group, "metric": r.metric,
+                    "n_control": r.n_control, "n_treatment": r.n_treatment,
+                    "mde_rel": r.mde_rel, "mde_rel_cuped": r.mde_rel_cuped, "status": r.status,
+                }
+                for r in rows
+            ]
+            for label, rows in dimensions.items()
+        },
+    }
+
+
 def run_design_external(
     current_user: CurrentUser, config: DesignConfig, **kwargs: Any
 ) -> Experiment:

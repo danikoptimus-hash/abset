@@ -183,6 +183,42 @@ class SampleSizePreviewResponse(BaseModel):
     per_metric: list[MetricSampleSizePreview]
 
 
+class StrataPowerPreviewRequest(BaseModel):
+    """Item 2 (strata power check): unlike SampleSizePreviewRequest, `groups`
+    carries the REAL (already-chosen) proportions, not an equal-split
+    stand-in — this runs AFTER "Calculate sample size" and setting shares,
+    specifically to check power INSIDE individual strata at that split."""
+
+    unit_col: str
+    groups: dict[str, float]
+    metrics: list[MetricConfig]
+    strata: list[str]
+    alpha: float
+    power: float
+    isolation: Literal["exclude", "warn", "off", "exclude_selected"] = "exclude"
+    exclude_experiments: Literal["all_active"] | list[str] = "all_active"
+    isolation_selected_experiments: list[str] = []
+    experiment_name: str | None = None
+
+
+class StrataPowerRow(BaseModel):
+    stratum: str
+    treatment_group: str
+    metric: str
+    n_control: int
+    n_treatment: int
+    mde_rel: float | None
+    mde_rel_cuped: float | None
+    status: Literal["ok", "weak", "insufficient"]
+
+
+class StrataPowerPreviewResponse(BaseModel):
+    eligible_n: int
+    # {dimension_label: rows} — one entry per individual stratum column,
+    # plus (when there's more than one) a combined "col_a × col_b" entry.
+    dimensions: dict[str, list[StrataPowerRow]]
+
+
 class DemoDesignDatasetResponse(BaseModel):
     dataset_id: str
     suggested_config: dict[str, Any]

@@ -743,6 +743,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/datasets/{dataset_id}/strata-power-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Strata Power
+         * @description Item 2 (strata power check) — wizard Parameters step, after the user
+         *     has calculated a sample size and set real group proportions: per
+         *     stratum-dimension achievable MDE at those actual proportions.
+         */
+        post: operations["preview_strata_power_api_v1_datasets__dataset_id__strata_power_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/datasets/from-sql": {
         parameters: {
             query?: never;
@@ -2365,6 +2387,78 @@ export interface components {
         StatusChangeRequest: {
             /** To */
             to: string;
+        };
+        /**
+         * StrataPowerPreviewRequest
+         * @description Item 2 (strata power check): unlike SampleSizePreviewRequest, `groups`
+         *     carries the REAL (already-chosen) proportions, not an equal-split
+         *     stand-in — this runs AFTER "Calculate sample size" and setting shares,
+         *     specifically to check power INSIDE individual strata at that split.
+         */
+        StrataPowerPreviewRequest: {
+            /** Unit Col */
+            unit_col: string;
+            /** Groups */
+            groups: {
+                [key: string]: number;
+            };
+            /** Metrics */
+            metrics: components["schemas"]["MetricConfig"][];
+            /** Strata */
+            strata: string[];
+            /** Alpha */
+            alpha: number;
+            /** Power */
+            power: number;
+            /**
+             * Isolation
+             * @default exclude
+             * @enum {string}
+             */
+            isolation: "exclude" | "warn" | "off" | "exclude_selected";
+            /**
+             * Exclude Experiments
+             * @default all_active
+             */
+            exclude_experiments: "all_active" | string[];
+            /**
+             * Isolation Selected Experiments
+             * @default []
+             */
+            isolation_selected_experiments: string[];
+            /** Experiment Name */
+            experiment_name?: string | null;
+        };
+        /** StrataPowerPreviewResponse */
+        StrataPowerPreviewResponse: {
+            /** Eligible N */
+            eligible_n: number;
+            /** Dimensions */
+            dimensions: {
+                [key: string]: components["schemas"]["StrataPowerRow"][];
+            };
+        };
+        /** StrataPowerRow */
+        StrataPowerRow: {
+            /** Stratum */
+            stratum: string;
+            /** Treatment Group */
+            treatment_group: string;
+            /** Metric */
+            metric: string;
+            /** N Control */
+            n_control: number;
+            /** N Treatment */
+            n_treatment: number;
+            /** Mde Rel */
+            mde_rel: number | null;
+            /** Mde Rel Cuped */
+            mde_rel_cuped: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "weak" | "insufficient";
         };
         /** TablesResponse */
         TablesResponse: {
@@ -4007,6 +4101,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SampleSizePreviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_strata_power_api_v1_datasets__dataset_id__strata_power_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StrataPowerPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StrataPowerPreviewResponse"];
                 };
             };
             /** @description Validation Error */
