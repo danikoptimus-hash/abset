@@ -30,6 +30,11 @@ test('a dataset created via the Datasets page is immediately selectable in the d
     mimeType: 'text/csv',
     buffer: Buffer.from('user_id,revenue\nu1,10\nu2,20\n'),
   })
+  // Item 1.1: upload now lands on a rename-confirm step instead of closing
+  // immediately — Finish (keeping the prefilled defaults) is what actually
+  // creates the dataset and closes the modal.
+  await expect(page.getByLabel('rename-dataset-name')).toHaveValue(filename, { timeout: 10_000 })
+  await page.getByRole('button', { name: 'Finish' }).click()
   await expect(dialog).not.toBeVisible({ timeout: 10_000 })
   await expect(page.getByRole('row', { name: new RegExp(filename) })).toBeVisible()
 
