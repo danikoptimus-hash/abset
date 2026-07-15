@@ -165,6 +165,10 @@ export function Step4Review({ state, redesignName, onSubmitted }: Props) {
             queryClient.invalidateQueries({ queryKey: queryKeys.experiment(redesignName) })
             queryClient.invalidateQueries({ queryKey: queryKeys.experimentBlocks(redesignName) })
             queryClient.invalidateQueries({ queryKey: queryKeys.experimentDesignDataset(redesignName) })
+            // Item 6: redesign regenerates the split -> a stale per-group
+            // download list (old group names/row counts) would otherwise
+            // survive if the Design tab stays mounted across the redesign.
+            queryClient.invalidateQueries({ queryKey: queryKeys.experimentSamples(redesignName) })
           }
           onSubmitted()
           navigate(`/experiments/${experimentName}`)

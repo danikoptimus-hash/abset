@@ -438,6 +438,26 @@ export function DesignSection({ name, config, availableReports }: Props) {
   const computed = getComputed(config)
   const isExternal = config.split_source === 'external'
 
+  // Item 6: real per-group download buttons (using actual group names, e.g.
+  // "control.csv"/"treatment.csv") alongside the combined ZIP — the
+  // motivation is that a product team only ever wants the treatment file
+  // for rollout, and a combined ZIP risks the wrong group getting shipped.
+  // Fetched from the same /samples list endpoint list_samples() already
+  // uses to size the ZIP, so the buttons are exactly the files that exist
+  // (not guessed from config.groups, which can differ from what was
+  // actually split if the config changed after design).
+  const { data: sampleFiles } = useQuery({
+    queryKey: queryKeys.experimentSamples(name),
+    enabled: !isExternal,
+    queryFn: async () => {
+      const { data, error } = await apiClient.GET('/api/v1/experiments/{name}/samples', {
+        params: { path: { name } },
+      })
+      if (error) return []
+      return data
+    },
+  })
+
   return (
     <div>
       <Typography.Title level={5}>Configuration</Typography.Title>
@@ -527,7 +547,17 @@ export function DesignSection({ name, config, availableReports }: Props) {
         <Alert type="info" showIcon message="Design summary is not available for this experiment." style={{ marginBottom: 16 }} />
       )}
 
-      <Space>
+      <Space wrap>
+        {!isExternal &&
+          (sampleFiles ?? []).map((f) => (
+            <Button
+              key={f.filename}
+              icon={<DownloadOutlined />}
+              href={`/api/v1/experiments/${name}/samples/${encodeURIComponent(f.filename)}`}
+            >
+              Download {f.filename}
+            </Button>
+          ))}
         {!isExternal && (
           <Button icon={<DownloadOutlined />} href={`/api/v1/experiments/${name}/samples.zip`}>
             Download Samples (ZIP)

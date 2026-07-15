@@ -52,6 +52,7 @@ export const queryKeys = {
   experimentResults: (name: string) => ['experiment-results', name] as const,
   experimentDesignDataset: (name: string | undefined) => ['experiment-design-dataset', name] as const,
   experimentDesignDatasetPreview: (id: string | undefined) => ['experiment-design-dataset-preview', id] as const,
+  experimentSamples: (name: string) => ['experiment-samples', name] as const,
   flowImages: (name: string) => ['flow-images', name] as const,
 
   // Validation
