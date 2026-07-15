@@ -1,5 +1,5 @@
 import { Typography, Table, Tag, Space, Button, Alert, Descriptions, Collapse, Spin, Tooltip, Image } from 'antd'
-import { DownloadOutlined, EyeOutlined } from '@ant-design/icons'
+import { DownloadOutlined, EyeOutlined, WarningOutlined } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
@@ -250,21 +250,43 @@ function formatBaseline(value: number | null, metricType: string): string {
   return value.toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
 }
 
+// Item 1.2: ceil, not round — you need AT LEAST this many per group, so
+// rounding down (or to nearest) would silently under-report the
+// requirement. Comma-grouped since these are routinely 5-6 digit numbers.
+function formatRequiredN(value: number | null): string {
+  return value == null ? '—' : Math.ceil(value).toLocaleString('en-US')
+}
+
+// Item 2: an MDE bigger than the baseline itself (>100% relative) usually
+// means the configured absolute MDE doesn't make sense for this metric's
+// scale — informational only, never blocks anything.
+const MDE_SANITY_THRESHOLD = 1
+
 function mdeTable(computed: ComputedDesignSummary) {
-  const rows = Object.entries(computed.power).map(([metricName, p]) => ({
-    key: metricName,
-    metric: metricName,
-    metricType: p.metric_type,
-    metricRole: p.metric_role,
-    baseline: p.baseline_mean,
-    n_per_group: p.sample_size_per_group,
-    mde_rel: p.mde_rel,
-    mde_abs: p.mde_abs,
-    rho: p.rho,
-    mde_rel_cuped: p.mde_rel_cuped,
-    mde_abs_cuped: p.mde_abs_cuped,
-    n_per_group_cuped: p.sample_size_per_group_cuped,
-  }))
+  const rows = Object.entries(computed.power)
+    .map(([metricName, p]) => ({
+      key: metricName,
+      metric: metricName,
+      metricType: p.metric_type,
+      metricRole: p.metric_role,
+      baseline: p.baseline_mean,
+      n_per_group: p.sample_size_per_group,
+      mde_rel: p.mde_rel,
+      mde_abs: p.mde_abs,
+      rho: p.rho,
+      mde_rel_cuped: p.mde_rel_cuped,
+      mde_abs_cuped: p.mde_abs_cuped,
+      n_per_group_cuped: p.sample_size_per_group_cuped,
+      mdeExceedsBaseline:
+        (p.mde_rel != null && p.mde_rel > MDE_SANITY_THRESHOLD) ||
+        (p.mde_rel_cuped != null && p.mde_rel_cuped > MDE_SANITY_THRESHOLD),
+    }))
+    // Item 3.1: primary metrics first — defense-in-depth stable sort (the
+    // backend already emits computed.power in this order for designs run
+    // after this fix, but experiments designed before it have this order
+    // frozen into their persisted config; re-sorting here makes the Design
+    // tab correct for those too, not just newly-designed experiments).
+    .sort((a, b) => (a.metricRole === b.metricRole ? 0 : a.metricRole === 'primary' ? -1 : 1))
   const hasCuped = rows.some((r) => r.rho !== null && r.rho !== undefined)
   const hasSecondary = rows.some((r) => r.metricRole === 'secondary')
 
@@ -272,16 +294,30 @@ function mdeTable(computed: ComputedDesignSummary) {
     {
       title: 'Metric',
       dataIndex: 'metric',
-      render: (v: string, record: (typeof rows)[number]) =>
-        record.metricRole === 'secondary' ? (
-          <Tooltip title="Secondary MDE is the minimal detectable effect at the chosen sample size (sample size is driven by primary metrics)">
-            <span>
-              {v} <sup>†</sup>
-            </span>
-          </Tooltip>
-        ) : (
-          v
-        ),
+      render: (v: string, record: (typeof rows)[number]) => (
+        <Space size={4}>
+          <Tag
+            color={record.metricRole === 'primary' ? 'blue' : 'default'}
+            style={{ fontSize: 11, lineHeight: '16px', marginInlineEnd: 0 }}
+          >
+            {record.metricRole}
+          </Tag>
+          {record.metricRole === 'secondary' ? (
+            <Tooltip title="Secondary MDE is the minimal detectable effect at the chosen sample size (sample size is driven by primary metrics)">
+              <span>
+                {v} <sup>†</sup>
+              </span>
+            </Tooltip>
+          ) : (
+            v
+          )}
+          {record.mdeExceedsBaseline && (
+            <Tooltip title="MDE exceeds the baseline — for rare metrics like this the configured absolute MDE may be unrealistic to detect">
+              <WarningOutlined style={{ color: '#faad14' }} />
+            </Tooltip>
+          )}
+        </Space>
+      ),
     },
     {
       title: (
@@ -302,7 +338,15 @@ function mdeTable(computed: ComputedDesignSummary) {
       dataIndex: 'mde_abs',
       render: (v: number | null, record: (typeof rows)[number]) => formatAbs(v, record.metricType),
     },
-    { title: 'n per group', dataIndex: 'n_per_group', render: (v: number | null) => v ?? '—' },
+    {
+      title: (
+        <Tooltip title="Minimum group size to detect this metric's MDE at given α/power. Differs per metric (depends on its variance)">
+          <span>Required n per group</span>
+        </Tooltip>
+      ),
+      dataIndex: 'n_per_group',
+      render: (v: number | null) => formatRequiredN(v),
+    },
     ...(hasCuped
       ? [
           {
@@ -322,23 +366,57 @@ function mdeTable(computed: ComputedDesignSummary) {
               cupedCell(v, record.rho, (x) => formatAbs(x, record.metricType)),
           },
           {
-            title: 'n per group (CUPED)',
+            title: (
+              <Tooltip title="Minimum group size to detect this metric's MDE with CUPED at given α/power. Differs per metric (depends on its variance)">
+                <span>Required n per group (CUPED)</span>
+              </Tooltip>
+            ),
             dataIndex: 'n_per_group_cuped',
-            render: (v: number | null, record: (typeof rows)[number]) =>
-              cupedCell(v, record.rho, (x) => String(x)),
+            render: (v: number | null, record: (typeof rows)[number]) => cupedCell(v, record.rho, formatRequiredN),
           },
         ]
       : []),
   ]
 
+  // Item 1.3: the required-n column is per-metric — this line grounds it
+  // against what the split actually produced, by real group name.
+  const actualEntries = Object.entries(computed.group_sizes)
+  const minActual = actualEntries.length > 0 ? Math.min(...actualEntries.map(([, n]) => n)) : null
+  const shortfalls =
+    minActual == null
+      ? []
+      : rows.filter((r) => r.n_per_group != null && Math.ceil(r.n_per_group) > minActual)
+
   return (
     <>
-      <Table size="small" dataSource={rows} columns={columns} pagination={false} />
+      <Table
+        size="small"
+        dataSource={rows}
+        columns={columns}
+        pagination={false}
+        rowClassName={(record) => (record.mdeExceedsBaseline ? 'mde-warn-row' : '')}
+      />
       {hasSecondary && (
         <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
           † Secondary MDE is the minimal detectable effect at the chosen sample size (sample size is driven by
           primary metrics).
         </Typography.Text>
+      )}
+      {actualEntries.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            Actual group sizes: {actualEntries.map(([g, n]) => `${g} ${n.toLocaleString('en-US')}`).join(' · ')}
+          </Typography.Text>
+          {shortfalls.map((r) => (
+            <Alert
+              key={r.key}
+              type="warning"
+              showIcon
+              style={{ marginTop: 4 }}
+              message={`${r.metric} requires ${formatRequiredN(r.n_per_group)} per group — actual is below (power under target for this metric)`}
+            />
+          ))}
+        </div>
       )}
     </>
   )

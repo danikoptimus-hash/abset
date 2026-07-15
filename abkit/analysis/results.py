@@ -40,7 +40,15 @@ class AnalysisResults:
     """Агрегирует TestResult по метрикам, дает вердикты, сводку и JSON-экспорт."""
 
     def __init__(self, results: list[TestResult], global_warnings: list[str] | None = None):
-        self._results = list(results)
+        # Primary metrics first, secondary after — a stable sort, so within a
+        # role metrics keep Experiment.analyze()'s original append order
+        # (config.metrics declaration order, and within a metric: designed
+        # method then its compare_methods alternatives). Single source for
+        # .metrics/_by_metric ordering (report.html's Verdicts section) and
+        # detailed_rows()'s row order (report.html's Detailed Results Table);
+        # to_json()/the API response inherit it too, so a freshly-analyzed
+        # experiment's frontend Results tab gets correct order for free.
+        self._results = sorted(results, key=lambda r: r.role != "primary")
         self.global_warnings = list(global_warnings or [])
         self._by_metric: dict[str, list[TestResult]] = {}
         for r in self._results:
@@ -184,8 +192,13 @@ class AnalysisResults:
         """Строки для "Детальная таблица результатов" (UI/HTML-отчет) — ВСЕ
         вычисленные сравнения (designed и exploratory-методы), не только
         designed-цепочка, как в verdict()/verdicts(). Вердикт считается по
-        КАЖДОЙ строке отдельно (тем же правилом, что verdict()). Сортировка:
-        метрика, затем метод."""
+        КАЖДОЙ строке отдельно (тем же правилом, что verdict()). Порядок
+        строк — как в self._results (уже отсортирован в __init__: primary
+        метрики раньше secondary; НЕ пересортировывается по алфавиту здесь
+        —  до этого фикса `rows.sort(key=(metric, method))` перемешивал
+        designed-метод с альтернативами по алфавиту метода, из-за чего
+        например 'Bootstrap' оказывался раньше своей же designed-строки
+        'Welch t-test'."""
         correction = self._context.get("correction") if self._context else None
         # Дедупликация: compare_methods=True иногда пересчитывает ТУ ЖЕ
         # designed-цепочку еще раз как одну из "альтернативных" (например,
@@ -248,7 +261,6 @@ class AnalysisResults:
                     "verdict": verdict,
                 }
             )
-        rows.sort(key=lambda row: (row["metric"], row["method"]))
         return rows
 
     def detailed_display_rows(self, control_name: str, alpha: float = 0.05) -> list[dict[str, Any]]:

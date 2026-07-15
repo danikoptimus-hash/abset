@@ -20,6 +20,12 @@
   .report-brand { display: flex; align-items: center; gap: 10px; }
   .report-brand img { height: 32px; width: auto; display: block; }
   .report-brand h1 { margin: 0; }
+  .role-tag { display: inline-block; padding: 1px 7px; border-radius: 8px; font-size: 11px; margin-right: 6px; }
+  .role-tag.primary { background: #e6f4ff; color: #1677ff; }
+  .role-tag.secondary { background: #f0f0f0; color: #595959; }
+  /* Item 2 (mde/results tables package): MDE > 100% of baseline is
+     informational, not an error — soft yellow, not red. */
+  tr.mde-warn td { background: #FFF3E0; }
 </style>
 </head>
 <body>
@@ -94,13 +100,18 @@
     <tr>
       <th>Metric</th><th>MDE (rel.)</th><th title="abs = rel × baseline">MDE (abs.)</th>
       <th>MDE with CUPED</th><th title="abs = rel × baseline">MDE (abs., CUPED)</th>
-      <th>Group size</th><th>ρ</th>
+      <th title="Minimum group size to detect this metric's MDE at given α/power. Differs per metric (depends on its variance)">Required n per group</th><th>ρ</th>
     </tr>
     {% for row in power_rows %}
     {% set abs_unit = 'pp' if row.metric_type == 'binary' else '' %}
     {% set abs_scale = 100 if row.metric_type == 'binary' else 1 %}
-    <tr>
-      <td>{{ row.metric }}{% if row.metric_role == 'secondary' %} <sup title="secondary metric — see footnote below">†</sup>{% endif %}</td>
+    {% set mde_warn = (row.mde_rel is not none and row.mde_rel > 1) or (row.mde_rel_cuped is not none and row.mde_rel_cuped > 1) %}
+    <tr{% if mde_warn %} class="mde-warn"{% endif %}>
+      <td>
+        <span class="role-tag {{ row.metric_role }}">{{ row.metric_role }}</span>
+        {{ row.metric }}{% if row.metric_role == 'secondary' %} <sup title="secondary metric — see footnote below">†</sup>{% endif %}
+        {% if mde_warn %}<span title="MDE exceeds the baseline — for rare metrics like this the configured absolute MDE may be unrealistic to detect">⚠</span>{% endif %}
+      </td>
       <td>{{ '%.3f%%' % (row.mde_rel*100) if row.mde_rel is not none else '-' }}</td>
       <td>{{ '%.3f%s' % (row.mde_abs*abs_scale, abs_unit) if row.mde_abs is not none else '-' }}</td>
       {% if row.mde_rel_cuped is none %}
@@ -113,7 +124,7 @@
       <td>{{ '%.3f%%' % (row.mde_rel_cuped*100) }}</td>
       <td>{{ '%.3f%s' % (row.mde_abs_cuped*abs_scale, abs_unit) if row.mde_abs_cuped is not none else '-' }}</td>
       {% endif %}
-      <td>{{ '%.0f' % row.sample_size if row.sample_size is not none else '-' }}</td>
+      <td>{{ '%d' % (row.sample_size|round(0, 'ceil')) if row.sample_size is not none else '-' }}</td>
       <td>{{ '%.3f' % row.rho if row.rho is not none else '-' }}</td>
     </tr>
     {% if row.warnings %}
@@ -127,6 +138,13 @@
   </table>
   {% if power_rows|selectattr('metric_role', 'equalto', 'secondary')|list %}
   <p><small>† Secondary MDE is the minimal detectable effect at the chosen sample size (sample size is driven by primary metrics).</small></p>
+  {% endif %}
+  {% if group_sizes %}
+  {% set min_actual = group_sizes.values()|list|min %}
+  <p><small>Actual group sizes: {% for name, size in group_sizes.items() %}{{ name }} {{ size }}{% if not loop.last %} · {% endif %}{% endfor %}</small></p>
+  {% for row in power_rows if row.sample_size is not none and (row.sample_size|round(0, 'ceil'))|int > min_actual %}
+  <div class="warnings">⚠ {{ row.metric }} requires {{ '%d' % (row.sample_size|round(0, 'ceil')) }} per group — actual is below (power under target for this metric)</div>
+  {% endfor %}
   {% endif %}
   {{ help_details('mde_table', True) }}
 </section>

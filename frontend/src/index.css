@@ -24,6 +24,14 @@ body {
   font-weight: 600;
 }
 
+/* MDE table sanity highlight (item 2, mde/results tables package): a
+   relative MDE > 100% of baseline usually means the configured absolute
+   MDE is unrealistic for this metric's scale — informational, not an
+   error, so a soft yellow tint (AntD's warning palette) rather than red. */
+.mde-warn-row td {
+  background: #fffbe6;
+}
+
 /* Navbar logo-only wordmark (brand, logo-only navbar) — the logo already
    spells out "ABSet" inside itself, no separate text label next to it. */
 .navbar-logo-link img {

@@ -184,6 +184,120 @@ def test_design_report_mde_values_have_three_decimal_places(tmp_path):
     assert all(len(digits) == 3 for digits in rel_matches)
 
 
+def test_design_report_power_table_lists_primary_metrics_before_secondary(tmp_path):
+    """6-part package pt.3.1: primary-metric rows come before secondary
+    ones, regardless of declaration order. _demo_design declares revenue
+    (primary), clicks (secondary), conv (primary, ratio) in that order — the
+    rendered order must be revenue, conv, clicks (secondary last), and each
+    row must carry an explicit primary/secondary role tag."""
+    experiment = _demo_design(tmp_path)
+    html = (experiment.path / "design_report.html").read_text(encoding="utf-8")
+    power_section = html.split('id="section-power"')[1].split("</section>")[0]
+
+    idx_revenue = power_section.index("revenue")
+    idx_conv = power_section.index("conv")
+    idx_clicks = power_section.index("clicks")
+    assert idx_revenue < idx_conv < idx_clicks
+
+    assert power_section.count('<span class="role-tag primary">primary</span>') == 2
+    assert power_section.count('<span class="role-tag secondary">secondary</span>') == 1
+
+
+def test_design_report_required_n_per_group_uses_ceil_not_round(tmp_path):
+    """Item 1.1/1.2: the old 'Group size' column is renamed to 'Required n
+    per group' and rounds UP (you need AT LEAST this many) — not to
+    nearest. groups={control: 0.1}, sample_size=14993 -> n_control=1499.3,
+    which ceil rounds to 1500 but ordinary rounding would give 1499 (chosen
+    specifically so the two disagree, unlike e.g. x.5)."""
+    n = 14993
+    rng = np.random.default_rng(3)
+    design_data = pd.DataFrame(
+        {"user_id": [f"u{i}" for i in range(n)], "revenue": rng.normal(100, 20, size=n)}
+    )
+    config = DesignConfig(
+        name="ceil_check",
+        unit_col="user_id",
+        groups={"control": 0.1, "treatment": 0.9},
+        metrics=[MetricConfig(name="revenue", type="continuous")],
+        strata=[],
+        sample_size=n,
+        split_method="simple",
+        seed=3,
+    )
+    experiment = Experiment.design(config, design_data, experiments_dir=tmp_path)
+    pr = experiment.report.power_results["revenue"]
+    assert pr.sample_size_per_group == pytest.approx(1499.3)
+
+    html = (experiment.path / "design_report.html").read_text(encoding="utf-8")
+    assert "Group size" not in html
+    assert "Required n per group" in html
+    power_section = html.split('id="section-power"')[1].split("</section>")[0]
+    assert "<td>1500</td>" in power_section
+    assert "<td>1499</td>" not in power_section
+
+
+def test_design_report_actual_group_sizes_row_and_shortfall_warning(tmp_path):
+    """Item 1.3: below the Power/MDE table, an 'Actual group sizes' line
+    grounds the required-n column against the real split by name; a metric
+    whose required n exceeds the smallest actual group size gets an
+    explicit warning naming it. sample_size=10_000 against only 2000 actual
+    candidates guarantees a shortfall (design always splits the full
+    candidate pool, never subsamples down to config.sample_size)."""
+    n = 2000
+    rng = np.random.default_rng(5)
+    design_data = pd.DataFrame(
+        {"user_id": [f"u{i}" for i in range(n)], "revenue": rng.normal(100, 20, size=n)}
+    )
+    config = DesignConfig(
+        name="shortfall_check",
+        unit_col="user_id",
+        groups={"control": 0.5, "treatment": 0.5},
+        metrics=[MetricConfig(name="revenue", type="continuous")],
+        strata=[],
+        sample_size=10_000,
+        split_method="simple",
+        seed=5,
+    )
+    experiment = Experiment.design(config, design_data, experiments_dir=tmp_path)
+    html = (experiment.path / "design_report.html").read_text(encoding="utf-8")
+    power_section = html.split('id="section-power"')[1].split("</section>")[0]
+    assert "Actual group sizes:" in power_section
+    assert "control" in power_section and "treatment" in power_section
+    assert "revenue requires" in power_section
+    assert "actual is below" in power_section
+
+
+def test_design_report_flags_mde_exceeding_baseline(tmp_path):
+    """Item 2: a metric whose achievable relative MDE exceeds 100% of its
+    own baseline gets a soft (non-blocking) warning highlight. n=20 total
+    (10 per group), baseline exactly 30% (a FIXED, non-random 6-of-20 split
+    — not rng.binomial, so the baseline can't drift with the RNG draw) is
+    deliberately underpowered: power.mde_binary(0.3, n_control=10, ...) ~=
+    0.58 absolute, i.e. ~193% relative — comfortably over the threshold."""
+    n = 20
+    design_data = pd.DataFrame(
+        {"user_id": [f"u{i}" for i in range(n)], "rare_event": [1] * 6 + [0] * 14}
+    )
+    config = DesignConfig(
+        name="mde_sanity_check",
+        unit_col="user_id",
+        groups={"control": 0.5, "treatment": 0.5},
+        metrics=[MetricConfig(name="rare_event", type="binary")],
+        strata=[],
+        sample_size=n,
+        split_method="simple",
+        seed=9,
+    )
+    experiment = Experiment.design(config, design_data, experiments_dir=tmp_path)
+    pr = experiment.report.power_results["rare_event"]
+    assert pr.mde_rel is not None and pr.mde_rel > 1
+
+    html = (experiment.path / "design_report.html").read_text(encoding="utf-8")
+    power_section = html.split('id="section-power"')[1].split("</section>")[0]
+    assert 'class="mde-warn"' in power_section
+    assert "unrealistic to detect" in power_section
+
+
 def test_design_report_shows_strata_info_and_balance_table(tmp_path):
     """6-part package pt.10: explicit "Stratified by: ..." sentence plus a
     per-stratum-per-group balance table (the crosstab was already computed

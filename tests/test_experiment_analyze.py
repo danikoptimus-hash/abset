@@ -623,13 +623,20 @@ def test_analyze_uses_cuped_by_default_when_pre_col_configured(tmp_path):
     assert results["revenue"][0].variance_reduction > 0.3
 
 
-def test_detailed_rows_includes_all_comparisons_sorted_by_metric_then_method(tmp_path):
+def test_detailed_rows_includes_all_comparisons_grouped_by_metric_designed_first(tmp_path):
     """UX11: детальная таблица результатов должна включать ВСЕ вычисленные
-    сравнения (designed и exploratory), отсортированные по (метрика, метод) —
-    за вычетом дублей designed-метода (UX-пакет, дедуп): revenue не имеет
-    pre_col, поэтому его designed-цепочка — просто Welch t-test, а первая же
-    alt-цепочка из compare_methods_chains() — тоже просто Welch t-test;
-    exact-дубль схлопывается в одну (designed) строку."""
+    сравнения (designed и exploratory) — за вычетом дублей designed-метода
+    (UX-пакет, дедуп): revenue не имеет pre_col, поэтому его designed-цепочка
+    — просто Welch t-test, а первая же alt-цепочка из compare_methods_chains()
+    — тоже просто Welch t-test; exact-дубль схлопывается в одну (designed)
+    строку.
+
+    Порядок строк (6-part package pt.2, primary-first): больше не плоская
+    сортировка по алфавиту (metric, method) — обе метрики здесь primary, так
+    что порядок метрик остается порядком объявления в конфиге (revenue,
+    затем clicks — 'clicks' < 'revenue' алфавитно, старая сортировка их бы
+    переставила), а внутри метрики designed-строка идет первой, альтернативы
+    — после (не по алфавиту метода)."""
     experiment = design_simple_experiment(tmp_path)
     rng = np.random.default_rng(12)
     assignments = experiment.assignments
@@ -654,14 +661,52 @@ def test_detailed_rows_includes_all_comparisons_sorted_by_metric_then_method(tmp
     assert len(revenue_welch_rows) == 1
     assert revenue_welch_rows[0]["designed"] is True
 
-    keys = [(r["metric"], r["method"]) for r in rows]
-    assert keys == sorted(keys)
+    # Metrics form contiguous groups in declaration order (revenue, clicks),
+    # not interleaved and not alphabetically reordered.
+    seen_metrics: list[str] = []
+    for r in rows:
+        if not seen_metrics or seen_metrics[-1] != r["metric"]:
+            seen_metrics.append(r["metric"])
+    assert seen_metrics == ["revenue", "clicks"]
+    # Within each metric's group, the designed row comes first.
+    for metric_name in seen_metrics:
+        metric_rows = [r for r in rows if r["metric"] == metric_name]
+        assert metric_rows[0]["designed"] is True
 
     for row in rows:
         assert row["group"] == f"treatment vs {control_name}"
         assert row["n_control"] is not None and row["n_test"] is not None
         assert row["verdict"] in ("significant_positive", "significant_negative", "no_effect_detected")
         assert row["correction_method"] == results.context["correction"]
+
+
+def test_analysis_results_metrics_and_results_order_primary_before_secondary(tmp_path):
+    """6-part package pt.3: AnalysisResults.__init__ sorts primary metrics
+    before secondary (stable — keeps declaration order within a role).
+    Declared here with secondary FIRST (clicks, then revenue) so the test
+    actually exercises the reordering rather than a config that would pass
+    even unsorted."""
+    experiment = design_simple_experiment(
+        tmp_path,
+        metrics=[
+            MetricConfig(name="clicks", type="binary", role="secondary"),
+            MetricConfig(name="revenue", type="continuous", role="primary"),
+        ],
+    )
+    rng = np.random.default_rng(14)
+    assignments = experiment.assignments
+    n = len(assignments)
+    post_data = pd.DataFrame(
+        {
+            "user_id": assignments["unit_id"],
+            "revenue": rng.normal(100, 20, size=n),
+            "clicks": rng.binomial(1, 0.10, size=n),
+        }
+    )
+    results = experiment.analyze(post_data)
+    assert results.metrics == ["revenue", "clicks"]
+    assert [r.metric for r in results.results] == ["revenue", "clicks"]
+    assert [r["metric"] for r in results.detailed_rows("control")] == ["revenue", "clicks"]
 
 
 def test_detailed_rows_labels_variance_reduction_technique(tmp_path):

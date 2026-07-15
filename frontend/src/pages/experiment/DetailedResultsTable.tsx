@@ -48,6 +48,8 @@ interface Row {
   // non-zero effect — legitimate on heavily zero-inflated data, but worth
   // an explanatory tooltip so it doesn't read as a bug.
   hlZeroOnSkewedData: boolean
+  // 6-part package pt.3.2: primary-first ordering — see toRows()'s sort.
+  role: TestResultOut['role']
   // Item 2.3/2.6: true when this designed row's method differs from the
   // type/config-based recommended default (methodOptions.ts::
   // isManuallySelected) — i.e. the user picked a method manually on the
@@ -142,9 +144,18 @@ function toRows(
         failureReason: failureReasonOf(r),
         hlZeroOnSkewedData,
         manuallySelected,
+        role: r.role,
       }
     })
-    .sort((a, b) => a.metric.localeCompare(b.metric) || a.method.localeCompare(b.method))
+    // 6-part package pt.3.2: primary metrics before secondary — a stable
+    // sort, so ties (same role) keep the backend's own order, which is
+    // already metric-declaration-order with the designed row immediately
+    // before its compare_methods alternatives (Experiment.analyze()'s
+    // append order, AnalysisResults.__init__). Replaces the old flat
+    // alphabetical (metric, method) sort, which had no notion of "designed
+    // first" and could alphabetize an alternative ahead of its own metric's
+    // designed row.
+    .sort((a, b) => (a.role === b.role ? 0 : a.role === 'primary' ? -1 : 1))
 }
 
 function toCsv(rows: Row[]): string {

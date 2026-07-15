@@ -148,6 +148,25 @@ def test_design_power_results_present_for_all_metrics(tmp_path):
     assert revenue_power.mde_rel == pytest.approx(0.1)
 
 
+def test_design_power_results_dict_orders_primary_metrics_before_secondary(tmp_path):
+    """6-part package pt.3.1: compute_power_results (feeding both the Design
+    tab's persisted computed.power JSONB and design_report.html's
+    power_rows) always returns primary metrics first, secondary after —
+    declared here in the OPPOSITE order (clicks/secondary, then
+    revenue/primary, then a second primary orders/ratio metric) to actually
+    exercise the reordering rather than coincidentally pass."""
+    data = make_synthetic_data()
+    config = make_config(
+        metrics=[
+            MetricConfig(name="clicks", type="binary", role="secondary"),
+            MetricConfig(name="revenue", type="continuous", role="primary"),
+            MetricConfig(name="sessions", type="continuous", role="primary"),
+        ],
+    )
+    experiment = Experiment.design(config, data, experiments_dir=tmp_path)
+    assert list(experiment.report.power_results.keys()) == ["revenue", "sessions", "clicks"]
+
+
 def make_binary_baseline_data(n=200_000, p=0.17, seed=1):
     rng = np.random.default_rng(seed)
     return pd.DataFrame(

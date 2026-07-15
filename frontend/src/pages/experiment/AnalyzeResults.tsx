@@ -46,9 +46,19 @@ export function VerdictCards({
   const designed = results.filter((r) => r.is_designed_method)
   const byMetric = resultsByMetric(designed)
   const interactive = !!onSelectMetric
+  // 6-part package pt.3.3: primary-metric cards before secondary — stable
+  // sort by each metric group's own role (ties keep insertion order, i.e.
+  // config.metrics declaration order, matching the MDE table/Detailed
+  // Results Table ordering rule).
+  const orderedMetricEntries = Object.entries(byMetric).sort(([, rowsA], [, rowsB]) => {
+    const roleA = rowsA[0]?.role
+    const roleB = rowsB[0]?.role
+    if (roleA === roleB) return 0
+    return roleA === 'primary' ? -1 : 1
+  })
   return (
     <Row gutter={16} style={{ marginBottom: 24 }}>
-      {Object.entries(byMetric).map(([metric, rows]) =>
+      {orderedMetricEntries.map(([metric, rows]) =>
         rows.map((r) => {
           const v = verdict(r, alpha)
           const active = interactive && selectedMetric === metric

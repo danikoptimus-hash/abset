@@ -542,7 +542,13 @@ def compute_power_results(
 
         result.warnings = warnings
         results[metric.name] = result
-    return results
+
+    # Primary metrics first (declaration order within a role) — a stable
+    # sort so metrics keep their config.metrics relative order within their
+    # own role; only role grouping changes. Feeds the MDE table (Design tab,
+    # design_report.html) directly, so this is the single place that needs
+    # to change for both to show primary rows before secondary ones.
+    return dict(sorted(results.items(), key=lambda kv: kv[1].metric_role != "primary"))
 
 
 def _fill_achievable_mde(
