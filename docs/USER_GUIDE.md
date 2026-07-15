@@ -86,6 +86,16 @@ Validation anymore — everything reads from a **dataset**, created once on the
 Both kinds show up identically in every dataset picker across the app.
 `[Screenshot: Datasets page with a mix of Upload and SQL-source rows]`
 
+When you upload a file, before it's saved you get a confirmation step: an
+editable dataset name (prefilled from the filename) and a table of detected
+columns — name, detected type, and a preview of the first values — with each
+column name inline-editable. Renaming a column here only changes how it's
+labeled in ABSet; the original name is remembered and shown as a "renamed
+from ..." hint wherever the dataset is previewed, so you can always trace a
+renamed column back to its source. (This step doesn't apply to SQL-sourced
+datasets — column names there come from your query's own aliases; rename
+them with `AS` in the SQL instead.)
+
 Datasets are independent of any one experiment — **deleting an experiment
 never deletes the datasets it used.** Only that experiment's own assignments
 and analysis results go away; its datasets simply lose that one link and stay
@@ -286,6 +296,21 @@ edit flow for it.
   click it. Not part of External split mode, which has no dataset to
   calculate a size from — proportions are set directly on the Groups &
   Metrics step there instead.
+- **Strata power check** (only shown when you picked strata columns) — an
+  overall balanced split can still leave an individual segment underpowered,
+  so this collapsible section (collapsed by default — expand it, or use
+  **Refresh**, to run it; a traffic-light badge on its header summarizes the
+  result without opening it) shows, per stratification dimension on its own
+  (e.g. gender alone, country alone) and then for combinations
+  (gender × country, in a nested "Combined strata" collapse since there can
+  be many), the MDE achievable *inside* each stratum at your current
+  proportions, alongside its group sizes and a status: **ok**, **weak**, or
+  **insufficient** (too few users to say anything meaningful). A summary
+  line at the top calls out specific underpowered combinations by name, e.g.
+  "combined segments M×RU, F×KZ are underpowered". This is purely
+  informational — it never blocks **Next** — but it's the place to notice
+  *before* running the test that a segment-level result you plan to look at
+  later won't have the power to back it up.
 
 **Run** produces the split plus a design report: sample size / MDE table per
 metric (with and without CUPED, and ρ — the pre/post correlation CUPED
@@ -294,7 +319,11 @@ analysis report (Results tab) offer **View report** (opens in a new browser
 tab) and **Download report** (saves it as `<experiment>_design_report.html` /
 `<experiment>_report.html`) — either way it's the same self-contained file
 (charts, logo, and CSS all inlined), so the downloaded copy opens correctly
-offline, with no server needed.
+offline, with no server needed. The Design tab also offers the raw split
+itself: a **Download &lt;group&gt;.csv** button per group (using its real
+name, e.g. "Download control.csv" / "Download treatment.csv") so you can hand
+just the treatment file to whoever runs the rollout without control users
+mixed in, plus **Download Samples (ZIP)** for all groups together.
 
 ### 3. Sample sizes and split checks
 
@@ -312,7 +341,15 @@ The design report always includes:
   each relative MDE column is an **MDE (abs.)** column (abs = rel ×
   baseline, shown on hover) — in percentage points for `binary` metrics
   (e.g. a 5% relative MDE on a 17.4% baseline conversion rate is "0.96 pp"),
-  or in the metric's own units for `continuous` ones.
+  or in the metric's own units for `continuous` ones. All MDE values are
+  shown to 3 decimal places, and the **Baseline** column for a `binary`
+  metric is a percentage ("17.400%"), not a raw fraction. A metric marked
+  **secondary** in the wizard gets its *own* honest MDE here, computed from
+  its own baseline and variance at the actual final sample size — not a
+  copy of whatever target MDE you typed for the primary metric — and is
+  flagged with a "†" footnote: "Secondary MDE is the minimal detectable
+  effect at the chosen sample size (sample size is driven by primary
+  metrics)."
 - **Stratification** — the Design tab's Configuration panel and the design
   report both state it explicitly: "Stratified by: gender, platform (12
   strata after combination, min stratum size: 20)" when you stratified,
@@ -446,6 +483,14 @@ The **Results** tab has, per metric:
   for deciding to stop a test early (see "peeking" in the FAQ below), and
   segment breakdowns get no multiple-testing correction — treat a segment-level
   finding as a hypothesis for a follow-up test, not as evidence on its own.
+  When you stratified on more than one column, a **Segment by** selector
+  above the forest plot switches between each stratification dimension on
+  its own (e.g. just gender, just country) and their combination (gender ×
+  country) — previously only the combination was shown, which hid an effect
+  that's actually consistent by gender but looks noisy once you also split
+  by country. The design report has the same breakdown, as one subsection
+  per dimension plus the combined one; every segment view still carries the
+  "exploratory" label regardless of which dimension it's sliced by.
 - **Distribution chart display modes** (continuous metrics only) — a toggle
   above the density/ECDF charts, up to three options depending on the data:
   - **Clipped at P99** (default when there are outliers) — the axis is cut
