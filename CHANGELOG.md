@@ -6,6 +6,31 @@
 
 ## [Unreleased]
 
+## [2.5.1] — 2026-07-17
+
+Follow-up to v2.5.0's own item 8 — first real test of the new "tag
+regularly" rule (CLAUDE.md), one small package, one patch tag.
+
+### Исправлено
+
+- **Version display, second pass**: v2.5.0 read `ABKIT_VERSION` (a build-arg
+  turned env var) as the primary source, which stripped the tag's `v`
+  prefix and showed a bare `dev (<sha>)` for any local build made after a
+  tag, with no indication of how far past the release it was. Now the
+  single source is `git describe --tags --always --long`, computed once at
+  image-build time into `/app/VERSION_DESCRIBE`: the tagged commit itself
+  shows `vX.Y.Z`; N commits past a tag show `vX.Y.Z+N (<sha>)`; no tag at
+  all shows `dev (<sha>)`. CI's `build-and-push` checkout now uses
+  `fetch-depth: 0` so the tag is resolvable during the image build.
+
+### Изменено
+
+- **"Uncategorized" в панели папок**: не папка (нет rename/delete) —
+  перемещена в конец списка (после пользовательских папок), показывается
+  только если что-то реально не разложено по папкам, и всегда в
+  приглушенном стиле, чтобы читаться как системный вид, а не созданная
+  папка.
+
 ## [2.5.0] — 2026-07-16
 
 75 коммитов со времени v2.0.0 (2026-07-08) — крупнейший набор правок между
