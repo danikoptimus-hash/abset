@@ -119,11 +119,34 @@ def test_patch_without_password_keeps_existing_password(app_client, db_url):
     assert decrypt_password(conn.password_encrypted) == "keep-me"
 
 
-def test_test_connection_against_unresolvable_host_is_dns_error(app_client, db_url):
+def test_test_connection_against_unresolvable_host_is_dns_error(app_client, db_url, monkeypatch):
     """A hostname that can never resolve — dns_error, distinct from
     tcp_timeout (host resolves fine but nothing answers on the port). These
     used to be one merged "host_unreachable" category; split so the message
-    actually points at the right field to fix (Host vs. Port/network)."""
+    actually points at the right field to fix (Host vs. Port/network).
+
+    Deterministic: mocks the connection attempt to raise the exact exception
+    text libpq/psycopg raises for an unresolvable host, instead of doing a
+    real DNS lookup against "does-not-exist.invalid". A real lookup made
+    this test's outcome depend on the test runner's network — some
+    resolvers/networks (ISP NXDOMAIN hijacking, corporate wildcard DNS)
+    don't return NXDOMAIN for that hostname at all, so the connection
+    attempt hung until TCP timeout and the test flaked to "tcp_timeout"
+    instead of "dns_error" (reproduced identically at 46ed068, the parent
+    commit — not a regression, a pre-existing live-network dependency).
+    What this test means to verify is the outcome CLASSIFICATION
+    (abkit.db_connections.testing._classify), not any particular network's
+    live DNS behavior."""
+
+    def _raise_dns_error(spec, timeout_sec=10):
+        raise OSError(
+            'could not translate host name "does-not-exist.invalid" to address: Name or service not known'
+        )
+
+    import abkit.db_connections.testing as testing_module
+
+    monkeypatch.setattr(testing_module, "build_engine", _raise_dns_error)
+
     _login(app_client)
     created = app_client.post(
         "/api/v1/admin/db-connections",
