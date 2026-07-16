@@ -96,6 +96,15 @@ def test_trim_malloc_is_a_noop_off_linux(monkeypatch):
 
 
 def test_job_runner_marks_unfinished_jobs_failed_on_startup(db_url):
+    """Startup recovery for a job interrupted mid-run (backend crash/OOM-kill,
+    not a graceful shutdown) — main.py's lifespan calls this unconditionally
+    on every boot, before the app starts serving requests. Covers both
+    non-terminal statuses (a job that never even started running, and one
+    that was mid-execution) and asserts the actual message content, not just
+    "failed" — an unexplained failure would leave the UI just as unactionable
+    as an eternal spinner; empirically confirmed end-to-end too (submit a
+    real design job against a large dataset, SIGKILL the backend container
+    mid-run, restart it — the job flips to this exact failed state)."""
     from backend.jobs.runner import JobRunner
 
     stale_pending = JobRepo().create(type="design")
@@ -105,8 +114,15 @@ def test_job_runner_marks_unfinished_jobs_failed_on_startup(db_url):
     runner = JobRunner(max_workers=1)
     try:
         runner.mark_unfinished_jobs_failed_on_startup()
-        assert JobRepo().get_by_id(stale_pending.id).status == "failed"
-        assert JobRepo().get_by_id(stale_running.id).status == "failed"
+        pending_after = JobRepo().get_by_id(stale_pending.id)
+        running_after = JobRepo().get_by_id(stale_running.id)
+        assert pending_after.status == "failed"
+        assert running_after.status == "failed"
+        expected_message = "The backend restarted while this job was running — please run it again"
+        assert pending_after.error == expected_message
+        assert running_after.error == expected_message
+        assert pending_after.finished_at is not None
+        assert running_after.finished_at is not None
     finally:
         runner.shutdown(wait=True)
 
