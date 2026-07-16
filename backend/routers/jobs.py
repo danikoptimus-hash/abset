@@ -31,4 +31,5 @@ def get_job(job_id: str, user: CurrentUser = Depends(get_current_user)) -> JobOu
     return JobOut(
         id=str(job.id), type=job.type, status=job.status, progress=job.progress,
         result=job.result_ref, error=job.error, created_at=job.created_at, finished_at=job.finished_at,
+        peak_memory_mb=job.peak_memory_mb,
     )

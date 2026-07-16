@@ -13,6 +13,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
+import psutil
+
 from abkit.db.models import Job
 from abkit.db.repositories import JobRepo
 from abkit.logging_config import get_logger
@@ -20,6 +22,9 @@ from abkit.logging_config import get_logger
 log = get_logger("backend.jobs")
 
 _DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 60
+# Admin monitoring panel (per-job peak memory): whole-process RSS, sampled
+# this often while a job runs, kept as a running max on the job record.
+_PEAK_MEMORY_SAMPLE_INTERVAL_SECONDS = 2
 
 
 def _human_readable_message(exc: BaseException, error_id: str) -> str:
@@ -89,6 +94,7 @@ class JobRunner:
         self._repo = JobRepo()
         self._heartbeat_stop = threading.Event()
         self._heartbeat_thread: threading.Thread | None = None
+        self._process = psutil.Process()
 
     def submit(
         self,
@@ -100,9 +106,35 @@ class JobRunner:
         self._executor.submit(self._run, job.id, fn)
         return job
 
+    def _sample_peak_memory(self, job_id: uuid_mod.UUID, stop: threading.Event) -> None:
+        """Admin monitoring panel: whole-process RSS (jobs share one
+        process — this isn't job-isolated memory, just "how high did the
+        process get while this job was active"), sampled every
+        _PEAK_MEMORY_SAMPLE_INTERVAL_SECONDS and kept as a running max on
+        the job record (JobRepo.update_peak_memory). One immediate sample
+        before the wait loop so a job shorter than the interval still gets
+        a data point instead of a permanently-null peak_memory_mb."""
+        try:
+            rss_mb = self._process.memory_info().rss / (1024 * 1024)
+            self._repo.update_peak_memory(job_id, rss_mb)
+        except Exception:
+            log.error("job.peak_memory_sample_failed", job_id=str(job_id), exc_info=True)
+        while not stop.wait(_PEAK_MEMORY_SAMPLE_INTERVAL_SECONDS):
+            try:
+                rss_mb = self._process.memory_info().rss / (1024 * 1024)
+                self._repo.update_peak_memory(job_id, rss_mb)
+            except Exception:
+                log.error("job.peak_memory_sample_failed", job_id=str(job_id), exc_info=True)
+
     def _run(self, job_id: uuid_mod.UUID, fn: Callable[[ProgressReporter], dict[str, Any]]) -> None:
         self._repo.mark_running(job_id)
         reporter = ProgressReporter(job_id, self._repo)
+        sampler_stop = threading.Event()
+        sampler = threading.Thread(
+            target=self._sample_peak_memory, args=(job_id, sampler_stop),
+            daemon=True, name=f"abkit-job-peakmem-{job_id}",
+        )
+        sampler.start()
         try:
             result = fn(reporter)
         except RequiresConfirmation as e:
@@ -118,6 +150,9 @@ class JobRunner:
             self._repo.mark_failed(job_id, _human_readable_message(e, error_id))
         else:
             self._repo.mark_completed(job_id, result)
+        finally:
+            sampler_stop.set()
+            sampler.join(timeout=5)
 
     def mark_unfinished_jobs_failed_on_startup(self) -> None:
         """FRONTEND.md §4: "Незавершенные при старте бэкенда помечаются failed

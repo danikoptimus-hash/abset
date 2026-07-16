@@ -8,6 +8,7 @@ import { getColumns } from './FlowImagesSection'
 import { buildDesignConfig, buildExternalDesignConfig, groupsToApi, metricsToApi } from './types'
 import type { WizardState } from './types'
 import { PRODUCT_NAME } from '../../branding'
+import { formatMb } from '../../monitoringFormat'
 
 // Stage 4 (variant flow images): applies the wizard's staged flow-image
 // state to the now-created/redesigned experiment. New images (kind='new',
@@ -120,6 +121,12 @@ export function Step4Review({ state, redesignName, onSubmitted }: Props) {
   const queryClient = useQueryClient()
   const [phase, setPhase] = useState<Phase>('idle')
   const [stage, setStage] = useState<string | null>(null)
+  // Admin monitoring panel (per-job peak memory) — same live-during-the-run
+  // display as Analyze (AnalyzeSection.tsx/useJobPolling.ts); this page has
+  // its own hand-rolled poll loop instead of the shared hook (extra states
+  // like requires_confirmation with a design-specific payload), so it's
+  // tracked separately here rather than through useJobPolling.
+  const [peakMemoryMb, setPeakMemoryMb] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirmation, setConfirmation] = useState<{ overlap: number; by_experiment: Record<string, number> } | null>(null)
 
@@ -144,6 +151,7 @@ export function Step4Review({ state, redesignName, onSubmitted }: Props) {
       }
       consecutiveFailures = 0
       setStage(data.progress?.stage ?? null)
+      setPeakMemoryMb(data.peak_memory_mb ?? null)
       if (data.status === 'completed') {
         const experimentName = (data.result as { experiment_name?: string } | null)?.experiment_name
         if (experimentName) {
@@ -196,6 +204,7 @@ export function Step4Review({ state, redesignName, onSubmitted }: Props) {
     setPhase('running')
     setError(null)
     setConfirmation(null)
+    setPeakMemoryMb(null)
     try {
       if (isExternal) {
         // Item 12: no dataset, no isolation overlap to confirm, redesign
@@ -291,6 +300,11 @@ export function Step4Review({ state, redesignName, onSubmitted }: Props) {
         <div>
           <Progress percent={undefined} status="active" showInfo={false} />
           <Typography.Text>{stage ?? 'Starting...'}</Typography.Text>
+          {peakMemoryMb != null && (
+            <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
+              Peak memory: {formatMb(peakMemoryMb)}
+            </Typography.Text>
+          )}
         </div>
       )}
 

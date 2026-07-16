@@ -1067,6 +1067,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/monitoring/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Monitoring Current */
+        get: operations["get_monitoring_current_api_v1_admin_monitoring_current_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/monitoring/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Monitoring History */
+        get: operations["get_monitoring_history_api_v1_admin_monitoring_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/monitoring/snapshot-now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Force Monitoring Snapshot
+         * @description Manual refresh — what lets e2e/tests see data without waiting up to
+         *     60s for the timer thread's first regular tick, and generally useful
+         *     whenever "right now, for real" matters more than the up-to-60s-stale
+         *     stored latest.
+         */
+        post: operations["force_monitoring_snapshot_api_v1_admin_monitoring_snapshot_now_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/audit": {
         parameters: {
             query?: never;
@@ -2066,6 +2123,8 @@ export interface components {
             created_at: string;
             /** Finished At */
             finished_at: string | null;
+            /** Peak Memory Mb */
+            peak_memory_mb?: number | null;
         };
         /** JobProgress */
         JobProgress: {
@@ -2153,6 +2212,84 @@ export interface components {
             required_n_per_group: number | null;
             /** Warnings */
             warnings: string[];
+        };
+        /**
+         * MonitoringCurrentOut
+         * @description Admin monitoring panel — latest stored snapshot (up to
+         *     SNAPSHOT_INTERVAL_SECONDS=60s stale, same cadence the history chart
+         *     uses, so "current" always agrees with the most recent history point)
+         *     plus two things queried fresh on every call rather than stored:
+         *     disk_total_mb (static infra info, not worth a history column) and
+         *     top_tables (a "right now" breakdown, not a time series).
+         */
+        MonitoringCurrentOut: {
+            /** Ts */
+            ts: string | null;
+            /** Backend Rss Mb */
+            backend_rss_mb: number | null;
+            /** Db Total Mb */
+            db_total_mb: number | null;
+            /** Data Volume Mb */
+            data_volume_mb: number | null;
+            /** Disk Free Mb */
+            disk_free_mb: number | null;
+            /** Disk Total Mb */
+            disk_total_mb: number | null;
+            /** Active Jobs */
+            active_jobs: number | null;
+            /** Top Tables */
+            top_tables: components["schemas"]["MonitoringTableSize"][];
+        };
+        /** MonitoringHistoryOut */
+        MonitoringHistoryOut: {
+            /**
+             * Resolution
+             * @enum {string}
+             */
+            resolution: "raw" | "hourly";
+            /** Points */
+            points: components["schemas"]["MonitoringHistoryPoint"][];
+        };
+        /** MonitoringHistoryPoint */
+        MonitoringHistoryPoint: {
+            /**
+             * Ts
+             * Format: date-time
+             */
+            ts: string;
+            /** Backend Rss Mb */
+            backend_rss_mb: number | null;
+            /** Db Total Mb */
+            db_total_mb: number | null;
+            /** Data Volume Mb */
+            data_volume_mb: number | null;
+            /** Disk Free Mb */
+            disk_free_mb: number | null;
+            /** Active Jobs */
+            active_jobs: number | null;
+            /** Backend Rss Mb Min */
+            backend_rss_mb_min?: number | null;
+            /** Backend Rss Mb Max */
+            backend_rss_mb_max?: number | null;
+            /** Db Total Mb Min */
+            db_total_mb_min?: number | null;
+            /** Db Total Mb Max */
+            db_total_mb_max?: number | null;
+            /** Data Volume Mb Min */
+            data_volume_mb_min?: number | null;
+            /** Data Volume Mb Max */
+            data_volume_mb_max?: number | null;
+            /** Disk Free Mb Min */
+            disk_free_mb_min?: number | null;
+            /** Disk Free Mb Max */
+            disk_free_mb_max?: number | null;
+        };
+        /** MonitoringTableSize */
+        MonitoringTableSize: {
+            /** Table Name */
+            table_name: string;
+            /** Size Bytes */
+            size_bytes: number;
         };
         /** PaginatedAudit */
         PaginatedAudit: {
@@ -4792,6 +4929,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResetPasswordResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_monitoring_current_api_v1_admin_monitoring_current_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MonitoringCurrentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_monitoring_history_api_v1_admin_monitoring_history_get: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                resolution?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MonitoringHistoryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    force_monitoring_snapshot_api_v1_admin_monitoring_snapshot_now_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MonitoringCurrentOut"];
                 };
             };
             /** @description Validation Error */

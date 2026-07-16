@@ -8,6 +8,10 @@ interface PollResult<TResult> {
   stage: string | null
   error: string | null
   result: TResult | null
+  // Admin monitoring panel (per-job peak memory): backend/jobs/runner.py
+  // samples whole-process RSS every 2s while the job runs and keeps the
+  // running max — updates live here on each poll tick, not just at the end.
+  peakMemoryMb: number | null
 }
 
 // Фронт поллит GET /jobs/{id} раз в 1с (FRONTEND.md §4) — общая логика для
@@ -15,7 +19,7 @@ interface PollResult<TResult> {
 // цикл поллинга в каждом месте.
 export function useJobPolling<TResult = Record<string, unknown>>() {
   const [state, setState] = useState<PollResult<TResult>>({
-    phase: 'idle', stage: null, error: null, result: null,
+    phase: 'idle', stage: null, error: null, result: null, peakMemoryMb: null,
   })
 
   // A single failed poll can just be a transient blip (or the backend
@@ -29,44 +33,55 @@ export function useJobPolling<TResult = Record<string, unknown>>() {
   const MAX_CONSECUTIVE_FAILURES = 5
 
   const poll = async (jobId: string): Promise<TResult | null> => {
-    setState({ phase: 'running', stage: null, error: null, result: null })
+    setState({ phase: 'running', stage: null, error: null, result: null, peakMemoryMb: null })
     let consecutiveFailures = 0
     for (;;) {
       const { data } = await apiClient.GET('/api/v1/jobs/{job_id}', { params: { path: { job_id: jobId } } })
       if (!data) {
         consecutiveFailures += 1
         if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-          setState({
+          setState((prev) => ({
             phase: 'failed',
             stage: null,
             error: 'Analysis worker stopped unexpectedly. Check server logs or try again.',
             result: null,
-          })
+            peakMemoryMb: prev.peakMemoryMb,
+          }))
           return null
         }
         await new Promise((r) => setTimeout(r, 1000))
         continue
       }
       consecutiveFailures = 0
-      setState((prev) => ({ ...prev, stage: data.progress?.stage ?? null }))
+      setState((prev) => ({
+        ...prev,
+        stage: data.progress?.stage ?? null,
+        peakMemoryMb: data.peak_memory_mb ?? prev.peakMemoryMb,
+      }))
       if (data.status === 'completed') {
         const result = (data.result ?? null) as TResult | null
-        setState({ phase: 'completed', stage: null, error: null, result })
+        setState({ phase: 'completed', stage: null, error: null, result, peakMemoryMb: data.peak_memory_mb ?? null })
         return result
       }
       if (data.status === 'failed') {
-        setState({ phase: 'failed', stage: null, error: data.error ?? 'Job failed', result: null })
+        setState({
+          phase: 'failed', stage: null, error: data.error ?? 'Job failed', result: null,
+          peakMemoryMb: data.peak_memory_mb ?? null,
+        })
         return null
       }
       if (data.status === 'requires_confirmation') {
-        setState({ phase: 'requires_confirmation', stage: null, error: null, result: data.result as TResult })
+        setState({
+          phase: 'requires_confirmation', stage: null, error: null, result: data.result as TResult,
+          peakMemoryMb: data.peak_memory_mb ?? null,
+        })
         return null
       }
       await new Promise((r) => setTimeout(r, 1000))
     }
   }
 
-  const reset = () => setState({ phase: 'idle', stage: null, error: null, result: null })
+  const reset = () => setState({ phase: 'idle', stage: null, error: null, result: null, peakMemoryMb: null })
 
   return { ...state, poll, reset }
 }

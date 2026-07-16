@@ -50,9 +50,18 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # например OOM-killed) — не ждем следующего рестарта backend'а.
     runner.start_heartbeat_sweeper()
     app.state.job_runner = runner
+
+    # Admin monitoring panel: daemon thread alongside the job runner, not a
+    # separate service — see abkit/monitoring.py::MonitoringCollector.
+    from abkit.monitoring import MonitoringCollector
+
+    collector = MonitoringCollector()
+    collector.start()
+    app.state.monitoring_collector = collector
     try:
         yield
     finally:
+        collector.shutdown()
         runner.shutdown(wait=False)
 
 

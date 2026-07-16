@@ -12,6 +12,7 @@ import { experimentResultsQueryKey, fetchExperimentResults } from './resultsQuer
 import { methodOptions, recommendedMethodId } from './methodOptions'
 import type { HypothesisFamily, AnalyzeMetric } from './types'
 import { PRODUCT_NAME } from '../../branding'
+import { formatMb } from '../../monitoringFormat'
 
 const CORRECTION_OPTIONS = [
   { value: 'holm', label: 'holm' },
@@ -113,7 +114,7 @@ export function AnalyzeSection({
   // collapsed behind "Re-run analysis" — UX package, п.3).
   const [panelOverride, setPanelOverride] = useState<boolean | null>(null)
 
-  const { phase, stage, error, poll, reset } = useJobPolling<{ experiment_name: string }>()
+  const { phase, stage, error, peakMemoryMb, poll, reset } = useJobPolling<{ experiment_name: string }>()
 
   // Same query key as ResultsSection (Results tab) — shares one cache entry,
   // so whichever tab mounts first fetches and invalidateQueries below
@@ -534,6 +535,14 @@ export function AnalyzeSection({
         <div style={{ marginBottom: 24, maxWidth: 480 }}>
           <Progress percent={undefined} status="active" showInfo={false} />
           <Typography.Text>{stage ?? 'Starting analysis...'}</Typography.Text>
+          {/* Admin monitoring panel (per-job peak memory): live during the
+              run, not just a post-hoc admin-only report — updates every
+              poll tick from backend/jobs/runner.py's 2s RSS sampler. */}
+          {peakMemoryMb != null && (
+            <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
+              Peak memory: {formatMb(peakMemoryMb)}
+            </Typography.Text>
+          )}
         </div>
       )}
 

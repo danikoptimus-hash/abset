@@ -15,6 +15,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -390,6 +391,13 @@ class Job(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+    # Admin monitoring panel: highest backend process RSS observed while
+    # THIS job was running (backend/jobs/runner.py samples every 2s, whole-
+    # process — jobs share one process, so this isn't job-isolated memory,
+    # just "how much did the process peak at while this job was active").
+    # NULL for jobs that finished before this column existed, and for jobs
+    # shorter than the first 2s sample.
+    peak_memory_mb: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class DatabaseConnection(Base):
@@ -467,3 +475,44 @@ class ExperimentTag(Base):
     tag_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True
     )
+
+
+class MonitoringSnapshot(Base):
+    """Admin monitoring panel: one row per collector tick (abkit/monitoring.py
+    ::MonitoringCollector, backend/main.py lifespan — a daemon thread
+    alongside the job runner, not a separate service; no Docker socket, no
+    Prometheus/Grafana). `resolution='raw'` rows are one-per-60s, kept for
+    24h; the retention pass (same thread) collapses them into
+    `resolution='hourly'` rows (avg in the plain column, min/max in the
+    _min/_max ones) kept up to 90 days, then purges anything older. Raw rows
+    leave the *_min/*_max columns NULL (nothing to aggregate yet) and carry
+    active_jobs (a point-in-time count — not meaningfully min/maxed hourly,
+    so hourly rows leave it NULL too)."""
+
+    __tablename__ = "monitoring_snapshots"
+    __table_args__ = (
+        CheckConstraint("resolution IN ('raw','hourly')", name="ck_monitoring_snapshots_resolution"),
+        Index("ix_monitoring_snapshots_resolution_ts", "resolution", "ts"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    resolution: Mapped[str] = mapped_column(Text, nullable=False, default="raw")
+
+    backend_rss_mb: Mapped[float | None] = mapped_column(Float, nullable=True)
+    backend_rss_mb_min: Mapped[float | None] = mapped_column(Float, nullable=True)
+    backend_rss_mb_max: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    db_total_mb: Mapped[float | None] = mapped_column(Float, nullable=True)
+    db_total_mb_min: Mapped[float | None] = mapped_column(Float, nullable=True)
+    db_total_mb_max: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    data_volume_mb: Mapped[float | None] = mapped_column(Float, nullable=True)
+    data_volume_mb_min: Mapped[float | None] = mapped_column(Float, nullable=True)
+    data_volume_mb_max: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    disk_free_mb: Mapped[float | None] = mapped_column(Float, nullable=True)
+    disk_free_mb_min: Mapped[float | None] = mapped_column(Float, nullable=True)
+    disk_free_mb_max: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    active_jobs: Mapped[int | None] = mapped_column(Integer, nullable=True)

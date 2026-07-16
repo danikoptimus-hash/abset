@@ -21,3 +21,8 @@ class JobOut(BaseModel):
     error: str | None
     created_at: datetime
     finished_at: datetime | None
+    # Admin monitoring panel: peak whole-process RSS observed while this job
+    # ran (backend/jobs/runner.py samples every 2s). NULL for jobs that
+    # finished before this column existed, or that ran shorter than the
+    # first sample.
+    peak_memory_mb: float | None = None

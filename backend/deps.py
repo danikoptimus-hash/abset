@@ -10,6 +10,7 @@ from typing import Callable
 from fastapi import Cookie, Depends, Request
 
 from abkit.auth.guards import AuthError, CurrentUser, require_role
+from abkit.monitoring import MonitoringCollector
 from backend.errors import APIError
 from backend.jobs import JobRunner
 
@@ -46,3 +47,9 @@ def get_job_runner(request: Request) -> JobRunner:
     """JobRunner создается один раз в lifespan (main.py) и живет в app.state —
     не пересоздается на каждый запрос."""
     return request.app.state.job_runner
+
+
+def get_monitoring_collector(request: Request) -> MonitoringCollector:
+    """MonitoringCollector — тот же паттерн, что get_job_runner: создается
+    один раз в lifespan (main.py) и живет в app.state."""
+    return request.app.state.monitoring_collector

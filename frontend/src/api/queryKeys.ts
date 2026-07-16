@@ -67,6 +67,11 @@ export const queryKeys = {
   usersPicker: () => ['users-picker'] as const,
   audit: (filters: unknown) => ['audit', filters] as const,
 
+  // Admin monitoring panel
+  monitoringCurrent: () => ['monitoring-current'] as const,
+  monitoringHistory: (from: string, to: string, resolution: string) =>
+    ['monitoring-history', from, to, resolution] as const,
+
   // App chrome
   version: () => ['version'] as const,
   authConfig: () => ['auth-config'] as const,

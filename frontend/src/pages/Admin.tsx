@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Table, Button, Modal, Form, Input, Select, Switch, message, Typography, Space, Tag } from 'antd'
+import { Table, Button, Modal, Form, Input, Select, Switch, message, Typography, Space, Tag, Tabs } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { apiClient, errorMessage } from '../api/client'
 import { queryKeys } from '../api/queryKeys'
 import { useUnsavedGuard } from '../hooks/useUnsavedGuard'
+import { MonitoringPanel } from './admin/MonitoringPanel'
 import type { components } from '../api/schema'
 
 type UserAdminOut = components['schemas']['UserAdminOut']
@@ -139,7 +140,7 @@ export function AdminPage() {
     })
   }
 
-  return (
+  const usersTab = (
     <div>
       <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}>
         <Typography.Title level={4} style={{ margin: 0 }}>
@@ -224,5 +225,14 @@ export function AdminPage() {
         </Form>
       </Modal>
     </div>
+  )
+
+  return (
+    <Tabs
+      items={[
+        { key: 'users', label: 'Users', children: usersTab },
+        { key: 'monitoring', label: 'Monitoring', children: <MonitoringPanel /> },
+      ]}
+    />
   )
 }

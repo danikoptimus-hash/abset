@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pandas as pd
-from sqlalchemy import func, insert, select
+from sqlalchemy import delete, func, insert, select, text
 
 from abkit import storage
 from abkit.db.engine import session_scope
@@ -29,6 +29,7 @@ from abkit.db.models import (
     ExperimentFlowImage,
     ExperimentTag,
     Job,
+    MonitoringSnapshot,
     Tag,
     User,
 )
@@ -995,6 +996,15 @@ class JobRepo:
                 job.error = error
                 job.finished_at = datetime.now(timezone.utc)
 
+    def update_peak_memory(self, job_id: uuid_mod.UUID, rss_mb: float) -> None:
+        """Admin monitoring panel: called every ~2s while a job runs
+        (backend/jobs/runner.py) with the CURRENT process RSS — keeps the
+        running max, not the latest sample."""
+        with session_scope() as s:
+            job = s.get(Job, job_id)
+            if job is not None:
+                job.peak_memory_mb = max(job.peak_memory_mb or 0.0, rss_mb)
+
     def list_unfinished(self) -> list[Job]:
         with session_scope() as s:
             rows = list(
@@ -1438,3 +1448,130 @@ class FlowImageRepo:
                     deleted_paths.append(e.file_path)
                     s.delete(e)
             return deleted_paths
+
+
+class MonitoringRepo:
+    """Admin monitoring panel (abkit/monitoring.py::MonitoringCollector) —
+    raw 60s snapshots + downsampled hourly aggregates in one table
+    (MonitoringSnapshot.resolution), plus a couple of live Postgres
+    introspection reads (database_total_mb/top_tables) that don't touch the
+    snapshots table at all — they're queried fresh on every /current call,
+    not stored as history (only the four collector metrics get a time
+    series; per-table sizes are a "right now" breakdown)."""
+
+    def insert_raw(
+        self,
+        *,
+        ts: datetime,
+        backend_rss_mb: float | None,
+        db_total_mb: float | None,
+        data_volume_mb: float | None,
+        disk_free_mb: float | None,
+        active_jobs: int | None,
+    ) -> None:
+        with session_scope() as s:
+            s.add(
+                MonitoringSnapshot(
+                    ts=ts,
+                    resolution="raw",
+                    backend_rss_mb=backend_rss_mb,
+                    db_total_mb=db_total_mb,
+                    data_volume_mb=data_volume_mb,
+                    disk_free_mb=disk_free_mb,
+                    active_jobs=active_jobs,
+                )
+            )
+
+    def insert_hourly(self, rows: list[dict[str, Any]]) -> None:
+        """Bulk-insert already-aggregated hourly rows (min/avg/max computed
+        by the caller — abkit.monitoring.plan_retention — from a pure,
+        DB-free function, so it's unit-testable without a Postgres fixture;
+        this method is just the mechanical write)."""
+        if not rows:
+            return
+        with session_scope() as s:
+            s.execute(insert(MonitoringSnapshot), rows)
+
+    def delete_by_id(self, ids: list[int]) -> None:
+        if not ids:
+            return
+        with session_scope() as s:
+            s.execute(delete(MonitoringSnapshot).where(MonitoringSnapshot.id.in_(ids)))
+
+    def purge_older_than(self, cutoff: datetime) -> int:
+        with session_scope() as s:
+            result = s.execute(delete(MonitoringSnapshot).where(MonitoringSnapshot.ts < cutoff))
+            return result.rowcount or 0
+
+    def latest(self) -> MonitoringSnapshot | None:
+        with session_scope() as s:
+            row = s.scalar(
+                select(MonitoringSnapshot)
+                .where(MonitoringSnapshot.resolution == "raw")
+                .order_by(MonitoringSnapshot.ts.desc())
+                .limit(1)
+            )
+            if row is not None:
+                s.expunge(row)
+            return row
+
+    def list_range(
+        self, *, resolution: str, ts_from: datetime, ts_to: datetime
+    ) -> list[MonitoringSnapshot]:
+        with session_scope() as s:
+            rows = list(
+                s.scalars(
+                    select(MonitoringSnapshot)
+                    .where(
+                        MonitoringSnapshot.resolution == resolution,
+                        MonitoringSnapshot.ts >= ts_from,
+                        MonitoringSnapshot.ts <= ts_to,
+                    )
+                    .order_by(MonitoringSnapshot.ts.asc())
+                )
+            )
+            for r in rows:
+                s.expunge(r)
+            return rows
+
+    def raw_older_than(self, cutoff: datetime) -> list[MonitoringSnapshot]:
+        """Input for the downsample step (abkit.monitoring.plan_retention) —
+        every 'raw' row old enough to collapse into hourly buckets."""
+        with session_scope() as s:
+            rows = list(
+                s.scalars(
+                    select(MonitoringSnapshot)
+                    .where(MonitoringSnapshot.resolution == "raw", MonitoringSnapshot.ts < cutoff)
+                    .order_by(MonitoringSnapshot.ts.asc())
+                )
+            )
+            for r in rows:
+                s.expunge(r)
+            return rows
+
+    def active_job_count(self) -> int:
+        with session_scope() as s:
+            return s.scalar(select(func.count()).select_from(Job).where(Job.status == "running")) or 0
+
+    def database_total_mb(self) -> float:
+        with session_scope() as s:
+            size_bytes = s.execute(select(func.pg_database_size(func.current_database()))).scalar_one()
+            return size_bytes / (1024 * 1024)
+
+    def top_tables(self, limit: int = 10) -> list[dict[str, Any]]:
+        """Read-only Postgres system-catalog introspection — no user input
+        involved, so a literal query string (not the ORM) is fine here."""
+        with session_scope() as s:
+            rows = s.execute(
+                text(
+                    """
+                    SELECT schemaname || '.' || relname AS table_name,
+                           pg_total_relation_size(relid) AS size_bytes
+                    FROM pg_catalog.pg_statio_user_tables
+                    ORDER BY size_bytes DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"limit": limit},
+            ).all()
+            return [{"table_name": r.table_name, "size_bytes": int(r.size_bytes)} for r in rows]

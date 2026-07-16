@@ -1,20 +1,31 @@
 """FRONTEND.md §3.2: admin-only управление пользователями — чтение (R2) +
 мутации (R3), тонкая обертка над abkit.auth.service (те же функции, что и
-Admin-таб в app.py, включая генерацию временного пароля и запись в audit_log)."""
+Admin-таб в app.py, включая генерацию временного пароля и запись в audit_log).
+
+Also: admin monitoring panel (resource usage + persistent history) — same
+admin-only gate, thin wrapper over abkit.monitoring/abkit.db.repositories.MonitoringRepo."""
 
 from __future__ import annotations
 
+import shutil
 import uuid as uuid_mod
+from datetime import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from abkit.auth.guards import AuthError, CurrentUser
-from abkit.db.repositories import RepoError, UserRepo
-from backend.deps import require_min_role
+from abkit.db.repositories import MonitoringRepo, RepoError, UserRepo
+from abkit.db.store import get_data_dir
+from abkit.monitoring import MonitoringCollector
+from backend.deps import get_monitoring_collector, require_min_role
 from backend.errors import APIError
 from backend.schemas.admin import (
     CreateUserRequest,
     CreateUserResponse,
+    MonitoringCurrentOut,
+    MonitoringHistoryOut,
+    MonitoringHistoryPoint,
+    MonitoringTableSize,
     PatchUserRequest,
     ResetPasswordResponse,
     UserAdminOut,
@@ -97,3 +108,82 @@ def reset_password(
     target = _get_user_or_404(user_id)
     new_password = admin_reset_password(user, target_email=target.email)
     return ResetPasswordResponse(new_password=new_password)
+
+
+def _current_payload() -> MonitoringCurrentOut:
+    repo = MonitoringRepo()
+    latest = repo.latest()
+
+    # Static infra info (doesn't meaningfully change while the process
+    # runs) — queried fresh here rather than stored in every history point.
+    disk_total_mb: float | None = None
+    try:
+        disk_total_mb = shutil.disk_usage(get_data_dir()).total / (1024 * 1024)
+    except OSError:
+        pass
+
+    try:
+        top_tables = repo.top_tables(limit=10)
+    except Exception:
+        top_tables = []
+
+    return MonitoringCurrentOut(
+        ts=latest.ts if latest else None,
+        backend_rss_mb=latest.backend_rss_mb if latest else None,
+        db_total_mb=latest.db_total_mb if latest else None,
+        data_volume_mb=latest.data_volume_mb if latest else None,
+        disk_free_mb=latest.disk_free_mb if latest else None,
+        disk_total_mb=disk_total_mb,
+        active_jobs=latest.active_jobs if latest else None,
+        top_tables=[MonitoringTableSize(**t) for t in top_tables],
+    )
+
+
+@router.get("/monitoring/current", response_model=MonitoringCurrentOut)
+def get_monitoring_current(user: CurrentUser = Depends(require_min_role("admin"))) -> MonitoringCurrentOut:
+    return _current_payload()
+
+
+@router.get("/monitoring/history", response_model=MonitoringHistoryOut)
+def get_monitoring_history(
+    ts_from: datetime = Query(..., alias="from"),
+    ts_to: datetime = Query(..., alias="to"),
+    resolution: str = Query("raw", pattern="^(raw|hourly)$"),
+    user: CurrentUser = Depends(require_min_role("admin")),
+) -> MonitoringHistoryOut:
+    rows = MonitoringRepo().list_range(resolution=resolution, ts_from=ts_from, ts_to=ts_to)
+    return MonitoringHistoryOut(
+        resolution=resolution,  # type: ignore[arg-type]
+        points=[
+            MonitoringHistoryPoint(
+                ts=r.ts,
+                backend_rss_mb=r.backend_rss_mb,
+                db_total_mb=r.db_total_mb,
+                data_volume_mb=r.data_volume_mb,
+                disk_free_mb=r.disk_free_mb,
+                active_jobs=r.active_jobs,
+                backend_rss_mb_min=r.backend_rss_mb_min,
+                backend_rss_mb_max=r.backend_rss_mb_max,
+                db_total_mb_min=r.db_total_mb_min,
+                db_total_mb_max=r.db_total_mb_max,
+                data_volume_mb_min=r.data_volume_mb_min,
+                data_volume_mb_max=r.data_volume_mb_max,
+                disk_free_mb_min=r.disk_free_mb_min,
+                disk_free_mb_max=r.disk_free_mb_max,
+            )
+            for r in rows
+        ],
+    )
+
+
+@router.post("/monitoring/snapshot-now", response_model=MonitoringCurrentOut)
+def force_monitoring_snapshot(
+    collector: MonitoringCollector = Depends(get_monitoring_collector),
+    user: CurrentUser = Depends(require_min_role("admin")),
+) -> MonitoringCurrentOut:
+    """Manual refresh — what lets e2e/tests see data without waiting up to
+    60s for the timer thread's first regular tick, and generally useful
+    whenever "right now, for real" matters more than the up-to-60s-stale
+    stored latest."""
+    collector.snapshot_now()
+    return _current_payload()
