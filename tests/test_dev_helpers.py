@@ -104,3 +104,33 @@ def test_teardown_is_idempotent(db_env):
     assert first["experiments"] == 1
     second = dev.teardown()
     assert second["experiments"] == 0  # nothing left tracked, no error re-deleting
+
+
+def test_tag_forces_prefix_and_teardown_removes_it(db_env):
+    """Item A3 (DB bloat package) — tags didn't exist yet when DevSession
+    was first written; closing that gap."""
+    from abkit.db.repositories import TagRepo
+
+    admin = _admin(db_env)
+    dev = DevSession()
+    tag = dev.tag(admin, "probe")
+    assert tag.name == "_dev_probe"
+    assert TagRepo().get_by_id(tag.id) is not None
+
+    removed = dev.teardown()
+    assert removed["tags"] == 1
+    assert TagRepo().get_by_id(tag.id) is None
+
+
+def test_folder_forces_prefix_and_teardown_removes_it(db_env):
+    from abkit.db.repositories import FolderRepo
+
+    admin = _admin(db_env)
+    dev = DevSession()
+    folder = dev.folder(admin, "probe")
+    assert folder.name == "_dev_probe"
+    assert FolderRepo().get_by_id(folder.id) is not None
+
+    removed = dev.teardown()
+    assert removed["folders"] == 1
+    assert FolderRepo().get_by_id(folder.id) is None

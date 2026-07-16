@@ -42,9 +42,12 @@ test('admin sees Monitoring at /settings/monitoring with live data after a force
   // Range picker switches to a longer (hourly-resolution) window without
   // erroring — an empty history at that resolution is fine (fresh e2e
   // stack has no hour-old data yet), just checking the control works and
-  // the page doesn't fall over.
+  // the page doesn't fall over. Both charts (item B: memory with area+step+
+  // limit line, DB+volume with area+step) still render on this resolution.
   await page.getByText('7d', { exact: true }).click()
   await expect(page.getByText('Backend memory').first()).toBeVisible()
+  await expect(page.locator('canvas').first()).toBeVisible({ timeout: 10_000 })
+  expect(await page.locator('canvas').count()).toBeGreaterThanOrEqual(2)
 })
 
 test('editor cannot reach Monitoring (no menu entry, route redirects away)', async ({ page }) => {

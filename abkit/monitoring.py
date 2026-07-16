@@ -38,8 +38,51 @@ HOURLY_RETENTION = timedelta(days=90)
 # How often the retention pass (downsample + purge) runs — independent of
 # the 60s snapshot cadence, since there's no need to re-check this often.
 RETENTION_INTERVAL_SECONDS = 300
+# Item A2 (DB bloat package): the bloat-detection LOG warning runs weekly,
+# not on every tick — a table doesn't need re-flagging in the logs every
+# 5 minutes once it's bloated, that's just noise. The Monitoring panel's
+# live hint is separate (computed fresh per API request, see
+# backend/routers/admin.py::_current_payload) precisely so an admin looking
+# at the panel isn't stuck waiting for this weekly cadence to see accurate
+# state — only the LOG has a cadence, the displayed hint doesn't.
+WEEKLY_INTERVAL_SECONDS = 7 * 24 * 3600
 
 METRICS = ("backend_rss_mb", "db_total_mb", "data_volume_mb", "disk_free_mb")
+
+_CGROUP_V2_MEMORY_MAX = Path("/sys/fs/cgroup/memory.max")
+_CGROUP_V1_MEMORY_LIMIT = Path("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+# cgroup v1's conventional "no limit set" sentinel (a huge number rather
+# than a literal "unlimited" string, unlike cgroup v2's "max") — anything at
+# or above this is treated as unset, not a real 8-exabyte constraint.
+_CGROUP_V1_UNLIMITED_SENTINEL = 9_223_372_036_854_771_712
+
+
+def read_memory_limit_mb() -> float | None:
+    """The effective memory limit actually enforced on this container right
+    now — NOT `ABKIT_BACKEND_MEM_LIMIT` (that env var is read by Docker
+    Compose on the HOST to set the container's cgroup limit; it is never
+    passed into the container's own environment, so `os.environ` can't see
+    it). Reading the cgroup directly reflects the real constraint
+    regardless of how it was set (docker-compose.yml's `mem_limit:`, a
+    manual `docker run -m`, Kubernetes resources.limits.memory, etc.).
+    cgroup v2 (`memory.max`) is tried first, falling back to v1
+    (`memory.limit_in_bytes`) for older Docker/host kernels. Returns None if
+    neither path exists (not running under a memory-limited cgroup — e.g.
+    bare `pytest`/local dev outside Docker) or no limit was actually set."""
+    try:
+        if _CGROUP_V2_MEMORY_MAX.exists():
+            raw = _CGROUP_V2_MEMORY_MAX.read_text().strip()
+            if raw == "max":
+                return None
+            return int(raw) / (1024 * 1024)
+        if _CGROUP_V1_MEMORY_LIMIT.exists():
+            raw_bytes = int(_CGROUP_V1_MEMORY_LIMIT.read_text().strip())
+            if raw_bytes >= _CGROUP_V1_UNLIMITED_SENTINEL:
+                return None
+            return raw_bytes / (1024 * 1024)
+    except (OSError, ValueError):
+        return None
+    return None
 
 
 def dir_size_mb(path: Path) -> float:
@@ -123,6 +166,7 @@ class MonitoringCollector:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_retention_at = 0.0
+        self._last_bloat_check_at = 0.0
 
     def _cached_data_volume_mb(self) -> float | None:
         now = time.monotonic()
@@ -197,6 +241,26 @@ class MonitoringCollector:
         if purged:
             log.info("monitoring.retention_purged", count=purged)
 
+    def run_bloat_check(self) -> list[Any]:
+        """Item A2 (DB bloat package) — logs one structured warning per
+        bloated table (dead-tuple ratio > 30% AND size > 100MB, see
+        abkit.db.maintenance.find_bloated_tables). Deliberately does NOT run
+        VACUUM FULL itself — that needs an ACCESS EXCLUSIVE lock and stays a
+        human decision made during a maintenance window; this only makes
+        the need impossible to miss. Returns the list found (empty if none)
+        so tests can assert on it directly instead of only on log output."""
+        from abkit.db.maintenance import find_bloated_tables
+
+        bloated = find_bloated_tables()
+        for table in bloated:
+            log.warning(
+                "monitoring.table_bloat_detected",
+                table=table.table_name,
+                dead_pct=round(table.dead_pct, 1),
+                size_mb=round(table.size_mb, 1),
+            )
+        return bloated
+
     def _loop(self) -> None:
         while not self._stop.wait(SNAPSHOT_INTERVAL_SECONDS):
             try:
@@ -209,6 +273,12 @@ class MonitoringCollector:
                     self.run_retention()
                 except Exception:
                     log.error("monitoring.retention_failed", exc_info=True)
+            if time.monotonic() - self._last_bloat_check_at >= WEEKLY_INTERVAL_SECONDS:
+                self._last_bloat_check_at = time.monotonic()
+                try:
+                    self.run_bloat_check()
+                except Exception:
+                    log.error("monitoring.bloat_check_failed", exc_info=True)
 
     def start(self) -> None:
         # No synchronous snapshot here on purpose: this runs on every
@@ -220,6 +290,7 @@ class MonitoringCollector:
         # only POST /admin/monitoring/snapshot-now (also this feature's own
         # e2e test) covers "I want a data point right now".
         self._last_retention_at = time.monotonic()
+        self._last_bloat_check_at = time.monotonic()
         self._stop.clear()
         thread = threading.Thread(target=self._loop, daemon=True)
         thread.name = "abkit-monitoring"

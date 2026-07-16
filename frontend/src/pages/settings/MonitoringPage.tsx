@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Card, Col, Row, Segmented, Statistic, Table, Tooltip, Typography, Space } from 'antd'
+import { Alert, Card, Col, Row, Segmented, Statistic, Table, Tooltip, Typography, Space } from 'antd'
 import { WarningOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { apiClient, errorMessage } from '../../api/client'
@@ -115,11 +115,43 @@ export function MonitoringPage() {
     current?.disk_free_mb != null && current?.disk_total_mb ? current.disk_free_mb / current.disk_total_mb : null
   const diskWarning = diskFreePct != null && diskFreePct < DISK_FREE_WARNING_THRESHOLD
 
+  // Item B2/B3: aggregated ranges (7d/30d/90d) carry stored hourly min/max
+  // alongside the avg — 24h stays raw points, with no min/max to show (the
+  // schema already returns them as null there, nothing to branch on here).
+  const memoryReferenceLine =
+    current?.backend_mem_limit_mb != null
+      ? { value: current.backend_mem_limit_mb, label: 'memory limit' }
+      : undefined
+
   return (
     <div>
       <Typography.Title level={4} style={{ marginBottom: 16 }}>
         Monitoring
       </Typography.Title>
+
+      {/* Item A2 (DB bloat package): live per-request check (see
+          backend/routers/admin.py::_current_payload), not the collector's
+          own weekly-cadence LOG warning — an admin looking at this page
+          shouldn't have to wait up to a week to see accurate bloat state. */}
+      {current?.bloated_tables && current.bloated_tables.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="High table bloat detected"
+          description={
+            <ul style={{ marginBottom: 0, paddingLeft: 20 }}>
+              {current.bloated_tables.map((t) => (
+                <li key={t.table_name}>
+                  <Typography.Text code>{t.table_name}</Typography.Text> — {t.dead_pct.toFixed(1)}% dead rows,{' '}
+                  {t.size_mb.toFixed(0)} MB. VACUUM FULL recommended during a maintenance window (see
+                  docs/OPERATIONS.md).
+                </li>
+              ))}
+            </ul>
+          }
+        />
+      )}
 
       <Row gutter={16} style={{ marginBottom: 24 }}>
         <Col span={6}>
@@ -176,11 +208,15 @@ export function MonitoringPage() {
           ) : (
             <MonitoringLineChart
               yAxisLabel="MB"
+              referenceLine={memoryReferenceLine}
               series={[
                 {
                   name: 'Backend memory',
                   color: chartColors.significantPositive,
-                  points: points.map((p) => ({ ts: p.ts, value: p.backend_rss_mb })),
+                  points: points.map((p) => ({
+                    ts: p.ts, value: p.backend_rss_mb,
+                    min: p.backend_rss_mb_min, max: p.backend_rss_mb_max,
+                  })),
                 },
               ]}
             />
@@ -197,12 +233,16 @@ export function MonitoringPage() {
                 {
                   name: 'Database',
                   color: chartColors.significantPositive,
-                  points: points.map((p) => ({ ts: p.ts, value: p.db_total_mb })),
+                  points: points.map((p) => ({
+                    ts: p.ts, value: p.db_total_mb, min: p.db_total_mb_min, max: p.db_total_mb_max,
+                  })),
                 },
                 {
                   name: 'Data volume',
                   color: colors.warning,
-                  points: points.map((p) => ({ ts: p.ts, value: p.data_volume_mb })),
+                  points: points.map((p) => ({
+                    ts: p.ts, value: p.data_volume_mb, min: p.data_volume_mb_min, max: p.data_volume_mb_max,
+                  })),
                 },
               ]}
             />

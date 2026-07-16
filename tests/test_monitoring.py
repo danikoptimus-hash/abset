@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from abkit.db.repositories import JobRepo, MonitoringRepo
-from abkit.monitoring import MonitoringCollector, dir_size_mb, plan_retention
+from abkit.monitoring import MonitoringCollector, dir_size_mb, plan_retention, read_memory_limit_mb
 
 
 @dataclass
@@ -191,6 +191,73 @@ def test_collector_run_retention_downsamples_and_purges(db_url, tmp_path):
     # The 200-day-old point is gone entirely (purged, past HOURLY_RETENTION).
     all_raw_left = repo.list_range(resolution="raw", ts_from=ancient - timedelta(days=1), ts_to=now + timedelta(days=1))
     assert all(r.ts != ancient for r in all_raw_left)
+
+
+def test_run_bloat_check_returns_and_logs_whatever_find_bloated_tables_reports(db_url, tmp_path, monkeypatch):
+    """Item A2 — wiring test: run_bloat_check() forwards find_bloated_tables()'s
+    result as-is (the threshold logic itself is tested in isolation in
+    tests/test_db_maintenance.py::_classify_bloat) and never raises even when
+    something is flagged."""
+    from abkit.db.maintenance import TableBloatInfo
+
+    fake_bloated = [TableBloatInfo(table_name="assignments", dead_pct=87.5, size_mb=2183.0)]
+    monkeypatch.setattr("abkit.db.maintenance.find_bloated_tables", lambda: fake_bloated)
+
+    collector = MonitoringCollector(data_dir=tmp_path)
+    result = collector.run_bloat_check()
+
+    assert result == fake_bloated
+
+
+def test_run_bloat_check_returns_empty_when_nothing_bloated(db_url, tmp_path, monkeypatch):
+    monkeypatch.setattr("abkit.db.maintenance.find_bloated_tables", lambda: [])
+
+    collector = MonitoringCollector(data_dir=tmp_path)
+    assert collector.run_bloat_check() == []
+
+
+def test_read_memory_limit_mb_returns_none_when_no_cgroup_files_exist(monkeypatch):
+    import pathlib
+
+    monkeypatch.setattr("abkit.monitoring._CGROUP_V2_MEMORY_MAX", pathlib.Path("/nonexistent/memory.max"))
+    monkeypatch.setattr(
+        "abkit.monitoring._CGROUP_V1_MEMORY_LIMIT", pathlib.Path("/nonexistent/memory.limit_in_bytes")
+    )
+    assert read_memory_limit_mb() is None
+
+
+def test_read_memory_limit_mb_parses_cgroup_v2_bytes(tmp_path, monkeypatch):
+    memory_max = tmp_path / "memory.max"
+    memory_max.write_text(str(4 * 1024 * 1024 * 1024))  # 4 GiB
+    monkeypatch.setattr("abkit.monitoring._CGROUP_V2_MEMORY_MAX", memory_max)
+    assert read_memory_limit_mb() == pytest.approx(4096.0)
+
+
+def test_read_memory_limit_mb_cgroup_v2_max_means_unlimited(tmp_path, monkeypatch):
+    memory_max = tmp_path / "memory.max"
+    memory_max.write_text("max")
+    monkeypatch.setattr("abkit.monitoring._CGROUP_V2_MEMORY_MAX", memory_max)
+    assert read_memory_limit_mb() is None
+
+
+def test_read_memory_limit_mb_falls_back_to_cgroup_v1(tmp_path, monkeypatch):
+    import pathlib
+
+    monkeypatch.setattr("abkit.monitoring._CGROUP_V2_MEMORY_MAX", pathlib.Path("/nonexistent/memory.max"))
+    memory_limit = tmp_path / "memory.limit_in_bytes"
+    memory_limit.write_text(str(2 * 1024 * 1024 * 1024))  # 2 GiB
+    monkeypatch.setattr("abkit.monitoring._CGROUP_V1_MEMORY_LIMIT", memory_limit)
+    assert read_memory_limit_mb() == pytest.approx(2048.0)
+
+
+def test_read_memory_limit_mb_cgroup_v1_sentinel_means_unlimited(tmp_path, monkeypatch):
+    import pathlib
+
+    monkeypatch.setattr("abkit.monitoring._CGROUP_V2_MEMORY_MAX", pathlib.Path("/nonexistent/memory.max"))
+    memory_limit = tmp_path / "memory.limit_in_bytes"
+    memory_limit.write_text("9223372036854771712")
+    monkeypatch.setattr("abkit.monitoring._CGROUP_V1_MEMORY_LIMIT", memory_limit)
+    assert read_memory_limit_mb() is None
 
 
 def test_monitoring_repo_database_total_mb_and_top_tables(db_url):

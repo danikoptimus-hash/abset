@@ -6,6 +6,7 @@ gated by CurrentUser/require_role)."""
 from __future__ import annotations
 
 import uuid
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -173,3 +174,43 @@ def test_dataset_matching_e2e_pattern_deletes_row_and_unlinks_file(db_env, tmp_p
     assert "probe.csv" in result["datasets"]
     assert DatasetRepo().get_by_id(dataset_id) is None
     assert not csv_path.exists()
+
+
+def test_cleanup_dev_vacuums_after_a_real_delete(db_env):
+    """Item A2 (DB bloat package): a cleanup-dev run that actually deleted
+    something triggers a VACUUM of every table it could have touched — the
+    root cause of the 2+ GB assignments bloat this package fixes was
+    exactly that no delete path ever did this."""
+    admin = _make_user("vacuum_admin@co.com", "admin")
+    jobs.run_design(admin, _config("_dev_vacuum_probe"), _design_data(seed=7))
+
+    with patch("abkit.db.maintenance.vacuum_tables") as mock_vacuum:
+        result = jobs.run_cleanup_dev(dry_run=False, min_age_hours=1)
+
+    assert "_dev_vacuum_probe" in result["experiments"]
+    mock_vacuum.assert_called_once()
+    (vacuumed_tables,) = mock_vacuum.call_args.args
+    assert "assignments" in vacuumed_tables
+    assert "experiments" in vacuumed_tables
+    assert "datasets" in vacuumed_tables
+
+
+def test_cleanup_dev_dry_run_never_vacuums(db_env):
+    admin = _make_user("vacuum_dry_admin@co.com", "admin")
+    jobs.run_design(admin, _config("_dev_vacuum_dry_probe"), _design_data(seed=8))
+
+    with patch("abkit.db.maintenance.vacuum_tables") as mock_vacuum:
+        result = jobs.run_cleanup_dev(dry_run=True)
+
+    assert "_dev_vacuum_dry_probe" in result["experiments"]
+    mock_vacuum.assert_not_called()
+
+
+def test_cleanup_dev_skips_vacuum_when_nothing_was_deleted(db_env):
+    _make_user("vacuum_noop_admin@co.com", "admin")
+
+    with patch("abkit.db.maintenance.vacuum_tables") as mock_vacuum:
+        result = jobs.run_cleanup_dev(dry_run=False, min_age_hours=1)
+
+    assert all(v == [] for v in result.values())
+    mock_vacuum.assert_not_called()

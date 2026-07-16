@@ -88,6 +88,46 @@ def test_current_includes_top_tables(app_client, db_url, monkeypatch, tmp_path):
     assert all(t["size_bytes"] >= 0 for t in current["top_tables"])
 
 
+def test_current_includes_mem_limit_and_bloated_tables(app_client, db_url, monkeypatch, tmp_path):
+    """Item A2/B2 — both are computed fresh on every /current call, not
+    stored history columns; mem limit is None off-Docker (no cgroup files
+    on this test machine), bloated_tables is empty on a freshly-migrated
+    test DB with no meaningful dead-tuple buildup."""
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client, role="admin")
+
+    current = app_client.get("/api/v1/admin/monitoring/current").json()
+    assert "backend_mem_limit_mb" in current
+    assert current["bloated_tables"] == []
+
+
+def test_current_surfaces_bloated_tables_from_find_bloated_tables(app_client, db_url, monkeypatch, tmp_path):
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client, role="admin")
+
+    from abkit.db.maintenance import TableBloatInfo
+
+    monkeypatch.setattr(
+        "abkit.db.maintenance.find_bloated_tables",
+        lambda: [TableBloatInfo(table_name="assignments", dead_pct=87.5, size_mb=2183.0)],
+    )
+
+    current = app_client.get("/api/v1/admin/monitoring/current").json()
+    assert current["bloated_tables"] == [{"table_name": "assignments", "dead_pct": 87.5, "size_mb": 2183.0}]
+
+
+def test_current_mem_limit_reflects_read_memory_limit_mb(app_client, db_url, monkeypatch, tmp_path):
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client, role="admin")
+
+    # backend/routers/admin.py imports read_memory_limit_mb by name at
+    # module load time (not a lazy/local import like find_bloated_tables
+    # above) — the patch target is the router module's own binding.
+    monkeypatch.setattr("backend.routers.admin.read_memory_limit_mb", lambda: 4096.0)
+    current = app_client.get("/api/v1/admin/monitoring/current").json()
+    assert current["backend_mem_limit_mb"] == 4096.0
+
+
 def test_history_filters_by_range_and_resolution(app_client, db_url, monkeypatch, tmp_path):
     monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
     _login(app_client, role="admin")

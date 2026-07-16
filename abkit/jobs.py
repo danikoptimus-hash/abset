@@ -43,6 +43,42 @@ def _get_experiment_row(name: str):
     return exp_row
 
 
+# Item A2 (DB bloat package): every table an experiment delete touches,
+# directly or via ON DELETE CASCADE (migrations 0001/0009/0014) — see
+# migrations/versions/0001_initial.py for assignments/analysis_results,
+# 0014_experiment_flow_images.py for that FK. datasets.experiment_id is
+# ON DELETE SET NULL (migration 0012), not a delete — no dead tuples from
+# THIS operation, so it's deliberately excluded here (cleanup-dev's own list
+# below covers it, since cleanup-dev DOES delete dataset rows outright).
+_EXPERIMENT_CASCADE_TABLES = [
+    "experiments",
+    "assignments",
+    "analysis_results",
+    "experiment_blocks",
+    "experiment_tags",
+    "experiment_datasets",
+    "experiment_access",
+    "experiment_flow_images",
+]
+
+
+def _vacuum_experiment_cascade_tables() -> None:
+    """Best-effort, never raises — a single experiment delete is a small
+    operation on its own, but this is the ONLY place that runs after every
+    single one, so it's the natural hook to keep dead-tuple buildup from
+    compounding silently across many deletes over time (the root cause of
+    the 2+ GB `assignments` bloat that motivated this whole package was
+    exactly that: no delete ever triggered a VACUUM, so autovacuum's own
+    (much less aggressive, threshold-based) cadence was the only thing
+    running — plain VACUUM here is cheap and immediate)."""
+    try:
+        from abkit.db.maintenance import vacuum_tables
+
+        vacuum_tables(_EXPERIMENT_CASCADE_TABLES)
+    except Exception:
+        log.error("post_delete_vacuum_failed", exc_info=True)
+
+
 @contextmanager
 def _timed(action: str, **fields: Any):
     """INFO start/finish (с duration_ms) вокруг действия; ERROR с traceback,
@@ -499,6 +535,7 @@ def run_delete_experiment(current_user: CurrentUser, name: str) -> None:
         current_user, "experiment.delete", object_type="experiment", object_id=exp_id, object_name=name,
         details=deletion_summary,
     )
+    _vacuum_experiment_cascade_tables()
 
 
 class DatasetInUseError(Exception):
@@ -1061,6 +1098,18 @@ def run_cleanup_dev(*, dry_run: bool = False, min_age_hours: int = 1) -> dict[st
             if not dry_run:
                 UserRepo().set_active(u.id, False)
                 _audit(None, "dev_cleanup.user_deactivate", object_type="user", object_name=u.email)
+
+    # Item A2 (DB bloat package): a real cleanup-dev run is exactly the kind
+    # of bulk-delete that built up the 2+ GB assignments bloat this package
+    # exists to fix — VACUUM whatever it actually touched, not just leave it
+    # to autovacuum's own (much less aggressive) schedule.
+    if not dry_run and any(removed.values()):
+        try:
+            from abkit.db.maintenance import vacuum_tables
+
+            vacuum_tables(["datasets", "database_connections", "users", *_EXPERIMENT_CASCADE_TABLES])
+        except Exception:
+            log.error("post_cleanup_dev_vacuum_failed", exc_info=True)
 
     return removed
 

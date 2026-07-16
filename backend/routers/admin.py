@@ -16,10 +16,11 @@ from fastapi import APIRouter, Depends, Query
 from abkit.auth.guards import AuthError, CurrentUser
 from abkit.db.repositories import MonitoringRepo, RepoError, UserRepo
 from abkit.db.store import get_data_dir
-from abkit.monitoring import MonitoringCollector
+from abkit.monitoring import MonitoringCollector, read_memory_limit_mb
 from backend.deps import get_monitoring_collector, require_min_role
 from backend.errors import APIError
 from backend.schemas.admin import (
+    BloatedTableOut,
     BulkSetActiveRequest,
     BulkSetActiveResult,
     BulkSetActiveSkipped,
@@ -148,6 +149,20 @@ def _current_payload() -> MonitoringCurrentOut:
     except Exception:
         top_tables = []
 
+    # Item A2 — live, not the collector's own weekly-cadence log check (see
+    # abkit.monitoring.WEEKLY_INTERVAL_SECONDS): cheap system-catalog read,
+    # safe on every request, and an admin looking at the panel shouldn't
+    # have to wait up to a week for accurate bloat state to show up.
+    try:
+        from abkit.db.maintenance import find_bloated_tables
+
+        bloated_tables = [
+            BloatedTableOut(table_name=t.table_name, dead_pct=t.dead_pct, size_mb=t.size_mb)
+            for t in find_bloated_tables()
+        ]
+    except Exception:
+        bloated_tables = []
+
     return MonitoringCurrentOut(
         ts=latest.ts if latest else None,
         backend_rss_mb=latest.backend_rss_mb if latest else None,
@@ -157,6 +172,8 @@ def _current_payload() -> MonitoringCurrentOut:
         disk_total_mb=disk_total_mb,
         active_jobs=latest.active_jobs if latest else None,
         top_tables=[MonitoringTableSize(**t) for t in top_tables],
+        backend_mem_limit_mb=read_memory_limit_mb(),
+        bloated_tables=bloated_tables,
     )
 
 

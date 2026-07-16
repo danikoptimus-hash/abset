@@ -85,6 +85,9 @@ jobs:
       - name: Lint (eslint)
         run: npm run lint
 
+      - name: Unit tests (vitest — item B, memory chart redesign)
+        run: npm run test:unit
+
       - name: Build
         run: npm run build
 

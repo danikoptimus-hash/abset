@@ -18,6 +18,8 @@ Usage::
         experiment = dev.design(current_user, config, data)  # name -> _dev_<name>
         dataset_id = dev.dataset(filename="probe.csv", ...)  # -> _dev_probe.csv
         conn_id = dev.connection(current_user, display_name="probe", ...)  # -> _dev_probe
+        tag = dev.tag(current_user, "probe")                # -> _dev_probe
+        folder = dev.folder(current_user, "probe")          # -> _dev_probe
         ...
     # teardown() already ran on __exit__ — everything above is gone.
 
@@ -43,6 +45,12 @@ class DevSession:
     _experiment_names: list[str] = field(default_factory=list)
     _dataset_ids: list[uuid_mod.UUID] = field(default_factory=list)
     _connection_ids: list[uuid_mod.UUID] = field(default_factory=list)
+    # Item A3 (DB bloat package): tags/folders didn't exist yet when this
+    # helper was first written — closing that gap, not new scope. Same
+    # forced-prefix + tracked-for-teardown pattern as design/dataset/
+    # connection above.
+    _tag_ids: list[uuid_mod.UUID] = field(default_factory=list)
+    _folder_ids: list[uuid_mod.UUID] = field(default_factory=list)
 
     def design(self, current_user, config, data: Any, **kwargs: Any):
         """Wraps jobs.run_design — config.name gets the _dev_ prefix forced
@@ -75,6 +83,29 @@ class DevSession:
         self._connection_ids.append(conn.id)
         return conn.id
 
+    def tag(self, current_user, name: str):
+        """Wraps jobs.run_create_tag — name gets the _dev_ prefix forced on.
+        Note: tag creation is get-or-create (case-insensitive) — if a tag
+        with this exact _dev_-prefixed name already exists, teardown()
+        removes that SAME shared tag, same trade-off the real /tags endpoint
+        already accepts (CLAUDE.md, tags section)."""
+        from abkit import jobs
+
+        name = ensure_dev_prefix(name)
+        tag = jobs.run_create_tag(current_user, name)
+        self._tag_ids.append(tag.id)
+        return tag
+
+    def folder(self, current_user, name: str):
+        """Wraps jobs.run_create_folder — name gets the _dev_ prefix forced
+        on."""
+        from abkit import jobs
+
+        name = ensure_dev_prefix(name)
+        folder = jobs.run_create_folder(current_user, name)
+        self._folder_ids.append(folder.id)
+        return folder
+
     def teardown(self) -> dict[str, int]:
         """Removes everything created through this session, via the same
         proper service/repo functions the rest of the app uses (not raw
@@ -83,10 +114,10 @@ class DevSession:
         import shutil
         from pathlib import Path
 
-        from abkit.db.repositories import DatabaseConnectionRepo, DatasetRepo, ExperimentRepo
+        from abkit.db.repositories import DatabaseConnectionRepo, DatasetRepo, ExperimentRepo, FolderRepo, TagRepo
         from abkit.db.store import DbExperimentStore
 
-        removed = {"experiments": 0, "datasets": 0, "connections": 0}
+        removed = {"experiments": 0, "datasets": 0, "connections": 0, "tags": 0, "folders": 0}
 
         for name in self._experiment_names:
             if ExperimentRepo().get_by_name(name) is not None:
@@ -112,6 +143,18 @@ class DevSession:
                 DatabaseConnectionRepo().delete(conn_id)
                 removed["connections"] += 1
         self._connection_ids.clear()
+
+        for tag_id in self._tag_ids:
+            if TagRepo().get_by_id(tag_id) is not None:
+                TagRepo().delete(tag_id)
+                removed["tags"] += 1
+        self._tag_ids.clear()
+
+        for folder_id in self._folder_ids:
+            if FolderRepo().get_by_id(folder_id) is not None:
+                FolderRepo().delete(folder_id)
+                removed["folders"] += 1
+        self._folder_ids.clear()
 
         return removed
 

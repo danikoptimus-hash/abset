@@ -1542,6 +1542,23 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /**
+         * BloatedTableOut
+         * @description Item A2 (DB bloat package) — a table over both bloat thresholds
+         *     (abkit.db.maintenance.find_bloated_tables) right now. Computed fresh on
+         *     every /current call (cheap system-catalog read), not cached from the
+         *     collector's own weekly log-only check — see monitoring.py's
+         *     WEEKLY_INTERVAL_SECONDS comment for why the two are deliberately
+         *     decoupled.
+         */
+        BloatedTableOut: {
+            /** Table Name */
+            table_name: string;
+            /** Dead Pct */
+            dead_pct: number;
+            /** Size Mb */
+            size_mb: number;
+        };
         /** BlockIn */
         BlockIn: {
             /** Id */
@@ -2414,9 +2431,12 @@ export interface components {
          * @description Admin monitoring panel — latest stored snapshot (up to
          *     SNAPSHOT_INTERVAL_SECONDS=60s stale, same cadence the history chart
          *     uses, so "current" always agrees with the most recent history point)
-         *     plus two things queried fresh on every call rather than stored:
-         *     disk_total_mb (static infra info, not worth a history column) and
-         *     top_tables (a "right now" breakdown, not a time series).
+         *     plus things queried fresh on every call rather than stored:
+         *     disk_total_mb (static infra info, not worth a history column),
+         *     top_tables (a "right now" breakdown, not a time series),
+         *     backend_mem_limit_mb (the cgroup memory limit — also static, and reading
+         *     ABKIT_VERSION-style build-time state doesn't fit a per-snapshot column),
+         *     and bloated_tables (see BloatedTableOut).
          */
         MonitoringCurrentOut: {
             /** Ts */
@@ -2435,6 +2455,13 @@ export interface components {
             active_jobs: number | null;
             /** Top Tables */
             top_tables: components["schemas"]["MonitoringTableSize"][];
+            /** Backend Mem Limit Mb */
+            backend_mem_limit_mb?: number | null;
+            /**
+             * Bloated Tables
+             * @default []
+             */
+            bloated_tables: components["schemas"]["BloatedTableOut"][];
         };
         /** MonitoringHistoryOut */
         MonitoringHistoryOut: {

@@ -228,6 +228,26 @@ def test_run_delete_experiment_writes_delete_audit(editor, admin):
     assert entry.object_name == "audit_delete_exp"
 
 
+def test_run_delete_experiment_vacuums_cascade_tables(editor, admin):
+    """Item A2 (DB bloat package): every experiment delete triggers a VACUUM
+    of the tables its cascade touches (assignments in particular — the
+    table that actually built up 2+ GB of bloat in the incident this
+    package fixes)."""
+    from unittest.mock import patch
+
+    data = _design_data(seed=71)
+    jobs.run_design(editor, _config("audit_vacuum_delete_exp", len(data)), data)
+
+    with patch("abkit.db.maintenance.vacuum_tables") as mock_vacuum:
+        jobs.run_delete_experiment(admin, "audit_vacuum_delete_exp")
+
+    mock_vacuum.assert_called_once()
+    (vacuumed_tables,) = mock_vacuum.call_args.args
+    assert "assignments" in vacuumed_tables
+    assert "experiments" in vacuumed_tables
+    assert "analysis_results" in vacuumed_tables
+
+
 def test_login_success_writes_auth_login_audit(db_env):
     from abkit.auth.service import login
 
