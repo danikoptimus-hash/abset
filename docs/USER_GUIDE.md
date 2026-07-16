@@ -352,20 +352,13 @@ The design report always includes:
   metrics)." Each row also carries an explicit **primary**/**secondary** tag,
   and the table always lists primary metrics first (in the order you added
   them), secondary metrics after — regardless of the order you declared them
-  in during design. A metric whose relative MDE comes out **above 100% of
-  its own baseline** gets a soft yellow highlight with a ⚠, tooltipped "MDE
-  exceeds the baseline — for rare metrics like this the configured absolute
-  MDE may be unrealistic to detect" — informational only, it never blocks
-  anything.
+  in during design.
 - **Required n per group** — the old "n per group" column, renamed and
   tooltipped ("Minimum group size to detect this metric's MDE at given
   α/power. Differs per metric — depends on its variance") and always rounded
   **up** (you need *at least* this many, never fewer). Below the table, an
   **Actual group sizes** line states what the real split actually produced,
-  by group name ("Actual group sizes: control 25,000 · test 25,000") — if
-  any metric's required n exceeds the smallest actual group, a warning names
-  it explicitly ("turnover requires 31,837 per group — actual is below
-  (power under target for this metric)").
+  by group name ("Actual group sizes: control 25,000 · test 25,000").
 - **Stratification** — the Design tab's Configuration panel and the design
   report both state it explicitly: "Stratified by: gender, platform (12
   strata after combination, min stratum size: 20)" when you stratified,

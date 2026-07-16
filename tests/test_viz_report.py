@@ -236,20 +236,22 @@ def test_design_report_required_n_per_group_uses_ceil_not_round(tmp_path):
     assert "<td>1499</td>" not in power_section
 
 
-def test_design_report_actual_group_sizes_row_and_shortfall_warning(tmp_path):
+def test_design_report_actual_group_sizes_row_without_shortfall_warning(tmp_path):
     """Item 1.3: below the Power/MDE table, an 'Actual group sizes' line
-    grounds the required-n column against the real split by name; a metric
-    whose required n exceeds the smallest actual group size gets an
-    explicit warning naming it. sample_size=10_000 against only 2000 actual
-    candidates guarantees a shortfall (design always splits the full
-    candidate pool, never subsamples down to config.sample_size)."""
+    grounds the required-n column against the real split by name. The
+    per-metric shortfall warning that used to accompany it (item 1.3 of the
+    mde/results tables package) was removed — noisy in practice — while the
+    plain actual-sizes line stays; sample_size=10_000 against only 2000
+    actual candidates would have triggered the old warning (design always
+    splits the full candidate pool, never subsamples to config.sample_size),
+    confirming its absence isn't just "never applicable" here."""
     n = 2000
     rng = np.random.default_rng(5)
     design_data = pd.DataFrame(
         {"user_id": [f"u{i}" for i in range(n)], "revenue": rng.normal(100, 20, size=n)}
     )
     config = DesignConfig(
-        name="shortfall_check",
+        name="actual_sizes_check",
         unit_col="user_id",
         groups={"control": 0.5, "treatment": 0.5},
         metrics=[MetricConfig(name="revenue", type="continuous")],
@@ -263,23 +265,23 @@ def test_design_report_actual_group_sizes_row_and_shortfall_warning(tmp_path):
     power_section = html.split('id="section-power"')[1].split("</section>")[0]
     assert "Actual group sizes:" in power_section
     assert "control" in power_section and "treatment" in power_section
-    assert "revenue requires" in power_section
-    assert "actual is below" in power_section
+    assert "requires" not in power_section
+    assert "actual is below" not in power_section
 
 
-def test_design_report_flags_mde_exceeding_baseline(tmp_path):
-    """Item 2: a metric whose achievable relative MDE exceeds 100% of its
-    own baseline gets a soft (non-blocking) warning highlight. n=20 total
-    (10 per group), baseline exactly 30% (a FIXED, non-random 6-of-20 split
-    — not rng.binomial, so the baseline can't drift with the RNG draw) is
-    deliberately underpowered: power.mde_binary(0.3, n_control=10, ...) ~=
-    0.58 absolute, i.e. ~193% relative — comfortably over the threshold."""
+def test_design_report_does_not_flag_mde_exceeding_baseline(tmp_path):
+    """Item 1.1: the MDE-exceeds-baseline sanity highlight (yellow row +
+    tooltip) was removed — too noisy, informational value didn't justify
+    it. A metric whose achievable relative MDE is far over 100% of its own
+    baseline (same underpowered fixture the highlight used to trigger on:
+    n=20 total, 10 per group, a fixed 30% baseline) must render with no
+    trace of the old warning markup."""
     n = 20
     design_data = pd.DataFrame(
         {"user_id": [f"u{i}" for i in range(n)], "rare_event": [1] * 6 + [0] * 14}
     )
     config = DesignConfig(
-        name="mde_sanity_check",
+        name="mde_sanity_removed_check",
         unit_col="user_id",
         groups={"control": 0.5, "treatment": 0.5},
         metrics=[MetricConfig(name="rare_event", type="binary")],
@@ -290,12 +292,12 @@ def test_design_report_flags_mde_exceeding_baseline(tmp_path):
     )
     experiment = Experiment.design(config, design_data, experiments_dir=tmp_path)
     pr = experiment.report.power_results["rare_event"]
-    assert pr.mde_rel is not None and pr.mde_rel > 1
+    assert pr.mde_rel is not None and pr.mde_rel > 1  # still comfortably underpowered
 
     html = (experiment.path / "design_report.html").read_text(encoding="utf-8")
     power_section = html.split('id="section-power"')[1].split("</section>")[0]
-    assert 'class="mde-warn"' in power_section
-    assert "unrealistic to detect" in power_section
+    assert 'class="mde-warn"' not in power_section
+    assert "unrealistic to detect" not in power_section
 
 
 def test_design_report_shows_strata_info_and_balance_table(tmp_path):

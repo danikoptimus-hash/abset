@@ -1,5 +1,5 @@
 import { Typography, Table, Tag, Space, Button, Alert, Descriptions, Collapse, Spin, Tooltip, Image } from 'antd'
-import { DownloadOutlined, EyeOutlined, WarningOutlined } from '@ant-design/icons'
+import { DownloadOutlined, EyeOutlined } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
@@ -257,11 +257,6 @@ function formatRequiredN(value: number | null): string {
   return value == null ? '—' : Math.ceil(value).toLocaleString('en-US')
 }
 
-// Item 2: an MDE bigger than the baseline itself (>100% relative) usually
-// means the configured absolute MDE doesn't make sense for this metric's
-// scale — informational only, never blocks anything.
-const MDE_SANITY_THRESHOLD = 1
-
 function mdeTable(computed: ComputedDesignSummary) {
   const rows = Object.entries(computed.power)
     .map(([metricName, p]) => ({
@@ -277,9 +272,6 @@ function mdeTable(computed: ComputedDesignSummary) {
       mde_rel_cuped: p.mde_rel_cuped,
       mde_abs_cuped: p.mde_abs_cuped,
       n_per_group_cuped: p.sample_size_per_group_cuped,
-      mdeExceedsBaseline:
-        (p.mde_rel != null && p.mde_rel > MDE_SANITY_THRESHOLD) ||
-        (p.mde_rel_cuped != null && p.mde_rel_cuped > MDE_SANITY_THRESHOLD),
     }))
     // Item 3.1: primary metrics first — defense-in-depth stable sort (the
     // backend already emits computed.power in this order for designs run
@@ -310,11 +302,6 @@ function mdeTable(computed: ComputedDesignSummary) {
             </Tooltip>
           ) : (
             v
-          )}
-          {record.mdeExceedsBaseline && (
-            <Tooltip title="MDE exceeds the baseline — for rare metrics like this the configured absolute MDE may be unrealistic to detect">
-              <WarningOutlined style={{ color: '#faad14' }} />
-            </Tooltip>
           )}
         </Space>
       ),
@@ -381,21 +368,10 @@ function mdeTable(computed: ComputedDesignSummary) {
   // Item 1.3: the required-n column is per-metric — this line grounds it
   // against what the split actually produced, by real group name.
   const actualEntries = Object.entries(computed.group_sizes)
-  const minActual = actualEntries.length > 0 ? Math.min(...actualEntries.map(([, n]) => n)) : null
-  const shortfalls =
-    minActual == null
-      ? []
-      : rows.filter((r) => r.n_per_group != null && Math.ceil(r.n_per_group) > minActual)
 
   return (
     <>
-      <Table
-        size="small"
-        dataSource={rows}
-        columns={columns}
-        pagination={false}
-        rowClassName={(record) => (record.mdeExceedsBaseline ? 'mde-warn-row' : '')}
-      />
+      <Table size="small" dataSource={rows} columns={columns} pagination={false} />
       {hasSecondary && (
         <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
           † Secondary MDE is the minimal detectable effect at the chosen sample size (sample size is driven by
@@ -403,20 +379,9 @@ function mdeTable(computed: ComputedDesignSummary) {
         </Typography.Text>
       )}
       {actualEntries.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            Actual group sizes: {actualEntries.map(([g, n]) => `${g} ${n.toLocaleString('en-US')}`).join(' · ')}
-          </Typography.Text>
-          {shortfalls.map((r) => (
-            <Alert
-              key={r.key}
-              type="warning"
-              showIcon
-              style={{ marginTop: 4 }}
-              message={`${r.metric} requires ${formatRequiredN(r.n_per_group)} per group — actual is below (power under target for this metric)`}
-            />
-          ))}
-        </div>
+        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
+          Actual group sizes: {actualEntries.map(([g, n]) => `${g} ${n.toLocaleString('en-US')}`).join(' · ')}
+        </Typography.Text>
       )}
     </>
   )
