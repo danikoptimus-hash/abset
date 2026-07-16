@@ -256,7 +256,13 @@ jobs:
       packages: write
 
     steps:
+      # fetch-depth:0 (full history + tags) — item 8-Б: the backend image's
+      # `version` build stage runs `git describe --tags` against this same
+      # checkout's .git; a shallow (default depth-1) clone risks not having
+      # the tag object resolvable, silently falling back to a bare sha.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Версия из тега (v1.4.0 -> 1.4.0)
         id: version

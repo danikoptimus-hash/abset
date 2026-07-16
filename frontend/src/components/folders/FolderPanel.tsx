@@ -100,12 +100,6 @@ export function FolderPanel({
         active={selected === undefined}
         onClick={() => onSelect(undefined)}
       />
-      <FolderRow
-        label="Uncategorized"
-        count={data?.uncategorized_count ?? 0}
-        active={selected === 'none'}
-        onClick={() => onSelect('none')}
-      />
       {(data?.items ?? []).map((folder) => (
         <FolderRow
           key={folder.id}
@@ -130,6 +124,19 @@ export function FolderPanel({
           }
         />
       ))}
+      {/* Item 5.7: not a folder, just a view over folder_id IS NULL — kept
+          visually apart (after the real folders, muted styling) and only
+          shown at all once something is actually uncategorized; never
+          rename/delete-able (no menu prop, ever). */}
+      {(data?.uncategorized_count ?? 0) > 0 && (
+        <FolderRow
+          label="Uncategorized"
+          count={data!.uncategorized_count}
+          active={selected === 'none'}
+          onClick={() => onSelect('none')}
+          muted
+        />
+      )}
 
       <CreateFolderModal
         open={createOpen}
@@ -166,12 +173,16 @@ function FolderRow({
   active,
   onClick,
   menu,
+  muted,
 }: {
   label: string
   count: number
   active: boolean
   onClick: () => void
   menu?: MenuProps
+  // Item 5.7: "Uncategorized" isn't a folder (no rename/delete, ever) — kept
+  // visually apart from real user-created folders regardless of selection.
+  muted?: boolean
 }) {
   return (
     <div
@@ -184,12 +195,12 @@ function FolderRow({
         borderRadius: 6,
         cursor: 'pointer',
         background: active ? '#F0F5F3' : undefined,
-        fontWeight: active ? 600 : 400,
+        fontWeight: active && !muted ? 600 : 400,
       }}
     >
       <span style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
-        <FolderOutlined style={{ color: active ? undefined : '#8c8c8c' }} />
-        <Typography.Text ellipsis style={{ maxWidth: 130 }}>
+        <FolderOutlined style={{ color: muted ? '#bfbfbf' : active ? undefined : '#8c8c8c' }} />
+        <Typography.Text ellipsis type={muted ? 'secondary' : undefined} italic={muted} style={{ maxWidth: 130 }}>
           {label}
         </Typography.Text>
       </span>

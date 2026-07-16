@@ -1,13 +1,16 @@
 # syntax=docker/dockerfile:1
-# Мультистейдж-сборка (DOCKER.md §7.1). Версия (item 8, audit-details+
-# пакет — CLAUDE.md "Правило: релизный процесс"): на тегированном CI-билде
-# (build-and-push, .github/workflows/ci.yml) ABKIT_VERSION приходит снаружи
-# как build-arg, посчитанный из git-тега (`vX.Y.Z` -> `X.Y.Z`) — и это же
-# значение записывается в OCI-лейбл ниже. На ЛОКАЛЬНОМ билде (просто
-# `docker compose up -d --build`, без --build-arg) ARG остается на дефолте
-# "dev" — тогда abkit/__init__.py::_read_version() падает на файл GIT_SHA
-# (стадия `version` ниже, git rev-parse внутри билда, без участия
-# разработчика) и показывает "dev (<short sha>)".
+# Мультистейдж-сборка (DOCKER.md §7.1). Версия, отображаемая пользователю
+# (item 8 + 8-Б, audit-details+ пакет — CLAUDE.md "Правило: релизный
+# процесс"): ЕДИНЫЙ источник — `git describe --tags --always --long` против
+# .git, скопированного в контекст сборки (стадия `version` ниже) — работает
+# ОДИНАКОВО что на тегированном CI-билде (build-and-push,
+# .github/workflows/ci.yml — там же нужен fetch-depth:0 при checkout, чтобы
+# теги были видны), что на локальном `docker compose up -d --build` без
+# всякого тега: на самом теге distance=0 -> "vX.Y.Z"; после тега ->
+# "vX.Y.Z+N (sha)"; тегов вообще нет -> "dev (sha)" (см.
+# abkit/__init__.py::_format_version). Отдельный ABKIT_VERSION build-arg
+# ниже — ДРУГОЕ, соседнее назначение: только OCI image-лейбл/имя тега образа
+# в ghcr.io, не то, что видит пользователь в About/отчетах.
 #
 # Образ backend-сервиса (FastAPI/uvicorn, FRONTEND.md) — интерфейс React
 # (сервис frontend в docker-compose.yml, отдельный образ frontend/Dockerfile).
@@ -27,21 +30,20 @@ RUN pip install --no-cache-dir --upgrade pip \
  && pip wheel --no-cache-dir --wheel-dir /wheels ".[db-connectors]"
 
 # Отдельная стадия (не задевает кэш builder'а выше — .git меняется на каждый
-# коммит, а слой с зависимостями должен оставаться закэшированным). Просто
-# короткий hex sha, без git-describe/тегов — тег-версию отдает ABKIT_VERSION
-# build-arg (CI), эта стадия только про fallback-отображение для локальных
-# билетов без явного тега.
+# коммит, а слой с зависимостями должен оставаться закэшированным).
+# --always: если тегов вообще нет в истории, падает на голый sha вместо
+# ошибки — abkit/__init__.py::_format_version отличает этот случай (нет
+# "-N-g" паттерна) и показывает "dev (sha)".
 FROM python:3.12-slim AS version
 WORKDIR /repo
 RUN apt-get update && apt-get install -y --no-install-recommends git \
  && rm -rf /var/lib/apt/lists/*
 COPY .git ./.git
-RUN git rev-parse --short HEAD > /GIT_SHA 2>/dev/null || echo "unknown" > /GIT_SHA
+RUN git describe --tags --always --long > /VERSION_DESCRIBE 2>/dev/null || echo "" > /VERSION_DESCRIBE
 
 FROM python:3.12-slim
 
 ARG ABKIT_VERSION=dev
-ENV ABKIT_VERSION=${ABKIT_VERSION}
 LABEL org.opencontainers.image.title="abkit" \
       org.opencontainers.image.version="${ABKIT_VERSION}" \
       org.opencontainers.image.source="https://github.com/danikoptimus-hash/abkit"
@@ -74,7 +76,7 @@ RUN pip install --no-cache-dir --no-compile /wheels/*.whl \
 # локальной editable-разработке. Локальная копия в sys.path имеет приоритет
 # перед версией из site-packages (тем же wheel'ом) — это осознанно и безвредно.
 COPY . .
-COPY --from=version /GIT_SHA /app/GIT_SHA
+COPY --from=version /VERSION_DESCRIBE /app/VERSION_DESCRIBE
 RUN mkdir -p /data/experiments \
  && chown -R abkit:abkit /app /data \
  && chmod +x /app/docker/entrypoint-backend.sh

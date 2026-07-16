@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test'
 import { loginViaUi, seedExperiment, clickSelectOption } from './helpers'
 
+const API_BASE = process.env.E2E_API_BASE ?? 'http://localhost:8000/api/v1'
+
 // Item 5 (folders package): create a folder, move a test into it via the
 // row action, filter the list by clicking the folder, then bulk-move a
 // second test, and finally delete the folder and confirm its test moves
@@ -88,6 +90,10 @@ test('Only editor+ sees "New folder", and folder filter composes with status/tag
   const suffix = Date.now()
   const expName = `folders_compose_${suffix}`
   await seedExperiment(request, expName)
+  // Published so the viewer can actually see it — item 5.7: "Uncategorized"
+  // only shows once something VISIBLE TO THIS USER is actually uncategorized,
+  // a draft invisible to a viewer wouldn't count.
+  await request.patch(`${API_BASE}/experiments/${expName}`, { data: { publication_status: 'published' } })
   await loginViaUi(page, 'viewer@e2e.test', 'e2epass123')
   await page.goto('/experiments')
 

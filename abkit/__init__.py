@@ -1,6 +1,6 @@
 """abkit — фреймворк для дизайна и анализа A/B тестов."""
 
-import os
+import re
 from pathlib import Path
 
 from abkit.config import DesignConfig, MetricConfig
@@ -8,35 +8,55 @@ from abkit.experiment import DesignError, Experiment
 
 __all__ = ["DesignConfig", "MetricConfig", "Experiment", "DesignError", "PRODUCT_NAME"]
 
+# `git describe --tags --always --long` output, e.g. "v2.5.0-0-g1863360"
+# (exact tag) or "v2.5.0-3-gabc1234" (3 commits past the tag). No "-N-g..."
+# suffix at all (just a bare sha, or nothing) means no tag was reachable.
+_DESCRIBE_RE = re.compile(r"^(?P<tag>.+)-(?P<distance>\d+)-g(?P<sha>[0-9a-f]+)$")
 
-def _read_version(*, env: dict | None = None, sha_file: Path | None = None) -> str:
-    """Single source of truth = the release git tag (item 8, audit-details+
-    package — CLAUDE.md "Правило: релизный процесс"). `ABKIT_VERSION` is set
-    by docker/Dockerfile's ARG->ENV on a tagged CI build (build-and-push job,
-    .github/workflows/ci.yml — derives it from the pushed `vX.Y.Z` tag, so
-    the value here is already the plain "X.Y.Z" the tag names, no further
-    parsing needed). A LOCAL build (no explicit --build-arg, the Dockerfile's
-    own default) leaves ABKIT_VERSION at its literal "dev" default — falls
-    through to /app/GIT_SHA, computed automatically at image-build time by
-    the Dockerfile's `version` stage (git rev-parse --short HEAD against the
-    build context's own .git — no developer action needed, this Just Works
-    on plain `docker compose up -d --build`). A bare non-Docker run (pytest,
-    local editable install) has neither — "dev" plain, since it's not what
-    gets shown to real users (only the Docker-built About page/report header
-    are). env/sha_file are injectable purely for tests/test_version.py —
-    real callers (module load below) always use the real environ/path."""
-    env = env if env is not None else os.environ
-    sha_file = sha_file if sha_file is not None else Path(__file__).resolve().parent.parent / "GIT_SHA"
 
-    env_version = env.get("ABKIT_VERSION", "dev")
-    if env_version != "dev":
-        return env_version.lstrip("v")
+def _format_version(raw: str) -> str:
+    """Item 8-Б (audit-details+ package, follow-up): on the tagged commit
+    itself, distance is 0 -> plain "vX.Y.Z"; N commits past a tag ->
+    "vX.Y.Z+N (sha)" (semver build-metadata-flavored, human-readable at a
+    glance which release this is closest to and how far past it); no tag
+    reachable at all -> "dev (sha)"."""
+    raw = raw.strip()
+    if not raw:
+        return "dev"
+    match = _DESCRIBE_RE.match(raw)
+    if match is None:
+        # `--always` fallback when no tag exists in history at all: a bare
+        # abbreviated sha, no "-N-g" pattern to parse.
+        return f"dev ({raw})"
+    distance = int(match.group("distance"))
+    if distance == 0:
+        return match.group("tag")
+    return f"{match.group('tag')}+{distance} ({match.group('sha')})"
 
-    if sha_file.exists():
-        sha = sha_file.read_text().strip()
-        if sha and sha != "unknown":
-            return f"dev ({sha})"
 
+def _read_version(*, describe_file: Path | None = None) -> str:
+    """Single source of truth = `git describe --tags` against the build
+    context's own .git (CLAUDE.md "Правило: релизный процесс") — computed
+    ONCE, at image-build time, by docker/Dockerfile's `version` stage (never
+    at runtime: no git binary or repo history ships in the final image).
+    Works identically for a tagged CI release build and a local
+    `docker compose up -d --build` with no explicit tag — describe naturally
+    reports "how far past the last tag" either way, no separate build-arg
+    mechanism needed for the DISPLAYED version (docker/Dockerfile's
+    ABKIT_VERSION build-arg still exists, but only for the OCI image label/
+    ghcr.io tag name — a different, adjacent concern from what a human sees
+    in the app). A bare non-Docker run (pytest, local editable install) has
+    no VERSION_DESCRIBE file at all — "dev" plain, since it's not what real
+    users see (only the Docker-built About page/report header are).
+    describe_file is injectable purely for tests/test_version.py."""
+    describe_file = (
+        describe_file if describe_file is not None
+        else Path(__file__).resolve().parent.parent / "VERSION_DESCRIBE"
+    )
+    if describe_file.exists():
+        raw = describe_file.read_text().strip()
+        if raw:
+            return _format_version(raw)
     return "dev"
 
 

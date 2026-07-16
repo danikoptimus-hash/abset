@@ -156,12 +156,14 @@ collides with an existing tag offers to merge into it instead of failing.
 Where tags are free-form, overlapping labels, **folders** are simple,
 single-membership containers — one level deep, no folders-within-folders.
 A **Folders** panel sits to the left of the A/B Tests table: **All tests**
-(everything you can see), **Uncategorized** (not filed into any folder —
-where every test starts out), and any folders that exist, each showing how
-many tests it holds. Click one to filter the table to just that folder;
-click the panel's collapse arrow to hide it and reclaim table width. The
-folder filter combines with Status, Tags, and the search box — filtering to
-a folder plus a status still narrows to tests matching both.
+(everything you can see), any folders that exist (each showing how many
+tests it holds), and — only if at least one test isn't filed anywhere —
+**Uncategorized** at the bottom, shown muted since it isn't a real folder
+you created (just a view over "no folder"; it can't be renamed or deleted).
+Click one to filter the table to just that folder; click the panel's
+collapse arrow to hide it and reclaim table width. The folder filter
+combines with Status, Tags, and the search box — filtering to a folder plus
+a status still narrows to tests matching both.
 
 Any Editor can create a folder ("+" next to the panel heading, just a name).
 Filing a test into one — or back out to Uncategorized — needs the same edit

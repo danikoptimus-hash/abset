@@ -130,16 +130,25 @@ docker compose exec backend abkit-admin cleanup-dev
     бампнуть тег** (semver: новые фичи → minor, только фиксы → patch),
     прежде чем переходить к следующему пакету, а не откладывать до
     "накопится побольше". Версия, которую видит пользователь, теперь
-    выводится ИЗ САМОГО ТЕГА, а не хранится отдельной строкой в коде —
-    `abkit/__init__.py::_read_version()` читает `ABKIT_VERSION` (env,
-    проставляется `docker/Dockerfile`'s `ARG`→`ENV` из `--build-arg`,
-    который CI считает из `${GITHUB_REF_NAME#v}` на тег-билде) либо, если
-    тега не было (обычный `docker compose up -d --build` без явного
-    build-arg), читает `/app/GIT_SHA` — короткий hash, посчитанный ВНУТРИ
-    сборки отдельной Docker-стадией `version` (`git rev-parse --short HEAD`
-    против `.git`, скопированного в контекст сборки — `.dockerignore` его
-    больше не исключает) — и показывает `dev (<short sha>)`. Никакого
-    ручного шага от разработчика не требуется ни в одном из двух случаев.
+    выводится ИЗ САМОГО ТЕГА, а не хранится отдельной строкой в коде и не
+    зависит от build-arg'ов CI (item 8-Б, доводка после первого прохода
+    item 8 — тот использовал `ABKIT_VERSION` env как основной источник и
+    показывал версию БЕЗ префикса `v`, что разъезжалось с именем самого
+    тега): единственный источник — `git describe --tags --always --long`
+    против `.git`, скопированного в build context (`.dockerignore` его не
+    исключает), посчитанный ОДИН РАЗ на этапе сборки отдельной Docker-стадией
+    `version` в файл `/app/VERSION_DESCRIBE`, который `abkit/__init__.py::
+    _read_version()`/`_format_version()` парсит при импорте: на самом теге
+    (`distance=0`) → `vX.Y.Z`; после тега → `vX.Y.Z+N (sha)`; тегов в истории
+    вообще нет → `dev (sha)`. Работает ОДИНАКОВО что на CI-билде из тега
+    (`build-and-push`, `.github/workflows/ci.yml` — там чекаут с
+    `fetch-depth: 0`, иначе тег может быть не виден при shallow-клоне), что
+    на обычном локальном `docker compose up -d --build` без всякого тега —
+    никакого ручного шага от разработчика не требуется ни в одном случае.
+    Отдельный `ABKIT_VERSION` build-arg в Dockerfile остался, но только для
+    OCI image-лейбла/имени тега образа в ghcr.io — соседнее, не то же самое
+    назначение, что видимая пользователю версия (единый источник для
+    backend/API/HTML-отчетов — CLAUDE.md «единый источник, не три»).
 
 **CHANGELOG.md** — ведется вручную при подготовке каждого релизного тега:
 секция `## vX.Y.Z — <дата>` с перечнем крупных изменений с прошлого тега (не
@@ -320,7 +329,7 @@ create/edit user, Settings → Database Connections modal. Не подключе
 
 **API** (`abkit/jobs.py`: `run_create_folder`/`list_folders`/`run_rename_folder`/`run_delete_folder`/`run_move_experiment_to_folder`; `backend/routers/folders.py` + `PUT /experiments/{name}/folder` и `POST /experiments/bulk-move-folder` в `backend/routers/experiments.py`, тот же паттерн, что у тегов — назначение живет в роутере эксперимента, не в роутере сущности): `GET /folders` (viewer+, отдает список с `count` — посчитан ТОЛЬКО по видимым текущему пользователю экспериментам, `can_view_experiment`, тот же принцип, что у списка экспериментов — черновик, скрытый от этого пользователя, не должен раздувать чужой счетчик числом, которое нечем объяснить), `POST /folders` (editor+, точное совпадение имени — ошибка, не get-or-create как у тегов, `FolderNameConflictError` → 400 `folder_name_conflict`, без предложения слияния — папки не сливаются), `PATCH /folders/{id}` и `DELETE /folders/{id}` (создатель ИЛИ admin — `_require_folder_owner_or_admin`, уже, чем editor+, нужный для создания), `PUT /experiments/{name}/folder` (owner/access-editor/admin ЭТОГО эксперимента — `require_experiment_edit_access`, то же правило, что у тегов/блоков/переименования, не связано с тем, кто создал папку), `POST /experiments/bulk-move-folder` (тот же per-item skip-паттерн, что `bulk-delete`). Все мутации — `audit_log` (`folder.create`, `folder.rename` `{from,to}`, `folder.delete` `{affected_experiments}`, `experiment.folder_change` `{from,to}` — именами папок, не id).
 
-**Frontend**: `components/folders/FolderPanel.tsx` — коллапсируемая (стрелка сворачивания) левая панель на `/experiments` (`<nav aria-label="Folders">`): "All tests" + "Uncategorized" + список папок со счетчиками, клик — фильтр (`folder` composes AND-ом с `status`/`tag`/`q`, читается из URL при монтировании как и `tag`); "+ New folder" (editor+), "⋯" per-папка (creator или admin — сравнение `user.email === folder.created_by_email` на клиенте, реальная проверка на сервере) → Rename/Delete, Delete подтверждает через `Modal` с текстом "N tests will move to Uncategorized" (без typed-DELETE — не такой разрушительный шаг, как удаление самого теста). `components/folders/MoveToFolderModal.tsx` — один компонент на оба сценария (`names.length === 1` бьет в одиночный `PUT`, иначе в bulk-эндпоинт), используется и hover-кнопкой строки, и bulk-панелью `ExperimentsList.tsx` (третий пункт в `bulkActions`, рядом с Delete). `ExperimentsList.tsx` получил колонку Folder (кликабельный `Tag`, фильтрует так же, как клик по папке в панели) — таблица экспериментов НЕ имеет `onRow`, так что `MoveToFolderModal` (page-level sibling, не вложен в рендер строки) не подвержен классу бага из п.3 (React-portal click bubbling через `onRow`), `StopClickPropagation` не нужен.
+**Frontend**: `components/folders/FolderPanel.tsx` — коллапсируемая (стрелка сворачивания) левая панель на `/experiments` (`<nav aria-label="Folders">`): "All tests" → список папок со счетчиками → **"Uncategorized" В КОНЦЕ, только если `uncategorized_count > 0`** (п.5.7 — это не папка, а вид `folder_id IS NULL`; приглушенный стиль — `type="secondary"`+italic+серая иконка ВСЕГДА, даже когда выбрана — и никогда не получает `menu` prop, т.е. rename/delete физически недоступны, не просто скрыты правами). Клик — фильтр (`folder` composes AND-ом с `status`/`tag`/`q`, читается из URL при монтировании как и `tag`); "+ New folder" (editor+), "⋯" per-папка (creator или admin — сравнение `user.email === folder.created_by_email` на клиенте, реальная проверка на сервере) → Rename/Delete, Delete подтверждает через `Modal` с текстом "N tests will move to Uncategorized" (без typed-DELETE — не такой разрушительный шаг, как удаление самого теста). `components/folders/MoveToFolderModal.tsx` — один компонент на оба сценария (`names.length === 1` бьет в одиночный `PUT`, иначе в bulk-эндпоинт), используется и hover-кнопкой строки, и bulk-панелью `ExperimentsList.tsx` (третий пункт в `bulkActions`, рядом с Delete). `ExperimentsList.tsx` получил колонку Folder (кликабельный `Tag`, фильтрует так же, как клик по папке в панели) — таблица экспериментов НЕ имеет `onRow`, так что `MoveToFolderModal` (page-level sibling, не вложен в рендер строки) не подвержен классу бага из п.3 (React-portal click bubbling через `onRow`), `StopClickPropagation` не нужен.
 
 Drag&drop строки на папку (п.5.3.в опционально) — НЕ реализован: решение задокументировано здесь, не забытый пункт. Обоснование: dnd-kit уже в проекте (миниатюры флоу-картинок), но перетаскивание СТРОКИ ТАБЛИЦЫ на элемент ДРУГОГО компонента (панели) — принципиально другая, более дорогая интеграция (drop-zone в другом React-дереве, авто-скролл при перетаскивании через границу таблицы), чем переупорядочивание миниатюр внутри одной колонки; row action + bulk action уже покрывают тот же результат за один клик.
 
