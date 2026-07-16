@@ -209,11 +209,12 @@ def admin_set_active(acting_user: CurrentUser, *, target_email: str, is_active: 
     user = UserRepo().get_by_email(target_email)
     if user is None:
         raise AuthError(f"User '{target_email}' not found")
+    old_is_active = user.is_active
     UserRepo().set_active(user.id, is_active)
     _audit(
         action="user.active_change", user_id=uuid_mod.UUID(acting_user.id), user_email=acting_user.email,
         object_type="user", object_id=str(user.id), object_name=target_email,
-        details={"is_active": is_active},
+        details={"from": old_is_active, "to": is_active},
     )
 
 

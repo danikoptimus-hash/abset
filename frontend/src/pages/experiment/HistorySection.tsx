@@ -4,6 +4,7 @@ import { Typography, Table } from 'antd'
 import { apiClient, errorMessage } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { RelativeTime } from '../../components/RelativeTime'
+import { AuditDetailsCell } from '../../components/AuditDetailsCell'
 
 export function HistorySection({ name }: { name: string }) {
   const [page, setPage] = useState(1)
@@ -33,6 +34,11 @@ export function HistorySection({ name }: { name: string }) {
           { title: 'When', dataIndex: 'ts', render: (ts: string) => <RelativeTime iso={ts} /> },
           { title: 'User', dataIndex: 'user_email' },
           { title: 'Action', dataIndex: 'action' },
+          {
+            title: 'Details',
+            key: 'details',
+            render: (_, entry) => <AuditDetailsCell action={entry.action} details={entry.details} />,
+          },
         ]}
       />
     </div>

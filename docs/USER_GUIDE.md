@@ -53,6 +53,14 @@ occupies — reopening a `completed` test back to `running` drops its
 Completed date — but the transition itself is still fully recorded in the
 audit log regardless.
 
+The **History** tab on the experiment page (and, for Admins, the global
+**Action Log** under Settings) lists every audited change — not just what
+happened, but a human-readable **Details** column showing what actually
+changed: "status: designed → running", "renamed: 'Old' → 'New'", "tags:
++checkout, −q2". Changes touching several fields at once (Edit Properties,
+dataset edits) show a one-line summary with a "more" link that expands the
+full before/after for each field.
+
 While an experiment is still `designed` (before you've moved it to
 `running`), its "⋯" menu offers **Redesign** — discard the current split,
 MDE table, and split checks, and reopen the design wizard pre-filled with

@@ -218,12 +218,14 @@ def bulk_delete_experiments(
 
 def _get_last_modified(exp) -> tuple:
     """Самое свежее из audit_log (status/publication/rename/properties/
-    analyze — все аудируются, см. abkit/jobs.py::_audit) и
-    experiment_blocks.updated_at/updated_by (блоки НЕ аудируются отдельно,
-    только эти две колонки трассируют правку). Фильтр по object_id (баг
-    п.15) — по object_name склеивал бы это с audit_log эксперимента,
-    удаленного и затем пересозданного под тем же именем; переименование
-    по-прежнему работает, потому что id при переименовании не меняется."""
+    tags/blocks/analyze — все аудируются, см. abkit/jobs.py::_audit) и
+    experiment_blocks.updated_at/updated_by (запасной сигнал: PUT /blocks
+    трогает updated_at/updated_by при КАЖДОМ сохранении, даже если текст
+    блока не изменился и experiment.blocks_change поэтому не пишется — см.
+    run_update_experiment_blocks). Фильтр по object_id (баг п.15) — по
+    object_name склеивал бы это с audit_log эксперимента, удаленного и затем
+    пересозданного под тем же именем; переименование по-прежнему работает,
+    потому что id при переименовании не меняется."""
     from abkit.db.repositories import AuditRepo, BlockRepo
 
     candidates: list[tuple] = []
@@ -592,13 +594,9 @@ def get_blocks(name: str, user: CurrentUser = Depends(get_current_user)) -> list
 def put_blocks(
     name: str, body: list[BlockIn], user: CurrentUser = Depends(get_current_user),
 ) -> list[BlockOut]:
-    from abkit.access import require_experiment_edit_access
+    from abkit.jobs import run_update_experiment_blocks
 
-    exp = _get_experiment_or_404(name)
-    require_experiment_edit_access(user, exp)
-    blocks = BlockRepo().upsert_many(
-        exp.id, [b.model_dump() for b in body], updated_by=uuid_mod.UUID(user.id)
-    )
+    blocks = run_update_experiment_blocks(user, name, [b.model_dump() for b in body])
     return [
         BlockOut(
             id=str(b.id), kind=b.kind, title=b.title, content_md=b.content_md,

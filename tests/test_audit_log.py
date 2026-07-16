@@ -157,6 +157,66 @@ def test_run_update_status_writes_status_change_audit_with_from_to(editor):
     assert entry.details == {"from": "designed", "to": "running"}
 
 
+def test_run_set_experiment_tags_writes_added_removed_audit(editor):
+    from abkit.db.repositories import TagRepo
+
+    data = _design_data(seed=61)
+    jobs.run_design(editor, _config("audit_tags_exp", len(data)), data)
+    checkout = TagRepo().get_or_create("checkout", created_by=None)
+    q2 = TagRepo().get_or_create("q2", created_by=None)
+
+    jobs.run_set_experiment_tags(editor, "audit_tags_exp", [str(checkout.id), str(q2.id)])
+    jobs.run_set_experiment_tags(editor, "audit_tags_exp", [str(checkout.id)])
+
+    entry = _last_action(action="experiment.tags_change")
+    assert entry is not None
+    assert entry.object_name == "audit_tags_exp"
+    assert entry.details == {"added": [], "removed": ["q2"]}
+
+
+def test_run_update_experiment_properties_writes_owners_diff_audit(editor, admin):
+    data = _design_data(seed=62)
+    jobs.run_design(editor, _config("audit_props_exp", len(data)), data)
+
+    jobs.run_update_experiment_properties(
+        editor, "audit_props_exp",
+        new_name="audit_props_exp", owner_ids=[], editor_ids=[str(admin.id)], visible_roles=None,
+    )
+
+    entry = _last_action(action="experiment.properties_change")
+    assert entry is not None
+    assert entry.object_name == "audit_props_exp"
+    assert entry.details == {"editors": {"from": [], "to": ["admin@co.com"]}}
+
+
+def test_run_update_experiment_blocks_writes_changed_kinds_audit(editor):
+    from abkit.db.repositories import BlockRepo, ExperimentRepo
+
+    data = _design_data(seed=63)
+    jobs.run_design(editor, _config("audit_blocks_exp", len(data)), data)
+    exp_row = ExperimentRepo().get_by_name("audit_blocks_exp")
+    existing = BlockRepo().list_for_experiment(exp_row.id)
+    hyp = next(b for b in existing if b.kind == "hypothesis")
+    payload = [
+        {"id": str(b.id), "kind": b.kind, "title": b.title, "content_md": b.content_md}
+        for b in existing
+    ]
+    for entry_dict in payload:
+        if entry_dict["id"] == str(hyp.id):
+            entry_dict["content_md"] = "Because X, we expect Y."
+
+    jobs.run_update_experiment_blocks(editor, "audit_blocks_exp", payload)
+    entry = _last_action(action="experiment.blocks_change")
+    assert entry is not None
+    assert entry.object_name == "audit_blocks_exp"
+    assert entry.details == {"kinds": ["hypothesis"]}
+
+    # Re-saving identical content is a no-op — no fresh audit noise.
+    before = AuditRepo().count(action="experiment.blocks_change")
+    jobs.run_update_experiment_blocks(editor, "audit_blocks_exp", payload)
+    assert AuditRepo().count(action="experiment.blocks_change") == before
+
+
 def test_run_delete_experiment_writes_delete_audit(editor, admin):
     data = _design_data(seed=7)
     jobs.run_design(editor, _config("audit_delete_exp", len(data)), data)
@@ -250,7 +310,7 @@ def test_admin_set_active_writes_audit(admin):
 
     entry = _last_action(action="user.active_change")
     assert entry is not None
-    assert entry.details == {"is_active": False}
+    assert entry.details == {"from": True, "to": False}
 
 
 def test_self_register_writes_user_create_audit(db_env, monkeypatch):

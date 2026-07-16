@@ -729,10 +729,24 @@ def run_update_experiment_properties(
     model'. owner_ids/editor_ids always carry the FULL desired list (the modal
     replaces, not appends); the original owner_id is implicit and never stored
     in experiment_access even if present in owner_ids."""
-    from abkit.db.repositories import ExperimentAccessRepo, ExperimentRepo
+    from abkit.db.repositories import ExperimentAccessRepo, ExperimentRepo, UserRepo
 
     exp_row = _get_experiment_row(name)
     require_experiment_edit_access(current_user, exp_row)
+
+    user_repo = UserRepo()
+
+    def _emails(user_ids: set[uuid_mod.UUID]) -> list[str]:
+        emails = []
+        for uid in user_ids:
+            user = user_repo.get_by_id(uid)
+            emails.append(user.email if user else str(uid))
+        return sorted(emails)
+
+    old_grants = ExperimentAccessRepo().list_for_experiment(exp_row.id)
+    old_owner_emails = _emails({g.user_id for g in old_grants if g.access == "owner"})
+    old_editor_emails = _emails({g.user_id for g in old_grants if g.access == "editor"})
+    old_visible_roles = exp_row.visible_roles
 
     current_name = name
     if new_name != name:
@@ -758,15 +772,59 @@ def run_update_experiment_properties(
         ExperimentAccessRepo().set_for_experiment(exp_row.id, grants)
         ExperimentRepo().update_visible_roles(current_name, visible_roles)
 
+    new_owner_emails = _emails(owner_uuids)
+    new_editor_emails = _emails({u for u, access in grants if access == "editor"})
+    details: dict[str, Any] = {}
+    if old_owner_emails != new_owner_emails:
+        details["owners"] = {"from": old_owner_emails, "to": new_owner_emails}
+    if old_editor_emails != new_editor_emails:
+        details["editors"] = {"from": old_editor_emails, "to": new_editor_emails}
+    if old_visible_roles != visible_roles:
+        details["visible_roles"] = {"from": old_visible_roles, "to": visible_roles}
+
     _audit(
         current_user, "experiment.properties_change",
         object_type="experiment", object_id=str(exp_row.id), object_name=current_name,
-        details={
-            "owners": [str(u) for u in owner_uuids],
-            "editors": [str(u) for u, access in grants if access == "editor"],
-            "visible_roles": visible_roles,
-        },
+        details=details or None,
     )
+
+
+def run_update_experiment_blocks(
+    current_user: CurrentUser, name: str, blocks: list[dict[str, Any]],
+) -> list:
+    """PUT /experiments/{name}/blocks (Hypothesis/Conclusions/Decision, plus
+    any custom blocks) — same edit-access gate as rename/properties. Blocks
+    used to be intentionally left out of audit_log (see the now-stale
+    comment this replaced in backend/routers/experiments.py — 'блоки НЕ
+    аудируются отдельно'); item 4 of the audit-details package asks for at
+    least the block kind, so a thin entry is written listing which kinds
+    actually changed content (title/content_md), not full diffs — block text
+    can be long-form markdown, unlike the short from/to pairs used elsewhere."""
+    from abkit.db.repositories import BlockRepo
+
+    exp_row = _get_experiment_row(name)
+    require_experiment_edit_access(current_user, exp_row)
+
+    old_by_id = {b.id: b for b in BlockRepo().list_for_experiment(exp_row.id)}
+    result = BlockRepo().upsert_many(
+        exp_row.id, blocks, updated_by=uuid_mod.UUID(current_user.id)
+    )
+
+    changed_kinds: set[str] = set()
+    for new_block in result:
+        old_block = old_by_id.get(new_block.id)
+        if old_block is None:
+            changed_kinds.add(new_block.kind)
+        elif old_block.title != new_block.title or old_block.content_md != new_block.content_md:
+            changed_kinds.add(new_block.kind)
+
+    if changed_kinds:
+        _audit(
+            current_user, "experiment.blocks_change",
+            object_type="experiment", object_id=str(exp_row.id), object_name=name,
+            details={"kinds": sorted(changed_kinds)},
+        )
+    return result
 
 
 def _connection_spec(conn_row):
@@ -1045,12 +1103,18 @@ def run_set_experiment_tags(current_user: CurrentUser, name: str, tag_ids: list[
     exp_row = _get_experiment_row(name)
     require_experiment_edit_access(current_user, exp_row)
 
+    old_names = {t.name for t in ExperimentTagRepo().list_for_experiment(exp_row.id)}
     parsed_ids = [uuid_mod.UUID(t) for t in tag_ids]
     ExperimentTagRepo().set_for_experiment(exp_row.id, parsed_ids)
     tags = ExperimentTagRepo().list_for_experiment(exp_row.id)
+    new_names = {t.name for t in tags}
     _audit(
         current_user, "experiment.tags_change", object_type="experiment", object_id=str(exp_row.id),
-        object_name=name, details={"tags": [t.name for t in tags]},
+        object_name=name,
+        details={
+            "added": sorted(new_names - old_names),
+            "removed": sorted(old_names - new_names),
+        },
     )
     return tags
 

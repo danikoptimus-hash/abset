@@ -4,6 +4,7 @@ import { Table, Input, Typography, Space } from 'antd'
 import { apiClient, errorMessage } from '../api/client'
 import { queryKeys } from '../api/queryKeys'
 import { RelativeTime } from '../components/RelativeTime'
+import { AuditDetailsCell } from '../components/AuditDetailsCell'
 
 export function AuditPage() {
   const [user, setUser] = useState('')
@@ -55,6 +56,11 @@ export function AuditPage() {
           { title: 'User', dataIndex: 'user_email' },
           { title: 'Action', dataIndex: 'action' },
           { title: 'Object', dataIndex: 'object_name' },
+          {
+            title: 'Details',
+            key: 'details',
+            render: (_, entry) => <AuditDetailsCell action={entry.action} details={entry.details} />,
+          },
         ]}
       />
     </div>
