@@ -94,6 +94,11 @@ Validation anymore — everything reads from a **dataset**, created once on the
 Both kinds show up identically in every dataset picker across the app.
 `[Screenshot: Datasets page with a mix of Upload and SQL-source rows]`
 
+Wherever you are in the app, the **+** button in the header (Editors and
+Admins only) is a shortcut to create either an **A/B test** or a **Dataset**
+without navigating to the relevant page first — the same two flows the
+per-page buttons open.
+
 When you upload a file, before it's saved you get a confirmation step: an
 editable dataset name (prefilled from the filename) and a table of detected
 columns — name, detected type, and a preview of the first values — with each

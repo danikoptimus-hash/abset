@@ -1,12 +1,14 @@
-import { Layout, Menu, Dropdown, Space } from 'antd'
-import { SettingOutlined, DownOutlined } from '@ant-design/icons'
+import { useState } from 'react'
+import { Layout, Menu, Dropdown, Space, Button } from 'antd'
+import { SettingOutlined, DownOutlined, PlusOutlined } from '@ant-design/icons'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { useAuth } from '../auth/AuthContext'
+import { useAuth, hasMinRole } from '../auth/AuthContext'
 import { apiClient } from '../api/client'
 import { queryKeys } from '../api/queryKeys'
 import { PRODUCT_NAME } from '../branding'
 import { UnsavedGuardProvider } from '../hooks/useUnsavedGuard'
+import { CreateDatasetModal } from '../pages/datasets/CreateDatasetModal'
 import logo from '../assets/logo.png'
 
 const { Header, Content } = Layout
@@ -24,8 +26,27 @@ export function AppLayout() {
   const { user, logout } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
+  // Глобальная "+" (Superset-style): второй вход в создание, существующие
+  // кнопки на страницах остаются. Датасет создается модалкой, а не роутом
+  // (/datasets/new не существует) — и состояние той модалки живет внутри
+  // DatasetsPage, куда шапке не дотянуться, поэтому CreateDatasetModal
+  // рендерится здесь своим экземпляром: пропсы у нее самодостаточные, и она
+  // сама инвалидирует datasetsAll, так что второй экземпляр ничего не ломает.
+  const [createDatasetOpen, setCreateDatasetOpen] = useState(false)
 
   const selectedKey = NAV_ITEMS.find((item) => location.pathname.startsWith(item.key))?.key ?? ''
+
+  const canCreate = hasMinRole(user, 'editor')
+
+  const createItems = [
+    { key: 'experiment', label: 'A/B test' },
+    { key: 'dataset', label: 'Dataset' },
+  ]
+
+  const handleCreateMenuClick = ({ key }: { key: string }) => {
+    if (key === 'experiment') navigate('/experiments/new')
+    if (key === 'dataset') setCreateDatasetOpen(true)
+  }
 
   const { data: version } = useQuery({
     queryKey: queryKeys.version(),
@@ -99,6 +120,17 @@ export function AppLayout() {
           <img src={logo} alt={PRODUCT_NAME} style={{ height: 42, width: 'auto', display: 'block' }} />
         </Link>
         <Menu mode="horizontal" selectedKeys={[selectedKey]} items={NAV_ITEMS} style={{ flex: 1, borderBottom: 'none' }} />
+        {canCreate && (
+          <Dropdown menu={{ items: createItems, onClick: handleCreateMenuClick }} trigger={['click']}>
+            <Button
+              type="text"
+              icon={<PlusOutlined />}
+              aria-label="Create"
+              data-testid="global-create-trigger"
+              style={{ marginRight: 16 }}
+            />
+          </Dropdown>
+        )}
         {user && (
           <Dropdown menu={{ items: settingsItems, onClick: handleSettingsMenuClick }} trigger={['click']}>
             <Space style={{ cursor: 'pointer' }} data-testid="user-menu-trigger">
@@ -112,6 +144,13 @@ export function AppLayout() {
       <Content style={{ padding: 24 }}>
         <UnsavedGuardProvider>
           <Outlet />
+          {/* Внутри провайдера, а не рядом с ним: useUnsavedGuard в
+              CreateDatasetModal регистрирует dirty-флаг ЧЕРЕЗ контекст, и
+              вне провайдера сделал бы это в null (ctx?.setDirty) — молча, без
+              ошибки, потеряв блокировку ухода с роута (CLAUDE.md, UX-контракт
+              (а)). Модалка все равно портируется в body, так что на верстку
+              место в дереве не влияет. */}
+          <CreateDatasetModal open={createDatasetOpen} onClose={() => setCreateDatasetOpen(false)} />
         </UnsavedGuardProvider>
       </Content>
     </Layout>
