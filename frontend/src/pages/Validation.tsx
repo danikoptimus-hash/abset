@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Typography, Select, Button, InputNumber, Checkbox, Alert, Progress, Table, Tag, Collapse, Tooltip } from 'antd'
 import { CheckCircleOutlined } from '@ant-design/icons'
+import ReactMarkdown from 'react-markdown'
 import { Link } from 'react-router-dom'
 import { apiClient, errorMessage } from '../api/client'
 import { queryKeys } from '../api/queryKeys'
@@ -250,7 +251,10 @@ export function ValidationPage() {
           {
             key: 'what',
             label: '❓ What is this and when to use it',
-            children: <Typography.Paragraph style={{ whiteSpace: 'pre-line' }}>{WHAT_IS_THIS}</Typography.Paragraph>,
+            // markdown (**bold**-заголовки) через react-markdown, как в
+            // HelpCollapse (пакет UI-фиксов, item 3) — был сырой <Paragraph
+            // pre-line> с литеральными **.
+            children: <ReactMarkdown>{WHAT_IS_THIS}</ReactMarkdown>,
           },
         ]}
       />

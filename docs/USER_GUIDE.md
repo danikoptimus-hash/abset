@@ -115,7 +115,8 @@ and analysis results go away; its datasets simply lose that one link and stay
 right where they were on the Datasets page, ready to be reused for another
 design. The experiment's delete confirmation spells this out explicitly.
 
-On the Datasets page, **Bulk select** (next to **+ Dataset**) turns on a
+On the Datasets page, the **Bulk select** icon button (the checkbox icon next
+to **+ Dataset**; hover any toolbar icon to see its label) turns on a
 checkbox column — select several datasets and **Delete** removes all of them
 after one typed `DELETE` confirmation. Datasets already in use by an
 experiment are listed with "used by: ..." right in the confirmation dialog
@@ -212,7 +213,8 @@ has the same data. Tick **Include dataset snapshots** to embed the data itself
 — a much bigger file, and what you want when migrating to an instance that has
 never seen these datasets.
 
-**Import** is the button next to **Create A/B Test**. The imported test is
+**Import** is the upload-icon button next to **Create A/B Test** (hover it to
+see the "Import" label). The imported test is
 always created fresh: it's a **draft**, owned by you, and nothing existing is
 ever overwritten — if the name is taken, the copy is created as
 `<name> (imported)`. Import resolves each dataset reference in order:

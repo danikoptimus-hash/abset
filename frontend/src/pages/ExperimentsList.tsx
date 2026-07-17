@@ -212,18 +212,29 @@ export function ExperimentsListPage() {
           />
         </Space>
         <Space>
+          {/* Bulk select и Import — icon-only (пакет UI-фиксов, item 1):
+              tooltip + aria-label вместо подписи (aria-label держит e2e
+              getByRole по имени рабочим). Bulk select тот же именованный
+              кнопок-контрол, что и на Datasets, поэтому icon-only и тут —
+              иначе он остался бы подписанным рядом с icon-only Import.
+              "Create A/B Test" — НЕ трогаем (не из трёх названных). */}
           {canCreate && (
-            <Button
-              icon={bulkMode ? <CloseOutlined /> : <CheckSquareOutlined />}
-              onClick={() => (bulkMode ? exitBulkMode() : setBulkMode(true))}
-            >
-              {bulkMode ? 'Cancel' : 'Bulk select'}
-            </Button>
+            <Tooltip title={bulkMode ? 'Cancel' : 'Bulk select'}>
+              <Button
+                aria-label={bulkMode ? 'Cancel' : 'Bulk select'}
+                icon={bulkMode ? <CloseOutlined /> : <CheckSquareOutlined />}
+                onClick={() => (bulkMode ? exitBulkMode() : setBulkMode(true))}
+              />
+            </Tooltip>
           )}
           {canCreate && (
-            <Button icon={<UploadOutlined />} onClick={() => setImportOpen(true)}>
-              Import
-            </Button>
+            <Tooltip title="Import">
+              <Button
+                aria-label="Import"
+                icon={<UploadOutlined />}
+                onClick={() => setImportOpen(true)}
+              />
+            </Tooltip>
           )}
           {canCreate && (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/experiments/new')}>

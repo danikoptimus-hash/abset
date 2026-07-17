@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button, Collapse, Table, Typography, Alert, Space, Spin, Radio } from 'antd'
 import { ThunderboltOutlined } from '@ant-design/icons'
+import ReactMarkdown from 'react-markdown'
 import { Link } from 'react-router-dom'
 import { apiClient, errorMessage } from '../../api/client'
 import { DatasetSelect } from '../../components/DatasetSelect'
@@ -143,7 +144,11 @@ export function Step1Data({ state, setState, lockSplitMode }: Props) {
           {
             key: 'what',
             label: '❓ What is this data and what should it contain',
-            children: <Typography.Paragraph style={{ whiteSpace: 'pre-line' }}>{WHAT_IS_THIS_DATA}</Typography.Paragraph>,
+            // Тексты — markdown (**bold**, списки, `code`); рендерим через тот
+            // же react-markdown, что и HelpCollapse/MarkdownBlockView (пакет
+            // UI-фиксов, item 3). Раньше был <Paragraph pre-line> — markdown
+            // показывался сырым (литеральные ** и дефисы-как-списки).
+            children: <ReactMarkdown>{WHAT_IS_THIS_DATA}</ReactMarkdown>,
           },
           {
             key: 'example',
@@ -158,7 +163,7 @@ export function Step1Data({ state, setState, lockSplitMode }: Props) {
                   columns={Object.keys(DESIGN_EXAMPLE_ROWS[0]).map((k) => ({ title: k, dataIndex: k }))}
                   style={{ marginBottom: 12 }}
                 />
-                <Typography.Paragraph style={{ whiteSpace: 'pre-line' }}>{EXAMPLE_EXPLANATION}</Typography.Paragraph>
+                <ReactMarkdown>{EXAMPLE_EXPLANATION}</ReactMarkdown>
               </>
             ),
           },
@@ -170,14 +175,17 @@ export function Step1Data({ state, setState, lockSplitMode }: Props) {
                 <Typography.Paragraph code style={{ whiteSpace: 'pre' }}>
                   {DESIGN_SQL_EXAMPLE}
                 </Typography.Paragraph>
-                <Typography.Paragraph>{SQL_EXPLANATION}</Typography.Paragraph>
+                {/* DESIGN_SQL_EXAMPLE выше — намеренный код-блок (не markdown).
+                    SQL_EXPLANATION — markdown с inline `code`, поэтому через
+                    react-markdown. */}
+                <ReactMarkdown>{SQL_EXPLANATION}</ReactMarkdown>
               </>
             ),
           },
           {
             key: 'nodata',
             label: "❓ No data on hand — I just want to try it out",
-            children: <Typography.Paragraph style={{ whiteSpace: 'pre-line' }}>{NO_DATA_EXPLANATION}</Typography.Paragraph>,
+            children: <ReactMarkdown>{NO_DATA_EXPLANATION}</ReactMarkdown>,
           },
         ]}
       />

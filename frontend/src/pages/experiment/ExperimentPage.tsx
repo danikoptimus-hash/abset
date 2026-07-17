@@ -396,8 +396,26 @@ export function ExperimentPage() {
         />
 
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          {/* Edit — icon-only (пакет UI-фиксов, item 1): подпись убрана,
+              смысл несут tooltip + aria-label (последний ещё и держит
+              getByRole('button', {name:'Edit'}) в e2e рабочим). Порядок:
+              Edit ПЕРЕД "⋯" — overflow-меню по конвенции идёт последним,
+              крайним справа (item 2). */}
+          {canEdit && !editing && (
+            <Tooltip title="Edit">
+              <Button
+                type="primary"
+                icon={<EditOutlined />}
+                aria-label="Edit"
+                onClick={startEditing}
+              />
+            </Tooltip>
+          )}
           {!editing && (
             <Dropdown
+              // "⋯" теперь крайний справа -> меню выравниваем по правому краю
+              // кнопки, иначе оно уедет за правую границу вьюпорта.
+              placement="bottomRight"
               menu={{
                 items: [
                   // Share доступен ЛЮБОЙ роли, которая видит тест (viewer
@@ -433,11 +451,6 @@ export function ExperimentPage() {
             >
               <Button icon={<MoreOutlined />} aria-label="More actions" />
             </Dropdown>
-          )}
-          {canEdit && !editing && (
-            <Button type="primary" icon={<EditOutlined />} onClick={startEditing}>
-              Edit
-            </Button>
           )}
           {editing && (
             <>

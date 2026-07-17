@@ -336,12 +336,17 @@ export function DatasetsPage() {
         <Typography.Title level={4} style={{ margin: 0 }}>Datasets</Typography.Title>
         <Space>
           {canRefresh && (
-            <Button
-              icon={bulkMode ? <CloseOutlined /> : <CheckSquareOutlined />}
-              onClick={() => (bulkMode ? exitBulkMode() : setBulkMode(true))}
-            >
-              {bulkMode ? 'Cancel' : 'Bulk select'}
-            </Button>
+            // Icon-only (пакет UI-фиксов, item 1): подпись/aria-label
+            // динамические — в bulk-режиме кнопка становится "Cancel".
+            // aria-label держит getByRole('button', {name:'Bulk select'}) в
+            // e2e рабочим ровно когда режим не активен.
+            <Tooltip title={bulkMode ? 'Cancel' : 'Bulk select'}>
+              <Button
+                aria-label={bulkMode ? 'Cancel' : 'Bulk select'}
+                icon={bulkMode ? <CloseOutlined /> : <CheckSquareOutlined />}
+                onClick={() => (bulkMode ? exitBulkMode() : setBulkMode(true))}
+              />
+            </Tooltip>
           )}
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
             Dataset
