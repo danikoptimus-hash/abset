@@ -180,6 +180,15 @@ Admin — deleting one does **not** delete the tests inside; they simply move
 back to Uncategorized, and the confirmation dialog tells you how many that
 will be before you proceed.
 
+### Sharing a link to a test
+
+**Share** in a test's **⋯** menu copies a link to it — available to anyone who
+can see the test, Viewers included. The copied link is id-based, so it keeps
+working after the test is renamed (the plain address-bar URL doesn't). If the
+test is a **draft**, the confirmation says so: only you, explicitly granted
+users, and Admins can open it — publish it first, or grant access from Edit
+Properties, if you want the recipient to see anything.
+
 ### Export and import: moving a test between instances
 
 A test can be exported to a single `.zip` and imported back — into the same

@@ -49,6 +49,9 @@ export const queryKeys = {
   experiments: (filters: unknown) => ['experiments', filters] as const,
   experimentsAll: () => ['experiments'] as const,
   experiment: (name: string) => ['experiment', name] as const,
+  // Permalink кнопки Share (/experiments/by-id/:id -> имя). Ключ по id, а не
+  // по имени: имя как раз то, что этот запрос и выясняет.
+  experimentById: (id: string | undefined) => ['experiment-by-id', id] as const,
   experimentBlocks: (name: string) => ['experiment-blocks', name] as const,
   experimentProperties: (name: string | null) => ['experiment-properties', name] as const,
   experimentAudit: (name: string, page: number) => ['experiment-audit', name, page] as const,

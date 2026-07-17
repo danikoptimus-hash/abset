@@ -212,6 +212,17 @@ class ExperimentRepo:
                 s.expunge(exp)
             return exp
 
+    def get_by_id(self, experiment_id: uuid_mod.UUID) -> Experiment | None:
+        """Единственный читатель — резолв permalink'а (GET /experiments/
+        by-id/{id}, кнопка Share): имя мутабельно, id — нет. Остальной код
+        по-прежнему адресует тест именем (CLAUDE.md, "Известный техдолг") —
+        этот метод не приглашение это менять."""
+        with session_scope() as s:
+            exp = s.get(Experiment, experiment_id)
+            if exp is not None:
+                s.expunge(exp)
+            return exp
+
     def list_all(self, *, active_only: bool = False) -> list[Experiment]:
         """Newest first — the default (unfiltered, unsearched) list view is
         meant to surface recent activity, same as "Last Modified" sorting

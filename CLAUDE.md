@@ -321,6 +321,48 @@ create/edit user, Settings → Database Connections modal. Не подключе
 
 Тесты: `tests/test_db_connections_core.py`, `backend/tests/test_db_connections.py`, `tests/test_sql_guard.py`, `tests/test_sql_dataset_core.py`, `tests/test_sql_parsing.py` (Python-порт `parseSchemaTableFromSql`, используемый миграцией 0010), `backend/tests/test_dataset_from_sql.py`, `tests/test_experiment_dataset_repo.py`, `backend/tests/test_experiment_datasets_link.py` — все против `testcontainers-postgres` (реальная БД, не моки), см. `feedback` в общем описании тестов выше. E2E: `frontend/e2e/database-connections.spec.ts` (полный цикл: создать подключение → test → preview SQL → создать датасет → дизайн на нем; тест на Edit — каскад предзаполнен из сохраненного SQL, обе вкладки превью, "Preview query result" отражает несохраненную правку, плюс проверка JOIN-запроса → пустой каскад с подсказкой; тест на создание через каскад → `source_schema`/`source_table` реально сохранены в БД и предзаполнены в Edit БЕЗ повторного парсинга), `frontend/e2e/datasets-page.spec.ts`, `frontend/e2e/dataset-management.spec.ts` (Edit/Delete/поиск на source=upload, включая снапшот-превью без Connection/SQL).
 
+## Share: ссылка на тест, переживающая переименование
+
+Кнопка Share в «⋯» страницы теста — Editor'у не нужен, доступна ЛЮБОЙ роли,
+которая видит тест (viewer включительно: поделиться = прочитать). Из-за нее
+«⋯» на странице теста больше НЕ гейтится (`!editing` и всё) — до этого он
+показывался только при `canEdit || canExport`, и viewer не увидел бы Share
+никогда.
+
+**Почему не просто копировать адресную строку**: тест адресуется ИМЕНЕМ, имя
+мутабельно, ренейм молча ломает разосланные ссылки (см. «Известный техдолг»).
+Полная миграция адресации на uuid по-прежнему отложена — вместо нее добавлен
+УЗКИЙ permalink-вход, ничего не меняющий в существующих ~20 маршрутах:
+
+- `ExperimentDetail.id` (аддитивное поле; раньше API вообще не отдавал наружу
+  uuid эксперимента),
+- `GET /experiments/by-id/{id}` (`backend/routers/experiments.py`, литерал
+  объявлен до `/{name}`; viewer+, гейт видимости `_visible_or_404` → 404, а не
+  403, чужой черновик не подтверждается даже отказом) + `ExperimentRepo.
+  get_by_id()`,
+- фронтовый роут `/experiments/by-id/:id` (`pages/experiment/
+  ExperimentByIdRedirect.tsx`) — резолвит имя и делает `<Navigate replace>` на
+  канонический именной URL; при отказе рисует тот же `<Result status="404">`,
+  что и сама страница (получатель без доступа видит внятный экран, не пустой).
+
+**`lib/share.ts`** — чистые функции (`buildExperimentPermalink`,
+`shareToastMessage`, `copyText` с инъекцией буфера) отдельно от компонента
+ровно потому, что vitest тут поднят с `environment: "node"` и
+`include: src/**/*.test.ts` — тестируется только то, что не требует DOM (тот
+же прием, что у `charts/MonitoringLineChart.tsx`). `copyText`: сначала
+`navigator.clipboard`, при его ОТСУТСТВИИ (обычный http — secure context'а
+нет, `navigator.clipboard === undefined`) или отказе по правам — запасной
+`execCommand('copy')` через временный textarea. Корпоративный стенд может
+какое-то время жить на http, и без запасного пути кнопка там молча ничего бы
+не делала.
+
+Тост про draft — не косметика: у ссылки на черновик получатель почти
+наверняка увидит «not found», и узнать об этом надо ДО отправки.
+
+Тесты: `src/lib/share.test.ts` (текст тоста, сборка ссылки, все ветки
+copyText), `backend/tests/test_experiment_permalink.py` (центральный —
+`test_permalink_survives_a_rename`), `frontend/e2e/share.spec.ts`.
+
 ## Экспорт/импорт эксперимента (zip-архив)
 
 Перенос теста между инстансами (и клонирование внутри одного). Никаких новых

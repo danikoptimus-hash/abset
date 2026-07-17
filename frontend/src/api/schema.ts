@@ -134,6 +134,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/experiments/by-id/{experiment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Experiment By Id
+         * @description Резолв стабильной ссылки (кнопка Share) в текущее имя теста.
+         *
+         *     Зачем: тест адресуется ИМЕНЕМ (`/experiments/{name}`), а имя мутабельно —
+         *     переименование молча ломает разосланные ссылки (CLAUDE.md, "Известный
+         *     техдолг"). Этот эндпоинт — НЕ начало отложенной миграции адресации на
+         *     uuid: он ничего не меняет в существующих ~20 маршрутах, а лишь дает
+         *     permalink'у одну точку входа, переживающую ренейм. Фронтовый роут
+         *     /experiments/by-id/:id дергает его и делает redirect на именной URL.
+         *
+         *     Литеральный префикс `by-id/` объявлен ДО `/{name}`-маршрутов (тот же
+         *     прием, что у /import и /bulk-delete). Конфликта с `/{name}/<literal>`
+         *     нет — те требуют точного совпадения второго сегмента.
+         *
+         *     Права: viewer+ и гейт видимости — как у самой страницы теста. Невидимый
+         *     тест дает 404 (не 403): существование чужого черновика не должно
+         *     подтверждаться даже фактом отказа — то же решение, что в
+         *     `abkit/access.py::require_view_experiment`.
+         */
+        get: operations["get_experiment_by_id_api_v1_experiments_by_id__experiment_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/experiments/import": {
         parameters: {
             query?: never;
@@ -2212,6 +2248,8 @@ export interface components {
         };
         /** ExperimentDetail */
         ExperimentDetail: {
+            /** Id */
+            id: string;
             /** Name */
             name: string;
             /** Status */
@@ -2285,6 +2323,17 @@ export interface components {
              * @default []
              */
             tags: components["schemas"]["TagOut"][];
+        };
+        /**
+         * ExperimentRef
+         * @description GET /experiments/by-id/{id} — минимум, нужный фронту, чтобы увести
+         *     пользователя на канонический (именной) URL теста.
+         */
+        ExperimentRef: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
         };
         /** ExperimentSummary */
         ExperimentSummary: {
@@ -3322,6 +3371,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PaginatedExperiments"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_experiment_by_id_api_v1_experiments_by_id__experiment_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                experiment_id: string;
+            };
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperimentRef"];
                 };
             };
             /** @description Validation Error */

@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Typography, Tag, Button, Spin, Result, message, Input, Dropdown, Tooltip, Tabs, Space, Modal } from 'antd'
 import {
   EditOutlined, SaveOutlined, CloseOutlined, MoreOutlined, DeleteOutlined, SettingOutlined, ExperimentOutlined,
-  DownloadOutlined,
+  DownloadOutlined, ShareAltOutlined,
 } from '@ant-design/icons'
 import { apiClient, errorMessage } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
@@ -12,6 +12,7 @@ import { useAuth, hasMinRole } from '../../auth/AuthContext'
 import { DeleteExperimentModal } from '../../components/DeleteExperimentModal'
 import { ExperimentPropertiesModal } from '../../components/ExperimentPropertiesModal'
 import { ExportExperimentModal } from '../../components/ExportExperimentModal'
+import { buildExperimentPermalink, copyText, shareToastMessage } from '../../lib/share'
 import { LifecycleDates } from '../../components/LifecycleDates'
 import { RelativeTime } from '../../components/RelativeTime'
 import { TagList } from '../../components/TagBadge'
@@ -346,6 +347,18 @@ export function ExperimentPage() {
   // проверена сервером — до сюда невидимый тест не доезжает (404 выше).
   const canExport = hasMinRole(user, 'editor')
 
+  const handleShare = async () => {
+    const link = buildExperimentPermalink(window.location.origin, data.id)
+    if (await copyText(link)) {
+      // Про draft предупреждаем в момент копирования, а не потом: у ссылки на
+      // черновик получатель почти наверняка увидит "not found", и узнать об
+      // этом лучше до того, как ее отправили.
+      message.success(shareToastMessage(data.publication_status))
+      return
+    }
+    message.error('Could not copy the link — copy it from the address bar instead')
+  }
+
   const displayBlocks = editing ? draftBlocks : (blocks ?? []).map((b) => ({ ...b }))
   const hypothesisBlock = displayBlocks.find((b) => b.kind === 'hypothesis')
   const otherBlocks = displayBlocks.filter((b) => b.kind !== 'hypothesis')
@@ -383,14 +396,19 @@ export function ExperimentPage() {
         />
 
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          {(canEdit || canExport) && !editing && (
+          {!editing && (
             <Dropdown
               menu={{
                 items: [
+                  // Share доступен ЛЮБОЙ роли, которая видит тест (viewer
+                  // включительно — поделиться значит прочитать), а видимость
+                  // уже проверена сервером: невидимый тест сюда не доезжает
+                  // (404 выше). Поэтому "⋯" больше не гейтится вообще — до
+                  // этого пакета он показывался только при canEdit||canExport
+                  // и viewer не увидел бы Share никогда.
+                  { key: 'share', icon: <ShareAltOutlined />, label: 'Share', onClick: handleShare },
                   // Export — по роли (Editor+ на видимый тест), а не по
                   // canEdit: экспорт это чтение (пакет export/import).
-                  // Поэтому и сам "⋯" показывается, когда доступен хотя бы
-                  // экспорт, а не только при праве на правку.
                   ...(canExport
                     ? [{ key: 'export', icon: <DownloadOutlined />, label: 'Export', onClick: () => setExportTarget(name) }]
                     : []),

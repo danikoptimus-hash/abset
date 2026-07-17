@@ -43,6 +43,7 @@ from backend.schemas.experiments import (
     DeletionSummary,
     ExperimentDetail,
     ExperimentPropertiesOut,
+    ExperimentRef,
     ExperimentSummary,
     FileInfo,
     ImportExperimentResult,
@@ -207,6 +208,40 @@ def list_experiments(
     return PaginatedExperiments(items=items, total=total, page=page, page_size=page_size)
 
 
+@router.get("/by-id/{experiment_id}", response_model=ExperimentRef)
+def get_experiment_by_id(
+    experiment_id: str, user: CurrentUser = Depends(get_current_user)
+) -> ExperimentRef:
+    """Резолв стабильной ссылки (кнопка Share) в текущее имя теста.
+
+    Зачем: тест адресуется ИМЕНЕМ (`/experiments/{name}`), а имя мутабельно —
+    переименование молча ломает разосланные ссылки (CLAUDE.md, "Известный
+    техдолг"). Этот эндпоинт — НЕ начало отложенной миграции адресации на
+    uuid: он ничего не меняет в существующих ~20 маршрутах, а лишь дает
+    permalink'у одну точку входа, переживающую ренейм. Фронтовый роут
+    /experiments/by-id/:id дергает его и делает redirect на именной URL.
+
+    Литеральный префикс `by-id/` объявлен ДО `/{name}`-маршрутов (тот же
+    прием, что у /import и /bulk-delete). Конфликта с `/{name}/<literal>`
+    нет — те требуют точного совпадения второго сегмента.
+
+    Права: viewer+ и гейт видимости — как у самой страницы теста. Невидимый
+    тест дает 404 (не 403): существование чужого черновика не должно
+    подтверждаться даже фактом отказа — то же решение, что в
+    `abkit/access.py::require_view_experiment`.
+    """
+    try:
+        parsed_id = uuid_mod.UUID(experiment_id)
+    except ValueError as e:
+        raise APIError(422, "validation_error", "Invalid experiment id") from e
+
+    exp = ExperimentRepo().get_by_id(parsed_id)
+    if exp is None:
+        raise APIError(404, "not_found", "Experiment not found")
+    _visible_or_404(exp, user)
+    return ExperimentRef(id=str(exp.id), name=exp.name)
+
+
 @router.post("/import", response_model=ImportExperimentResult, status_code=201)
 def import_experiment(
     confirm_dataset_names: bool = Form(default=False),
@@ -319,6 +354,7 @@ def get_experiment(name: str, user: CurrentUser = Depends(get_current_user)) -> 
     last_modified_at, last_modified_by_id = _get_last_modified(exp)
     last_modified_user = UserRepo().get_by_id(last_modified_by_id) if last_modified_by_id else None
     return ExperimentDetail(
+        id=str(exp.id),
         name=exp.name, status=exp.status, publication_status=exp.publication_status,
         owner_id=str(exp.owner_id) if exp.owner_id else None,
         owner_email=owner.email if owner else None,

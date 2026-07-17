@@ -51,6 +51,12 @@ class SampleInfo(BaseModel):
 
 
 class ExperimentDetail(BaseModel):
+    # Стабильный идентификатор — для permalink'а (кнопка Share). Эксперименты
+    # адресуются ИМЕНЕМ (CLAUDE.md, "Известный техдолг"), а имя мутабельно:
+    # ссылка вида /experiments/<name> ломается при переименовании. id тут —
+    # НЕ начало миграции адресации на uuid (она осознанно отложена), а ровно
+    # то, что нужно, чтобы отдать наружу ссылку, переживающую ренейм.
+    id: str
     name: str
     status: str
     publication_status: str
@@ -133,6 +139,14 @@ class BulkDeleteSkipped(BaseModel):
 class BulkDeleteResult(BaseModel):
     deleted: list[str]
     skipped: list[BulkDeleteSkipped]
+
+
+class ExperimentRef(BaseModel):
+    """GET /experiments/by-id/{id} — минимум, нужный фронту, чтобы увести
+    пользователя на канонический (именной) URL теста."""
+
+    id: str
+    name: str
 
 
 class ImportExperimentResult(BaseModel):

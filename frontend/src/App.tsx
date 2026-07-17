@@ -5,6 +5,7 @@ import { LoginPage } from './pages/Login'
 import { ExperimentsListPage } from './pages/ExperimentsList'
 import { DesignWizardPage } from './pages/DesignWizard'
 import { ExperimentPage } from './pages/experiment/ExperimentPage'
+import { ExperimentByIdRedirect } from './pages/experiment/ExperimentByIdRedirect'
 import { DatasetsPage } from './pages/Datasets'
 import { ValidationPage } from './pages/Validation'
 import { AdminPage } from './pages/Admin'
@@ -42,6 +43,12 @@ export const routes = createRoutesFromElements(
           </RequireAuth>
         }
       />
+      {/* Permalink кнопки Share: резолвится в текущее имя и редиректит на
+          него, поэтому ссылка переживает переименование теста. С
+          /experiments/:name не конфликтует — у того другое число сегментов
+          (и react-router в любом случае ранжирует статический сегмент выше
+          динамического). */}
+      <Route path="/experiments/by-id/:id" element={<ExperimentByIdRedirect />} />
       <Route path="/experiments/:name" element={<ExperimentPage />} />
       <Route
         path="/experiments/:name/redesign"
