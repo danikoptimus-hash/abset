@@ -983,6 +983,7 @@ def start_analyze(
             user, experiment, data, correction=body.correction,
             date_col=body.date_col,
             group_column=body.group_column, group_mapping=body.group_mapping,
+            segment_columns=body.segment_columns,
             methods=methods, extra_methods=extra_methods,
             progress_callback=reporter.stage,
             # Stage 2 (report header dates): `exp` (the DB row, fetched

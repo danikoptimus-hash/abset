@@ -115,8 +115,23 @@ export interface MetricChartData {
   daily: Record<string, DailyLiftPoint[]>
 }
 
+// External split rework (§2a): group × stratum composition + chi-square on
+// the analyzed users. null when the design has no strata / a single stratum.
+export interface StrataBalance {
+  chi2: number
+  p_value: number
+  passed: boolean
+  groups: string[]
+  // one flat dict per stratum: { stratum: name, [group]: count, ... }
+  rows: Record<string, string | number>[]
+}
+
 export interface ChartData {
   checks: { srm: CheckResult | null; loss: CheckResult | null }
+  strata_balance?: StrataBalance | null
+  // External split rework (§3): dimension labels chosen ad-hoc at analyze
+  // time (not declared as strata at design) — tagged in the segment section.
+  ad_hoc_dimensions?: string[]
   metrics: Record<string, MetricChartData>
 }
 

@@ -280,7 +280,13 @@ export function Step4Review({ state, redesignName, onSubmitted }: Props) {
             .join(', ')}
         </Descriptions.Item>
         {isExternal ? (
-          <Descriptions.Item label="Expected sample size">{state.sampleSize || '—'}</Descriptions.Item>
+          <>
+            <Descriptions.Item label="Reference dataset">
+              {state.referenceDatasetId ? 'selected' : '—'}
+            </Descriptions.Item>
+            <Descriptions.Item label="Expected sample size">{state.sampleSize || '—'}</Descriptions.Item>
+            <Descriptions.Item label="Strata / segments">{state.strata.join(', ') || '—'}</Descriptions.Item>
+          </>
         ) : (
           <>
             <Descriptions.Item label="Strata">{state.strata.join(', ') || '—'}</Descriptions.Item>

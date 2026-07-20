@@ -276,6 +276,22 @@ def build_chart_data(results: AnalysisResults) -> dict[str, Any]:
 
     srm = context.get("srm")
     loss = context.get("loss")
+    # External split rework (§2a): the group × stratum balance table + chi2,
+    # computed in Experiment.analyze() from the actually-analyzed users. For
+    # external this is the analog of the design-time balance table ABSet gets;
+    # None when there are no strata / a single stratum (nothing to balance).
+    strata_balance = context.get("strata_balance")
+    strata_balance_out = None
+    if strata_balance is not None:
+        from abkit import checks
+
+        strata_balance_out = {
+            "chi2": strata_balance.chi2,
+            "p_value": strata_balance.p_value,
+            "passed": strata_balance.passed,
+            "groups": checks.strata_balance_groups(strata_balance),
+            "rows": checks.strata_balance_rows(strata_balance),
+        }
     return {
         # SRM/потери данных на АНАЛИЗЕ (не путать с design-time SRM/balance,
         # уже доступными через config["computed"] — это отдельная проверка на
@@ -290,5 +306,10 @@ def build_chart_data(results: AnalysisResults) -> dict[str, Any]:
             if loss
             else None,
         },
+        "strata_balance": strata_balance_out,
+        # External split rework (§3): dimension labels that were chosen ad-hoc
+        # at analyze time (not declared as strata at design) — the frontend/
+        # report tag these "ad-hoc segment (not declared at design)".
+        "ad_hoc_dimensions": list(context.get("ad_hoc_segment_dimensions", [])),
         "metrics": chart_data,
     }

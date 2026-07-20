@@ -16,6 +16,7 @@ import type { WizardState, DesignConfig } from './design-wizard/types'
 const INITIAL_STATE: WizardState = {
   splitMode: 'abkit',
   datasetId: null,
+  referenceDatasetId: null,
   columns: [],
   dtypes: {},
   previewRows: [],

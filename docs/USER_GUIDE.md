@@ -631,45 +631,71 @@ instead of living in someone's notebook.
 
 If the random split already happened somewhere else (Firebase A/B Testing and
 similar remote-config/experimentation systems), pick **External split** on
-the wizard's first step instead of the default **ABSet split**. It changes
-the rest of the flow:
+the wizard's first step instead of the default **ABSet split**. ABSet isn't
+picking or splitting anyone here — no split, no assignments, no isolation, no
+MDE table (there's no pre-period data of your candidates to compute variance
+from; the Design tab says so explicitly: "external design: power calculated
+by the external system"). The experiment is created straight into `designed`
+status with an **External split** badge; **Redesign** and **Download Samples**
+aren't offered.
 
-- **No dataset step, no split, no assignments, no isolation.** ABSet isn't
-  picking or splitting anyone, so none of that applies — the wizard just
-  collects the declared design: name, optional hypothesis, group names with
-  their *expected* traffic proportions (needed later for the SRM check), and
-  metrics. Metric columns are typed in directly (there's no dataset yet to
-  pick columns from) rather than chosen from a dropdown.
-- **Expected sample size is optional and reference-only.** If you provide
-  one, the Design tab shows it as-is; ABSet doesn't compute an MDE table for
-  an external split (there's no pre-period data of your candidates to
-  compute variance from), and says so explicitly: "external design: power
-  calculated by the external system."
-- The experiment is created straight into `designed` status with an
-  **External split** badge next to the status badges on the experiment page.
-  There's no split to redo, so **Redesign** and **Download Samples** aren't
-  offered.
+The common real case, though, is that you've *already exported the results*
+from the outside system. The wizard makes that export a first-class (optional)
+input:
 
-**Analyzing an external experiment** adds one mandatory step before you can
-run analysis: after selecting your post-period dataset, a **Group
-assignment** block appears. Pick the **Group column** — whichever column in
-your data holds the variant each row belongs to (e.g. a Firebase experiment
-ID/variant column) — and ABSet shows you its distinct values with row counts.
-Map each value to one of your declared groups, or to **Exclude** for values
-that don't belong to this experiment (bot traffic, an unrelated variant,
-etc.); **Run analysis** stays disabled until every declared group has a
-mapped value. From there the pipeline is the familiar one:
+- **Reference dataset (optional).** On the first step you can select the
+  already-exported dataset. It doesn't drive the split — it's purely a
+  convenience:
+  - metric, pre-period, and numerator/denominator fields become searchable
+    **column pickers** (the same as the ABSet flow) instead of free-text
+    boxes;
+  - **Expected sample size auto-fills** from the dataset's row count (still
+    reference-only, still editable).
+  Leave it empty and the flow stays fully manual — type the column names and
+  the sample size yourself. The reference is stored on the experiment and, if
+  it's the same dataset you analyze later, it's pre-selected there too.
+- **Strata / segment columns (optional).** On the Parameters step you can
+  declare categorical columns as strata. ABSet can't stratify an external
+  split (it already happened), so these don't affect the split — instead they
+  drive the **analysis**: a per-stratum **balance check** (was the outside
+  split balanced across these attributes?) and the **per-segment breakdown**
+  of the effect. Pick them from the reference dataset's columns, or type them
+  as free-text chips when no reference dataset is selected.
+- **Expected sample size** is optional and reference-only, shown as-is on the
+  Design tab.
+
+**Analyzing an external experiment** adds one mandatory step: after selecting
+your post-period dataset (pre-filled with the reference dataset when you set
+one), a **Group assignment** block appears. Pick the **Group column** —
+whichever column holds the variant each row belongs to (e.g. a Firebase
+experiment ID/variant column) — and ABSet shows its distinct values with row
+counts. Map each value to one of your declared groups, or to **Exclude** for
+values that don't belong to this experiment (bot traffic, an unrelated
+variant, etc.); **Run analysis** stays disabled until every declared group has
+a mapped value. From there the pipeline is the familiar one:
 
 - **SRM** compares the *actual* proportions in your mapped data against the
   proportions you declared at design time (instead of against an ABSet split
   ratio — same check, different source for "expected").
+- **Segment columns.** The analysis options include a **Segment columns**
+  picker, pre-filled with your design-declared strata. You can add *any*
+  column from the analysis dataset — the exported results may carry
+  attributes that weren't declared (or didn't exist) at design time. Anything
+  not declared at design is labeled **ad-hoc** in the results/report. Segment
+  breakdowns stay exploratory (no multiple-testing correction). This picker is
+  available for ABSet-split experiments too.
+- **Stratum balance table.** When strata are declared (or segment columns
+  chosen), the results show a group × stratum composition table with a
+  chi-square balance check.
 - The **Multiple testing correction** control appears under the same rule as
   ABSet-split experiments — only when there's more than one hypothesis
   (primary metrics × treatment groups).
 - The **data-loss table** (assigned vs. present) doesn't apply — there are no
   assignments to compare against — and is replaced by a **group column
   coverage** note: how many rows had a value that wasn't mapped to any
-  declared group and were excluded, and what fraction of the data that is.
+  declared group and were excluded, and what fraction of the data that is. A
+  declared stratum column missing from the analysis data degrades gracefully:
+  a warning names it, that column is skipped, the rest of the analysis runs.
 - **CUPED** still works exactly the same way, as long as your post-period
   dataset also contains the pre-period column you declared on the metric.
 - Verdicts, the results table, forest plots, and the report are unchanged.

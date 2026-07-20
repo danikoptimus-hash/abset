@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button, Select, Radio, Typography, Alert, Progress, Tooltip, Table } from 'antd'
 import { ThunderboltOutlined, ReloadOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -32,7 +32,8 @@ interface PreparedDataset {
 }
 
 export function AnalyzeSection({
-  experimentName, hasAssignments, family, splitSource, declaredGroups, unitCol, alpha, metrics,
+  experimentName, hasAssignments, family, splitSource, declaredGroups, declaredStrata,
+  referenceDatasetId, unitCol, alpha, metrics,
 }: {
   experimentName: string
   hasAssignments: boolean
@@ -47,6 +48,14 @@ export function AnalyzeSection({
   // "Run analysis" is even enabled.
   splitSource: string
   declaredGroups: string[]
+  // External split rework (§3): the design-declared strata — the default
+  // segment breakdown, pre-filled into the segment-columns selector below.
+  declaredStrata: string[]
+  // External split rework (§1): the experiment's stored reference dataset
+  // (config.reference_dataset_id), if any — pre-selected as the post-period
+  // dataset here (same dataset used at design time is the common analysis
+  // input). null when none was set / for ABSet-split experiments.
+  referenceDatasetId: string | null
   // Item 2: the experiment's unit_col — checked for duplicates in the
   // prepared dataset to decide whether Date column is required. Not used
   // for external-split experiments (no unit_col-based assignments join).
@@ -69,6 +78,12 @@ export function AnalyzeSection({
 
   const [correction, setCorrection] = useState('holm')
   const [dateCol, setDateCol] = useState<string | undefined>(undefined)
+  // External split rework (§3): segment columns to break the effect down by,
+  // pre-filled with the design-declared strata. The user can add ANY column
+  // from the analysis dataset (ad-hoc segments — the analysis data may carry
+  // attributes not declared at design). Sent as segment_columns; the backend
+  // treats non-declared entries as ad-hoc and marks them in the report.
+  const [segmentColumns, setSegmentColumns] = useState<string[]>(declaredStrata)
   const showCorrection = family.familySize > 1
   const effectiveCorrection = showCorrection ? correction : 'none'
 
@@ -132,6 +147,7 @@ export function AnalyzeSection({
     setDateCol(undefined)
     setGroupColumn(undefined)
     setGroupMapping({})
+    setSegmentColumns(declaredStrata)
     reset()
     setPanelOverride(true)
   }
@@ -197,6 +213,22 @@ export function AnalyzeSection({
     }
   }
 
+  // External split rework (§1): pre-select the experiment's stored reference
+  // dataset as the post-period dataset — the same export is the usual
+  // analysis input. Runs once when the panel is open with nothing selected
+  // yet; the user can still change or clear it.
+  const referencePrefilled = useRef(false)
+  useEffect(() => {
+    if (!panelOpen) {
+      referencePrefilled.current = false
+      return
+    }
+    if (referencePrefilled.current || prepared || !referenceDatasetId) return
+    referencePrefilled.current = true
+    void handleSelectDataset(referenceDatasetId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panelOpen, referenceDatasetId])
+
   const generateDemoData = async () => {
     setSelecting(true)
     setUploadError(null)
@@ -241,6 +273,7 @@ export function AnalyzeSection({
       body: {
         dataset_id: prepared.id, correction: effectiveCorrection,
         date_col: dateCol ?? null, methods,
+        segment_columns: segmentColumns.length > 0 ? segmentColumns : null,
         ...(isExternal ? { group_column: groupColumn, group_mapping: groupMapping } : {}),
       },
     })
@@ -393,6 +426,32 @@ export function AnalyzeSection({
                     data). Select the date column so rows can be aggregated per user.
                   </Typography.Paragraph>
                 )}
+              </div>
+            )}
+            {/* External split rework (§3): segment columns — break the effect
+                down by any column in the analysis dataset. Pre-filled with the
+                design-declared strata; anything else the user adds is an
+                ad-hoc segment (marked as such in the report/results). */}
+            {prepared && prepared.columns.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>
+                  Segment columns (optional)
+                </Typography.Text>
+                <Select
+                  mode="multiple"
+                  style={{ width: '100%' }}
+                  placeholder="Break the effect down by these columns"
+                  value={segmentColumns}
+                  onChange={setSegmentColumns}
+                  options={prepared.columns.map((c) => ({ value: c, label: c }))}
+                  disabled={running}
+                  aria-label="segment-columns-select"
+                />
+                <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 4, marginBottom: 0 }}>
+                  Exploratory only (no multiple-testing correction).
+                  {segmentColumns.some((c) => !declaredStrata.includes(c)) &&
+                    ' Columns not declared at design are marked "ad-hoc" in the results.'}
+                </Typography.Paragraph>
               </div>
             )}
           </div>

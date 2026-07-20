@@ -231,6 +231,9 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
         # combined cross-product, itself just another entry under its own
         # " × "-joined label) — same exploratory framing as before, just no
         # longer limited to the combined breakdown alone.
+        # External split rework (§3): dimensions chosen ad-hoc at analyze time
+        # (not declared as strata at design) are tagged in the report.
+        ad_hoc_dimensions = set(context.get("ad_hoc_segment_dimensions", []))
         segment_sections = []
         for dim_label, dim_results in segment_results_by_dimension.items():
             dim_htmls = []
@@ -242,7 +245,7 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
                 )
                 dim_htmls.append((treat_name, fig_to_html_div(fig)))
             if dim_htmls:
-                segment_sections.append((dim_label, dim_htmls))
+                segment_sections.append((dim_label, dim_htmls, dim_label in ad_hoc_dimensions))
 
         daily_htmls = []
         for treat_name, daily_df in daily_results.get(metric_name, {}).items():
@@ -291,6 +294,17 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
         srm=context["srm"],
         loss=context["loss"],
         correction=context["correction"],
+        # External split rework (§2a): strata balance on the analyzed users —
+        # None for a design with no strata (section not rendered then).
+        strata_balance=context.get("strata_balance"),
+        strata_balance_rows=(
+            checks.strata_balance_rows(context["strata_balance"])
+            if context.get("strata_balance") is not None else []
+        ),
+        strata_balance_groups=(
+            checks.strata_balance_groups(context["strata_balance"])
+            if context.get("strata_balance") is not None else []
+        ),
         global_warnings=results.global_warnings,
         metric_sections=metric_sections,
         detailed_columns=detailed_columns,

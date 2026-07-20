@@ -1636,6 +1636,8 @@ export interface components {
             methods?: {
                 [key: string]: string[];
             } | null;
+            /** Segment Columns */
+            segment_columns?: string[] | null;
         };
         /** AuditEntryOut */
         AuditEntryOut: {
@@ -2184,6 +2186,8 @@ export interface components {
              * @enum {string}
              */
             split_source: "abkit" | "external";
+            /** Reference Dataset Id */
+            reference_dataset_id?: string | null;
             /**
              * Alpha
              * @default 0.05

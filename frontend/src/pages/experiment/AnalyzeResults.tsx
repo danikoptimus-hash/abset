@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Typography, Tag, Space, Card, Alert, Row, Col, Segmented } from 'antd'
+import { Typography, Tag, Space, Card, Alert, Row, Col, Segmented, Table } from 'antd'
 import { ForestPlotChart } from '../../charts/ForestPlotChart'
 import { DistributionChart } from '../../charts/DistributionChart'
 import { CumulativeLiftChart } from '../../charts/CumulativeLiftChart'
@@ -117,6 +117,8 @@ export function VerdictCards({
 export function AnalyzeResults({ data, alpha }: { data: AnalysisResultsOut; alpha: number }) {
   const byMetric = resultsByMetric(data.results)
   const { checks } = data.chart_data
+  const strataBalance = data.chart_data.strata_balance
+  const adHocDimensions = data.chart_data.ad_hoc_dimensions ?? []
   const metricNames = Object.keys(byMetric)
 
   // Metric cards double as tabs here (UX-package: "аналитика раскрывается по
@@ -176,6 +178,29 @@ export function AnalyzeResults({ data, alpha }: { data: AnalysisResultsOut; alph
         )}
       </Space>
       <HelpCollapse chartType="srm_table" table />
+
+      {strataBalance && (
+        <div style={{ marginTop: 16, marginBottom: 8 }}>
+          <Typography.Title level={5} style={{ marginBottom: 4 }}>
+            Stratum balance{' '}
+            <Tag color={strataBalance.passed ? 'success' : 'error'}>
+              {strataBalance.passed ? 'balanced' : 'imbalance'} (p={strataBalance.p_value.toExponential(2)})
+            </Tag>
+          </Typography.Title>
+          <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
+            Group × stratum composition on the analyzed users — was the split balanced across the declared strata?
+          </Typography.Paragraph>
+          <Table
+            size="small"
+            pagination={false}
+            dataSource={strataBalance.rows.map((r, i) => ({ key: i, ...r }))}
+            columns={[
+              { title: 'Stratum', dataIndex: 'stratum' },
+              ...strataBalance.groups.map((g) => ({ title: g, dataIndex: g })),
+            ]}
+          />
+        </div>
+      )}
 
       {activeMetric && metricResults && (
         <div style={{ marginTop: 32 }}>
@@ -242,6 +267,9 @@ export function AnalyzeResults({ data, alpha }: { data: AnalysisResultsOut; alph
                 <div key={treatName}>
                   <Typography.Title level={5}>
                     By {activeDimension}: {metricChart.control_name} vs {treatName} <Tag>exploratory</Tag>
+                    {adHocDimensions.includes(activeDimension) && (
+                      <Tag color="orange">ad-hoc (not declared at design)</Tag>
+                    )}
                   </Typography.Title>
                   <ForestPlotChart
                     rows={segs.map((s) => ({

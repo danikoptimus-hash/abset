@@ -61,21 +61,64 @@ export function Step1Data({ state, setState, lockSplitMode }: Props) {
     return data?.rows ?? []
   }
 
+  const loadDataset = async (datasetId: string) => {
+    const { data, error } = await apiClient.GET('/api/v1/datasets', { params: { query: { page_size: 200 } } })
+    if (error) throw new Error(errorMessage(error))
+    const chosen = data.items.find((d) => d.id === datasetId)
+    if (!chosen) throw new Error('Dataset not found')
+    const previewRows = await fetchPreview(datasetId)
+    return { columns: chosen.columns, dtypes: inferDtypes(previewRows), nRows: chosen.n_rows, previewRows }
+  }
+
   const handleSelectDataset = async (datasetId: string) => {
     setLoading(true)
     setError(null)
     try {
-      const { data, error } = await apiClient.GET('/api/v1/datasets', { params: { query: { page_size: 200 } } })
-      if (error) throw new Error(errorMessage(error))
-      const chosen = data.items.find((d) => d.id === datasetId)
-      if (!chosen) throw new Error('Dataset not found')
-      const previewRows = await fetchPreview(datasetId)
-      applyDatasetResult(datasetId, chosen.columns, inferDtypes(previewRows), chosen.n_rows, previewRows)
+      const r = await loadDataset(datasetId)
+      applyDatasetResult(datasetId, r.columns, r.dtypes, r.nRows, r.previewRows)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load dataset')
     } finally {
       setLoading(false)
     }
+  }
+
+  // External split rework: an OPTIONAL reference dataset — the already-
+  // exported results. Selecting it populates the same columns/dtypes/nRows/
+  // previewRows the abkit path uses (so Step 2's metric/pre-period fields
+  // become column pickers) AND auto-fills the expected sample size from the
+  // row count (still reference-only, editable on Step 3). Clearing it drops
+  // back to the fully-manual free-text flow.
+  const handleSelectReference = async (datasetId: string) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const r = await loadDataset(datasetId)
+      setState((prev) => ({
+        ...prev,
+        referenceDatasetId: datasetId,
+        columns: r.columns,
+        dtypes: r.dtypes,
+        nRows: r.nRows,
+        previewRows: r.previewRows,
+        sampleSize: r.nRows,
+      }))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load dataset')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleClearReference = () => {
+    setState((prev) => ({
+      ...prev,
+      referenceDatasetId: null,
+      columns: [],
+      dtypes: {},
+      previewRows: [],
+      nRows: 0,
+    }))
   }
 
   const handleDemoData = async () => {
@@ -126,13 +169,61 @@ export function Step1Data({ state, setState, lockSplitMode }: Props) {
       </Radio.Group>
 
       {isExternal ? (
-        <Alert
-          type="info"
-          showIcon
-          message="No dataset needed for an external split"
-          description={`The split already happens in an outside system (Firebase A/B Testing and similar) — ${PRODUCT_NAME} is only used to analyze the results. Declare your groups, metrics, and hypothesis on the next steps; you'll map the actual split to real data when you run the analysis.`}
-          style={{ maxWidth: 640 }}
-        />
+        <>
+          <Alert
+            type="info"
+            showIcon
+            message="No dataset required for an external split"
+            description={`The split already happens in an outside system (Firebase A/B Testing and similar) — ${PRODUCT_NAME} is only used to analyze the results. Declare your groups, metrics, and hypothesis on the next steps; you'll map the actual split to real data when you run the analysis.`}
+            style={{ maxWidth: 680, marginBottom: 16 }}
+          />
+
+          <Typography.Title level={5}>Reference dataset (optional)</Typography.Title>
+          <Typography.Paragraph type="secondary" style={{ maxWidth: 680 }}>
+            Already exported your results (e.g. from Firebase)? Select that dataset to pick column
+            names from dropdowns instead of typing them, and to auto-fill the expected sample size.
+            It stays reference-only — it doesn't drive the split.
+          </Typography.Paragraph>
+
+          {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} closable onClose={() => setError(null)} />}
+
+          <DatasetSelect
+            value={state.referenceDatasetId ?? undefined}
+            onChange={(id) => (id ? handleSelectReference(id) : handleClearReference())}
+            disabled={loading}
+            style={{ width: 420 }}
+            placeholder="Select a reference dataset (optional)"
+            ariaLabel="reference-dataset-select"
+          />
+          <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 8, maxWidth: 680 }}>
+            Don't see your data? <Link to="/datasets" target="_blank">Create a new dataset on the Datasets page</Link>, then come back and select it here.
+          </Typography.Paragraph>
+
+          {loading && (
+            <div style={{ marginTop: 16 }}>
+              <Spin /> Processing data...
+            </div>
+          )}
+
+          {state.referenceDatasetId && state.previewRows.length > 0 && (
+            <div style={{ marginTop: 24 }}>
+              <Alert
+                type="success"
+                showIcon
+                message={`Reference loaded: ${state.nRows} rows, ${Object.keys(state.previewRows[0]).length} columns`}
+                style={{ marginBottom: 12 }}
+              />
+              <Table
+                size="small"
+                dataSource={state.previewRows}
+                rowKey={(_, i) => String(i)}
+                pagination={false}
+                scroll={{ x: true }}
+                columns={Object.keys(state.previewRows[0]).map((k) => ({ title: k, dataIndex: k }))}
+              />
+            </div>
+          )}
+        </>
       ) : (
         <>
           <Typography.Title level={5}>Select data about your candidate users</Typography.Title>

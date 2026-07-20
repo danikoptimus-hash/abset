@@ -62,13 +62,33 @@ def start_design(
     config = body.config
 
     if config.split_source == "external":
-        # Item 12: no dataset at all — the split happens in an outside
+        # Item 12: no dataset REQUIRED — the split happens in an outside
         # system (Firebase A/B Testing and similar), ABSet only stores the
-        # declared groups/metrics for later analysis.
+        # declared groups/metrics for later analysis. External split rework:
+        # an OPTIONAL reference dataset (config.reference_dataset_id) may be
+        # attached — the already-exported results, used only as a convenience
+        # (column pickers, row-count hint) and to prefill Analyze; it never
+        # feeds the design computation (there is none for external).
+        reference_dataset = None
+        if config.reference_dataset_id:
+            try:
+                ref_uuid = uuid_mod.UUID(config.reference_dataset_id)
+            except ValueError as e:
+                raise APIError(422, "validation_error", "Invalid reference dataset id") from e
+            reference_dataset = DatasetRepo().get_by_id(ref_uuid)
+            if reference_dataset is None:
+                raise APIError(
+                    404, "not_found", f"Reference dataset '{config.reference_dataset_id}' not found"
+                )
+
         def _run_external(reporter: ProgressReporter) -> dict[str, Any]:
+            from abkit.db.repositories import ExperimentDatasetRepo, ExperimentRepo
             from abkit.jobs import run_design_external
 
             experiment = run_design_external(user, config, progress_callback=reporter.stage)
+            if reference_dataset is not None:
+                exp_row = ExperimentRepo().get_by_name(experiment.name)
+                ExperimentDatasetRepo().link(exp_row.id, reference_dataset.id, kind="pre_design")
             return {"experiment_name": experiment.name}
 
         job = runner.submit("design", uuid_mod.UUID(user.id), _run_external)

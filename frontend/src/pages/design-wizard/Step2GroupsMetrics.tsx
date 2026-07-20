@@ -12,6 +12,12 @@ interface Props {
 
 export function Step2GroupsMetrics({ state, setState }: Props) {
   const isExternal = state.splitMode === 'external'
+  // External split rework: metric/pre-period/num/den become searchable column
+  // pickers whenever a dataset's columns are known — always for the abkit
+  // path, and for external ONLY when a reference dataset was selected on Step
+  // 1 (otherwise external stays free-text, since there are no columns to
+  // pick from). This replaces the old "external ⇒ always free-text" rule.
+  const hasColumns = state.columns.length > 0
   const numeric = numericColumns(state)
   const numericOptions = [{ value: '__none__', label: '(none)' }, ...numeric.map((c) => ({ value: c, label: c }))]
   const sum = groupsSum(state)
@@ -149,7 +155,7 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
                 { value: 'ratio', label: 'ratio' },
               ]}
             />
-            {m.type === 'ratio' || isExternal ? (
+            {m.type === 'ratio' || !hasColumns ? (
               <Input
                 placeholder={
                   m.type === 'ratio' ? 'Metric name (label), e.g. conv_rate' : 'Data column name, e.g. conversion'
@@ -184,7 +190,7 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
 
           {m.type === 'ratio' ? (
             <Space>
-              {isExternal ? (
+              {!hasColumns ? (
                 <>
                   <Input
                     placeholder="Numerator column (num)"
@@ -220,7 +226,7 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
             </Space>
           ) : (
             <div>
-              {isExternal ? (
+              {!hasColumns ? (
                 <Input
                   placeholder="Pre-period column (for CUPED, optional)"
                   style={{ width: 320 }}

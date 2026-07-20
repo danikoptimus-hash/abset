@@ -53,6 +53,15 @@ class DesignConfig(BaseModel):
     power calculation (nothing to compute variance from), no assignments.
     See Experiment.design_external()/analyze()'s split_source=="external"
     branch."""
+    reference_dataset_id: str | None = None
+    """Опциональный референс-датасет для split_source=="external" (External
+    split rework): выборка результатов, уже выгруженная из внешней системы
+    (Firebase и т.п.). На дизайн НЕ влияет (external ничего не считает из
+    данных) — служит только удобством UI (пикеры колонок вместо ручного
+    ввода имен, авто-подстановка ожидаемого размера выборки из числа строк)
+    и подсказкой для Analyze (тот же датасет предзаполняется в пикере пост-
+    периода). Хранится в config (JSONB), отдельной колонки/миграции нет.
+    Для split_source=="abkit" не используется."""
     alpha: float = 0.05
     power: float = 0.8
     mde: float | None = None

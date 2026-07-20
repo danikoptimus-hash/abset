@@ -74,15 +74,20 @@ export function Step3Parameters({ state, setState, isRedesign }: Props) {
   if (isExternal) {
     // Item 12: no dataset means no baseline to compute an achievable MDE
     // from — an MDE table here would just be a guess dressed up as a
-    // computation, so it's not offered at all. Split method, strata, and
-    // isolation don't apply either (no split happening, no candidates to
-    // isolate) — only an optional reference sample size.
+    // computation, so it's not offered at all. Split method and isolation
+    // don't apply either (no split happening, no candidates to isolate) —
+    // only an optional reference sample size. External split rework: strata
+    // DO apply now (they drive the analysis balance check + segment
+    // breakdown, not the split itself), and the sample size auto-fills from
+    // a reference dataset's row count when one was selected.
+    const hasColumns = state.columns.length > 0
     return (
       <div>
         <Typography.Title level={5}>Expected sample size (optional)</Typography.Title>
-        <Typography.Paragraph type="secondary" style={{ maxWidth: 500 }}>
+        <Typography.Paragraph type="secondary" style={{ maxWidth: 560 }}>
           For reference only — the external system calculates its own power/MDE, so {PRODUCT_NAME} won't build an MDE
           table for this experiment.
+          {hasColumns && ' Pre-filled from the reference dataset’s row count; edit it if you expect a different size.'}
         </Typography.Paragraph>
         <InputNumber
           addonBefore="Sample size"
@@ -91,6 +96,26 @@ export function Step3Parameters({ state, setState, isRedesign }: Props) {
           value={state.sampleSize}
           onChange={(v) => setState((prev) => ({ ...prev, sampleSize: v ?? 0 }))}
           style={{ width: 320 }}
+        />
+
+        <Typography.Title level={5} style={{ marginTop: 24 }}>
+          Strata / segment columns (optional)
+        </Typography.Title>
+        <Typography.Paragraph type="secondary" style={{ maxWidth: 560 }}>
+          {PRODUCT_NAME} can't stratify an external split (it already happened). These columns instead drive the
+          analysis: a per-stratum balance check (was the outside split balanced across these attributes?) and the
+          per-segment breakdown of the effect. {hasColumns
+            ? 'Pick them from the reference dataset’s columns.'
+            : 'Type the column names as they appear in the results you’ll analyze.'}
+        </Typography.Paragraph>
+        <Select
+          mode={hasColumns ? 'multiple' : 'tags'}
+          aria-label="external-strata-select"
+          placeholder="Strata / segment columns (optional)"
+          value={state.strata}
+          onChange={(strata) => setState((prev) => ({ ...prev, strata }))}
+          options={hasColumns ? state.columns.map((c) => ({ value: c, label: c })) : undefined}
+          style={{ width: '100%', maxWidth: 560 }}
         />
       </div>
     )

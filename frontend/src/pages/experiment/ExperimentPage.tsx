@@ -509,6 +509,8 @@ export function ExperimentPage() {
                 family={hypothesisFamily(data.config)}
                 splitSource={String(data.config.split_source ?? 'abkit')}
                 declaredGroups={Object.keys((data.config.groups as Record<string, number>) ?? {})}
+                declaredStrata={(data.config.strata as string[]) ?? []}
+                referenceDatasetId={(data.config.reference_dataset_id as string | null) ?? null}
                 unitCol={String(data.config.unit_col ?? '')}
                 alpha={Number(data.config.alpha ?? 0.05)}
                 metrics={analyzeMetricsFromConfig(data.config)}

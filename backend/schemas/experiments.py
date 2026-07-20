@@ -185,6 +185,11 @@ class AnalyzeRequest(BaseModel):
     # metric absent from this dict keeps the type/config-based default
     # (single designed method, no extras).
     methods: dict[str, list[str]] | None = None
+    # External split rework (§3): columns to break the effect down by, from
+    # the analysis dataset's ACTUAL columns (external AND ABSet). None → the
+    # design-declared strata only (unchanged behavior). Columns not among the
+    # declared strata are "ad-hoc" segments, marked as such in the results.
+    segment_columns: list[str] | None = None
 
 
 class AnalyzeDemoRequest(BaseModel):

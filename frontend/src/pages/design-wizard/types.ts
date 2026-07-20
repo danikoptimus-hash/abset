@@ -79,6 +79,16 @@ export interface WizardState {
   previewRows: Record<string, unknown>[]
   nRows: number
 
+  // External split rework: an OPTIONAL reference dataset on the external
+  // path — the already-exported results (Firebase etc.). When set, the same
+  // columns/dtypes/previewRows/nRows above are populated from it (exactly
+  // like the abkit path) so metric/pre-period fields become column pickers
+  // and Expected sample size auto-fills; when null, external stays the
+  // fully-manual free-text flow. Distinct from datasetId, which the external
+  // flow never uses for the split itself. Stored on the experiment as
+  // config.reference_dataset_id.
+  referenceDatasetId: string | null
+
   // Item 12: "abkit" is the usual flow (this file, as before) — "external"
   // means the split already happened outside ABSet (Firebase A/B Testing
   // and similar); no dataset, no split, no isolation, only a manually
@@ -288,13 +298,16 @@ export function buildDesignConfig(state: WizardState): DesignConfig {
   return config
 }
 
-// Item 12 (external split): no dataset, so none of the ABSet-split-only
-// fields (split_method/strata/isolation/nan_strategy) mean anything — sent
-// as harmless fixed defaults rather than left to whatever they happened to
-// be in state, so a persisted external config never LOOKS like it made an
-// isolation/split-method decision it didn't actually make. sample_size is
-// the one field that IS meaningful here (expected size, for reference) —
-// carried over as-is when the user filled it in.
+// Item 12 (external split): no split/isolation, so those ABSet-split-only
+// fields (split_method/isolation/nan_strategy) are sent as harmless fixed
+// defaults rather than left to whatever they happened to be in state, so a
+// persisted external config never LOOKS like it made an isolation/split-
+// method decision it didn't actually make. External split rework: `strata`
+// and `reference_dataset_id` ARE meaningful here now — the declared strata
+// drive the analysis balance check + segment breakdown (ABSet can't
+// stratify an outside split, but it can check/segment it after the fact),
+// and the reference dataset is the optional convenience source for column
+// pickers. sample_size (expected size, reference-only) is carried as-is.
 export function buildExternalDesignConfig(state: WizardState): DesignConfig {
   return {
     name: state.name.trim(),
@@ -305,8 +318,9 @@ export function buildExternalDesignConfig(state: WizardState): DesignConfig {
     alpha: state.alpha,
     power: state.power,
     split_source: 'external',
+    reference_dataset_id: state.referenceDatasetId ?? undefined,
     split_method: 'simple',
-    strata: [],
+    strata: state.strata,
     n_buckets_continuous: 4,
     min_stratum_size: 20,
     nan_strategy: 'separate_stratum',
@@ -362,6 +376,7 @@ export function wizardStateFromConfig(config: DesignConfig): Partial<WizardState
   else if (config.sample_size != null) sizeMode = 'sample_size'
   return {
     splitMode: config.split_source === 'external' ? 'external' : 'abkit',
+    referenceDatasetId: config.reference_dataset_id ?? null,
     name: config.name,
     unitCol: config.unit_col,
     groups: groupsFromApi(config.groups, config.group_descriptions),

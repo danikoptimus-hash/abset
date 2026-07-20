@@ -1168,6 +1168,7 @@ class Experiment:
         progress_callback: Callable[[str], None] | None = None,
         group_column: str | None = None,
         group_mapping: dict[str, str] | None = None,
+        segment_columns: list[str] | None = None,
         created_at: datetime | None = None,
         started_at: datetime | None = None,
         completed_at: datetime | None = None,
@@ -1222,10 +1223,24 @@ class Experiment:
         timestamps live on the ExperimentRepo row), so the caller
         (backend/routers/experiments.py::start_analyze, which already has
         that row in scope) passes them through here into attach_context().
+
+        segment_columns: External split rework (§3) — the columns to break the
+        effect down by, from the ANALYSIS dataset's ACTUAL columns, chosen at
+        analyze time. None (default) → the design-declared strata
+        (self.config.strata), preserving the pre-existing behavior. Columns
+        that are declared strata are broken down via the design-time stratum
+        (ABSet) or a stratum synthesized from the uploaded data (external);
+        columns NOT in self.config.strata are "ad-hoc" segments (marked as
+        such in the report/results — the analysis dataset may carry attributes
+        that weren't declared or didn't exist at design time) and are broken
+        down directly on their raw values. Both flows accept ad-hoc columns.
+        A declared/ad-hoc column absent from the uploaded data degrades
+        gracefully: a warning names it, that column is skipped, the rest runs.
         """
         cb = progress_callback or (lambda _label: None)
         global_warnings: list[str] = []
         loss_result = None
+        strata_balance_result: checks.BalanceResult | None = None
 
         if self.config.split_source == "external":
             if not group_column or not group_mapping:
@@ -1258,6 +1273,25 @@ class Experiment:
                 global_warnings.append(
                     f"Group column coverage: {n_excluded} of {n_total} rows had no mapped "
                     f"group value and were excluded ({pct:.1f}%)"
+                )
+            # External split rework (§2): there are no assignments, so the
+            # design-declared strata never produced a `stratum` column. If the
+            # declared strata columns are present in the uploaded data,
+            # synthesize one here (same build_strata used at design time) so
+            # the existing balance/segment machinery below works unchanged.
+            # Columns declared but absent from the data degrade gracefully:
+            # warn, skip that column, keep the rest.
+            missing_strata = [c for c in self.config.strata if c not in merged.columns]
+            for col in missing_strata:
+                global_warnings.append(
+                    f"Declared stratum column '{col}' is not in the analysis dataset — "
+                    "its balance check and segment breakdown were skipped."
+                )
+            external_strata = [c for c in self.config.strata if c in merged.columns]
+            if external_strata:
+                merged["stratum"] = build_strata(
+                    merged, external_strata, self.config.n_buckets_continuous,
+                    self.config.min_stratum_size,
                 )
         else:
             if self.assignments is None:
@@ -1350,17 +1384,72 @@ class Experiment:
         # the same "too rare to say anything individually" reasoning that
         # put them there in the first place.
         segment_results_by_dimension: dict[str, dict[str, dict[str, list[tuple[str, TestResult]]]]] = {}
+
+        # Strata balance (§2a): group × stratum composition + chi-square, on
+        # the actually-analyzed users. For ABSet the `stratum` column comes
+        # from the assignments join; for external it was synthesized above
+        # from the declared strata columns present in the uploaded data. The
+        # DESIGN report already shows a balance table for ABSet, but external
+        # never had one — computing it here from `merged` gives external the
+        # analog ("was the outside split balanced across these attributes?").
+        if "stratum" in merged.columns and merged["stratum"].nunique() > 1:
+            strata_balance_result = checks.check_strata_balance(
+                merged["stratum"], merged["group"], alpha=self.config.alpha
+            )
+
+        # `effective_strata` — the declared strata whose values `merged`'s
+        # stratum column actually encodes: all of them for ABSet (the stratum
+        # was built over the full list at design time), only those present in
+        # the uploaded data for external (the rest were skipped + warned about
+        # above). Everything below (decomposition, combined label) keys off
+        # this, so a partially-present external strata set stays self-
+        # consistent (pipe count matches).
+        if self.config.split_source == "external":
+            effective_strata = [c for c in self.config.strata if c in merged.columns]
+        else:
+            effective_strata = list(self.config.strata)
+
         dimension_series: dict[str, pd.Series] = {}
-        if len(self.config.strata) > 1 and "stratum" in merged.columns:
+        if len(effective_strata) > 1 and "stratum" in merged.columns:
             split_cols = merged["stratum"].str.split("|", expand=True)
-            if split_cols.shape[1] == len(self.config.strata):
+            if split_cols.shape[1] == len(effective_strata):
                 decomposable = ~merged["stratum"].isin(["_other_", "_all_"])
-                for i, col_name in enumerate(self.config.strata):
+                for i, col_name in enumerate(effective_strata):
                     dimension_series[col_name] = split_cols[i].where(decomposable)
         combined_dimension_label = (
-            " × ".join(self.config.strata) if len(self.config.strata) > 1
-            else (self.config.strata[0] if self.config.strata else None)
+            " × ".join(effective_strata) if len(effective_strata) > 1
+            else (effective_strata[0] if effective_strata else None)
         )
+
+        # Ad-hoc segments (§3): columns chosen at analyze time that are NOT
+        # design-declared strata — broken down directly on their raw values
+        # in the uploaded data (both flows). `segment_columns` is the full
+        # resolved list the caller passed (declared + ad-hoc); None means "the
+        # design-declared strata only", i.e. no ad-hoc, preserving the old
+        # behavior. Declared columns are handled by the stratum path above, so
+        # only the non-declared ones are processed here.
+        requested_segment_columns = (
+            list(self.config.strata) if segment_columns is None else list(segment_columns)
+        )
+        declared_set = set(self.config.strata)
+        ad_hoc_dimensions: list[str] = []
+        for col in requested_segment_columns:
+            if col in declared_set or col in dimension_series:
+                continue
+            if col in merged.columns:
+                # Same bucketing the declared strata get at design time: a
+                # high-cardinality numeric column becomes quantile buckets
+                # (else it would explode into hundreds of singleton segments);
+                # a categorical column stays as-is; NaN → "unknown" (its own
+                # segment), matching nan_strategy="separate_stratum".
+                dimension_series[col] = bucket_column(
+                    merged[col], self.config.n_buckets_continuous
+                )
+                ad_hoc_dimensions.append(col)
+            else:
+                global_warnings.append(
+                    f"Segment column '{col}' is not in the analysis dataset — skipped."
+                )
         daily_results: dict[str, dict[str, pd.DataFrame]] = {}
 
         n_metrics = len(self.config.metrics)
@@ -1469,6 +1558,8 @@ class Experiment:
             raw_values=raw_values,
             segment_results=segment_results,
             segment_results_by_dimension=segment_results_by_dimension,
+            ad_hoc_segment_dimensions=ad_hoc_dimensions,
+            strata_balance=strata_balance_result,
             daily_results=daily_results,
             correction=correction,
             created_at=created_at,

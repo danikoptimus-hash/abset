@@ -62,6 +62,23 @@
   {% endif %}
 </section>
 
+{% if strata_balance %}
+<section id="section-strata-balance">
+  <h2>Stratum balance</h2>
+  <p>Group × stratum composition on the analyzed users (stratified by: <strong>{{ config.strata|join(', ') }}</strong>). A chi-square test of whether the split was balanced across these attributes.</p>
+  <p class="badges"><span class="badge {{ 'ok' if strata_balance.passed else 'fail' }}">{{ 'ok' if strata_balance.passed else 'IMBALANCE' }} (p={{ '%.4g' % strata_balance.p_value }})</span></p>
+  <table>
+    <tr><th>Stratum</th>{% for g in strata_balance_groups %}<th>{{ g }}</th>{% endfor %}</tr>
+    {% for row in strata_balance_rows %}
+    <tr>
+      <td>{{ row.stratum }}</td>
+      {% for g in strata_balance_groups %}<td>{{ row[g] }}</td>{% endfor %}
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endif %}
+
 <section id="section-verdicts">
   <h2>Verdicts</h2>
   <div class="cards">
@@ -132,8 +149,8 @@
     <h3>Effect by segment <span class="exploratory-tag">exploratory</span></h3>
     {% if section.segment_sections %}
       <div class="warnings">{{ chart_warning('segment_forest') }}</div>
-      {% for dim_label, dim_htmls in section.segment_sections %}
-        <h4>By {{ dim_label }}</h4>
+      {% for dim_label, dim_htmls, is_ad_hoc in section.segment_sections %}
+        <h4>By {{ dim_label }}{% if is_ad_hoc %} <span class="exploratory-tag">ad-hoc segment (not declared at design)</span>{% endif %}</h4>
         {% for treat_name, html in dim_htmls %}
           <p>{{ section.name }}: {{ treat_name }} by {{ dim_label }}</p>
           {{ html | safe }}
