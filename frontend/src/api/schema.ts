@@ -2117,6 +2117,8 @@ export interface components {
             source_schema?: string | null;
             /** Source Table */
             source_table?: string | null;
+            /** Categorical Columns */
+            categorical_columns?: string[] | null;
         };
         /** DatasetOut */
         DatasetOut: {
@@ -2168,6 +2170,8 @@ export interface components {
             renamed_columns?: {
                 [key: string]: string;
             } | null;
+            /** Categorical Columns */
+            categorical_columns?: string[] | null;
             /**
              * Experiments
              * @default []
@@ -2838,6 +2842,8 @@ export interface components {
             source_schema?: string | null;
             /** Source Table */
             source_table?: string | null;
+            /** Categorical Columns */
+            categorical_columns?: string[] | null;
             /** Column Renames */
             column_renames?: {
                 [key: string]: string;

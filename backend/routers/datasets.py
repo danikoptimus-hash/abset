@@ -21,6 +21,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 
 from abkit.auth.guards import CurrentUser
+from abkit.dataset_categorical import default_categorical_columns
 from abkit.dataset_files import read_dataset_file
 from abkit.db.repositories import (
     DatabaseConnectionRepo,
@@ -84,6 +85,7 @@ def _to_dataset_out(
         sql_text=d.sql_text, fetched_at=d.fetched_at,
         source_schema=d.source_schema, source_table=d.source_table,
         renamed_columns=d.renamed_columns,
+        categorical_columns=d.categorical_columns,
         # Item 1 bug fix: one entry per real (experiment, kind) use, from
         # experiment_datasets — not the legacy single experiment_id/kind
         # pair above, which only ever reflects a dataset's creation-time
@@ -198,6 +200,9 @@ def upload_dataset(
         kind=kind, filename=file.filename, n_rows=len(data), columns=list(data.columns),
         storage_path=str(dest_path), sha256=DatasetRepo.compute_sha256(data),
         experiment_id=experiment_id, uploaded_by=uuid_mod.UUID(user.id), source="upload",
+        # Part 2: store the heuristic categorical default (string/bool +
+        # low-cardinality numeric); the user refines it in Edit dataset.
+        categorical_columns=default_categorical_columns(data),
     )
     ds = DatasetRepo().get_by_id(dataset_id)
     exp_name_by_id = {experiment_id: experiment_name} if experiment_id else {}
@@ -307,10 +312,16 @@ def get_column_cardinalities(
     except OSError as e:
         raise APIError(404, "not_found", "Dataset file is not available on disk") from e
 
-    # Default bucket count (4) matches DesignConfig.n_buckets_continuous — the
-    # dataset isn't tied to a config, and the analyst picks categorical columns
-    # for segments anyway (where bucketing is a no-op).
-    cardinalities = {c: int(bucket_column(df[c], 4).nunique()) for c in wanted}
+    # Default bucket count (4) matches DesignConfig.n_buckets_continuous. Part
+    # 2: a column flagged categorical reports its RAW distinct count (each value
+    # is its own cell), not the bucketed count — so the live combination cell
+    # count matches what the breakdown actually produces.
+    from abkit.dataset_categorical import resolve_categorical_columns
+
+    categorical = resolve_categorical_columns(ds.categorical_columns, df)
+    cardinalities = {
+        c: int(bucket_column(df[c], 4, categorical=c in categorical).nunique()) for c in wanted
+    }
     return ColumnCardinalitiesResponse(cardinalities=cardinalities)
 
 
@@ -387,6 +398,7 @@ def create_demo_design_dataset(
         kind="pre_design", filename="demo_design.csv", n_rows=len(data), columns=list(data.columns),
         storage_path=str(dest_path), sha256=DatasetRepo.compute_sha256(data),
         uploaded_by=uuid_mod.UUID(user.id), source="demo",
+        categorical_columns=default_categorical_columns(data),
     )
     return DemoDesignDatasetResponse(
         dataset_id=str(dataset_id), suggested_config=demo_config.model_dump(mode="json")
@@ -472,6 +484,8 @@ def preview_strata_power(
         raise APIError(404, "not_found", f"Dataset '{dataset_id}' not found")
 
     data = read_dataset_file(ds.storage_path)
+    from abkit.dataset_categorical import resolve_categorical_columns
+
     result = _preview_strata_power(
         user, data,
         unit_col=body.unit_col, groups=body.groups, metrics=body.metrics, strata=body.strata,
@@ -479,6 +493,7 @@ def preview_strata_power(
         exclude_experiments=body.exclude_experiments,
         isolation_selected_experiments=body.isolation_selected_experiments,
         experiment_name=body.experiment_name,
+        categorical_columns=sorted(resolve_categorical_columns(ds.categorical_columns, data)),
     )
     return StrataPowerPreviewResponse(
         eligible_n=result["eligible_n"],
@@ -508,6 +523,7 @@ def create_dataset_from_sql(
             user, connection_id=body.connection_id, sql=body.sql, name=body.name,
             kind=body.kind, experiment_id=body.experiment_id, progress_callback=reporter.stage,
             source_schema=body.source_schema, source_table=body.source_table,
+            categorical_columns=body.categorical_columns,
         )
 
     job = runner.submit("dataset_from_sql", uuid_mod.UUID(user.id), _run)
@@ -605,6 +621,7 @@ def patch_dataset(
         user, dataset_id, name=body.name, connection_id=body.connection_id, sql_text=body.sql_text,
         source_schema=body.source_schema, source_table=body.source_table,
         column_renames=body.column_renames,
+        categorical_columns=body.categorical_columns,
     )
 
     job_id = None

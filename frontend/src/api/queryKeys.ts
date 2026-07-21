@@ -39,6 +39,10 @@ export const queryKeys = {
     ['dataset-duplicate-check', id, unitCol] as const,
   datasetColumnCardinalities: (id: string | undefined, columns: string[]) =>
     ['dataset-column-cardinalities', id, [...columns].sort().join('|')] as const,
+  // Part 2: wider preview (more rows) for the column-types editor's numeric
+  // inference — kept distinct from datasetPreview (10-row snapshot) so the two
+  // don't clobber each other's cache.
+  datasetColumnsPreview: (id: string | undefined) => ['dataset-columns-preview', id] as const,
 
   // Database connections
   adminDbConnections: () => ['admin-db-connections'] as const,

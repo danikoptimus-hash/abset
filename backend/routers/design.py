@@ -110,12 +110,22 @@ def start_design(
     # необратимо теряет их при авто-парсинге pandas в int64.
     data = read_dataset_file(dataset.storage_path, dtype={config.unit_col: str})
 
+    # Part 2: which columns to stratify per-value (not bin) — the dataset's
+    # stored categorical flags, or the heuristic default for datasets predating
+    # the feature (lazy backfill).
+    from abkit.dataset_categorical import resolve_categorical_columns
+
+    categorical_columns = sorted(resolve_categorical_columns(dataset.categorical_columns, data))
+
     def _run(reporter: ProgressReporter) -> dict[str, Any]:
         from abkit.db.repositories import ExperimentDatasetRepo, ExperimentRepo
         from abkit.jobs import run_design
 
         _check_isolation_overlap(config, data, confirmed)
-        experiment = run_design(user, config, data, progress_callback=reporter.stage)
+        experiment = run_design(
+            user, config, data, progress_callback=reporter.stage,
+            categorical_columns=categorical_columns,
+        )
         exp_row = ExperimentRepo().get_by_name(experiment.name)
         if dataset.experiment_id is None:
             DatasetRepo().attach_to_experiment(dataset.id, exp_row.id)

@@ -109,6 +109,18 @@ renamed column back to its source. (This step doesn't apply to SQL-sourced
 datasets — column names there come from your query's own aliases; rename
 them with `AS` in the SQL instead.)
 
+The same confirmation step (and **Edit dataset** later) has a **Column types**
+section with a **Categorical** checkbox per column. A categorical column is
+stratified and segmented *per value* — each distinct value is its own stratum
+(e.g. a `months_ago` column of `1, 2, 3, 5` gives four strata labeled `1`, `2`,
+`3`, `5`). A non-categorical numeric column is instead *binned* into ranges
+(e.g. `1000–2000`, `2000–3000`). Text and boolean columns are always
+categorical; a numeric column defaults to categorical when it has few distinct
+values (20 or fewer) and to binned otherwise — check or uncheck it to override.
+This is what keeps an integer *code* column (small set of meaningful values)
+from being sliced into meaningless numeric ranges. A SQL **Refresh** keeps your
+choices for columns that still exist and applies the default to any new ones.
+
 Datasets are independent of any one experiment — **deleting an experiment
 never deletes the datasets it used.** Only that experiment's own assignments
 and analysis results go away; its datasets simply lose that one link and stay
@@ -347,8 +359,12 @@ edit flow for it.
   implausibly small, a warning explains it's almost certainly a units
   mistake in the MDE (not a real result) and suggests the likely fix.
   `[Screenshot: Parameters step with the MDE mode selector and computed sample size]`
-- **Strata** — categorical columns to stratify the split on, so group balance
-  holds within each stratum, not just overall.
+- **Strata** — columns to stratify the split on, so group balance holds within
+  each stratum, not just overall. A column flagged **categorical** on the
+  dataset (see [Datasets](#datasets-where-your-data-comes-from) above) is
+  stratified per value; a numeric column left non-categorical is binned into
+  ranges. So flag an integer *code* column categorical to keep each value as
+  its own stratum instead of a numeric range.
   - Missing values in a stratifying column: choose to bucket them into their
     own "unknown" stratum (default), drop those users, or treat it as a
     design error and stop.

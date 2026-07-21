@@ -48,6 +48,10 @@ class DatasetOut(BaseModel):
     # actually renamed at upload confirmation — None if nothing was renamed
     # (the common case) or for source in ('sql', 'demo').
     renamed_columns: dict[str, str] | None = None
+    # Part 2: columns marked categorical (user-resolved, or the stored
+    # heuristic default). None for datasets created before this feature — the
+    # Edit modal computes a default from the preview in that case.
+    categorical_columns: list[str] | None = None
     # Item 1 bug fix: every experiment that has actually used this dataset
     # (design/analyze/validate), from experiment_datasets — the Datasets
     # list column renders all of these, not just the legacy single
@@ -69,6 +73,9 @@ class DatasetFromSqlRequest(BaseModel):
     # omits both otherwise, e.g. for hand-written SQL.
     source_schema: str | None = None
     source_table: str | None = None
+    # Part 2: explicit categorical flags chosen in the Create modal. None →
+    # the backend applies the heuristic default to the fetched data.
+    categorical_columns: list[str] | None = None
 
 
 class DatasetFromSqlResult(BaseModel):
@@ -258,6 +265,9 @@ class PatchDatasetRequest(BaseModel):
     sql_text: str | None = None
     source_schema: str | None = None
     source_table: str | None = None
+    # Part 2: the full resolved categorical-column list from the Edit modal's
+    # checkboxes. None = "don't touch" (partial-patch convention).
+    categorical_columns: list[str] | None = None
     # Item 1 (upload rename step): {old_name: new_name} — only entries that
     # actually change are required, but sending every current column
     # mapped to itself is also fine (a no-op rename). source='upload' only;

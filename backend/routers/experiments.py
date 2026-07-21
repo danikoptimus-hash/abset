@@ -1055,6 +1055,9 @@ def start_redesign(
     config = body.config
     confirmed = body.confirmed
     data = read_dataset_file(dataset.storage_path, dtype={config.unit_col: str})
+    from abkit.dataset_categorical import resolve_categorical_columns
+
+    categorical_columns = sorted(resolve_categorical_columns(dataset.categorical_columns, data))
 
     def _run(reporter) -> dict[str, Any]:
         from abkit.db.repositories import ExperimentDatasetRepo
@@ -1062,7 +1065,10 @@ def start_redesign(
         from backend.routers.design import _check_isolation_overlap
 
         _check_isolation_overlap(config, data, confirmed)
-        experiment = run_redesign(user, config, data, progress_callback=reporter.stage)
+        experiment = run_redesign(
+            user, config, data, progress_callback=reporter.stage,
+            categorical_columns=categorical_columns,
+        )
         exp_row = ExperimentRepo().get_by_name(experiment.name)
         ExperimentDatasetRepo().link(exp_row.id, dataset.id, kind="pre_design")
         return {"experiment_name": experiment.name}
@@ -1087,6 +1093,14 @@ def start_analyze(
     # the live frontend guard; a direct API call must not be able to request
     # a 10k-cell breakdown).
     _enforce_segment_cardinality(data, body.segment_combinations, config.n_buckets_continuous)
+    # Part 2: category-vs-binned treatment for strata/segment cuts from the
+    # analysis dataset's stored flags (heuristic default for pre-feature rows).
+    from abkit.dataset_categorical import resolve_categorical_columns
+
+    _analysis_ds = DatasetRepo().get_by_id(uuid_mod.UUID(body.dataset_id))
+    categorical_columns = sorted(
+        resolve_categorical_columns(_analysis_ds.categorical_columns if _analysis_ds else None, data)
+    )
 
     def _run(reporter) -> dict[str, Any]:
         from abkit.db.repositories import ExperimentDatasetRepo
@@ -1106,6 +1120,7 @@ def start_analyze(
             group_column=body.group_column, group_mapping=body.group_mapping,
             segment_columns=body.segment_columns,
             segment_combinations=body.segment_combinations,
+            categorical_columns=categorical_columns,
             methods=methods, extra_methods=extra_methods,
             progress_callback=reporter.stage,
             # Stage 2 (report header dates): `exp` (the DB row, fetched
@@ -1163,6 +1178,12 @@ def add_result_segments(
     config = Experiment.load(name).config
     data = _load_dataset_df(str(run.dataset_id), unit_col=config.unit_col)
     _enforce_segment_cardinality(data, body.segment_combinations, config.n_buckets_continuous)
+    from abkit.dataset_categorical import resolve_categorical_columns
+
+    _run_ds = DatasetRepo().get_by_id(run.dataset_id)
+    categorical_columns = sorted(
+        resolve_categorical_columns(_run_ds.categorical_columns if _run_ds else None, data)
+    )
 
     run_id = run.id
     stored = run.results
@@ -1185,6 +1206,7 @@ def add_result_segments(
             group_column=params.get("group_column"), group_mapping=params.get("group_mapping"),
             segment_columns=body.segment_columns,
             segment_combinations=body.segment_combinations,
+            categorical_columns=categorical_columns,
             methods=methods, extra_methods=extra_methods,
             progress_callback=reporter.stage,
         )
@@ -1251,10 +1273,13 @@ def create_demo_post_data(
     dest_path = dest_dir / f"{uuid_mod.uuid4().hex}_demo_post_data.csv"
     data.to_csv(dest_path, index=False)
 
+    from abkit.dataset_categorical import default_categorical_columns
+
     dataset_id = DatasetRepo().create(
         kind="post_analysis", filename="demo_post_data.csv", n_rows=len(data), columns=list(data.columns),
         storage_path=str(dest_path), sha256=DatasetRepo.compute_sha256(data),
         experiment_id=exp.id, uploaded_by=uuid_mod.UUID(user.id), source="demo",
+        categorical_columns=default_categorical_columns(data),
     )
     from abkit.db.repositories import ExperimentDatasetRepo
 

@@ -11,10 +11,20 @@ import { QueryResultPreview } from '../../components/datasets/QueryResultPreview
 import { DatasetSnapshotPreview } from '../../components/datasets/DatasetSnapshotPreview'
 import { buildSelectAllSql, parseSchemaTableFromSql } from '../../components/datasets/parseSchemaTableFromSql'
 import { StopClickPropagation } from '../../components/StopClickPropagation'
+import {
+  ColumnTypeEditor,
+  numericColumnsFromPreview,
+  defaultCategoricalFromPreview,
+} from '../../components/datasets/ColumnTypeEditor'
 
 type DatasetOut = components['schemas']['DatasetOut']
 
 const { TextArea } = Input
+
+function sameStringSet(a: string[], b: string[] | null | undefined): boolean {
+  const bs = new Set(b ?? [])
+  return a.length === bs.size && a.every((x) => bs.has(x))
+}
 
 // UX package, Datasets §2.3: opens the same shape of form as creation, with
 // fields pre-filled. source=upload/demo only has `name` editable (the file
@@ -38,9 +48,31 @@ export function EditDatasetModal({
   const [sql, setSql] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Part 2: categorical column flags. null = untouched (fall back to the
+  // stored list, or a preview heuristic for datasets predating the feature).
+  const [categorical, setCategorical] = useState<string[] | null>(null)
   const { phase, stage, error: jobError, poll, reset } = useJobPolling<{ n_rows: number; truncated: boolean }>()
 
   const isSql = dataset?.source === 'sql'
+
+  // Preview rows drive the "Column types" editor (numeric-vs-text detection +
+  // the default flags for datasets with none stored yet).
+  const { data: preview } = useQuery({
+    queryKey: queryKeys.datasetColumnsPreview(dataset?.id),
+    enabled: !!dataset && open,
+    queryFn: async () => {
+      const { data, error } = await apiClient.GET('/api/v1/datasets/{dataset_id}/preview', {
+        params: { path: { dataset_id: dataset!.id }, query: { rows: 200 } },
+      })
+      if (error) throw new Error(errorMessage(error))
+      return data
+    },
+  })
+  const previewColumns = preview?.columns ?? dataset?.columns ?? []
+  const previewRows = (preview?.rows ?? []) as Record<string, unknown>[]
+  const numericCols = numericColumnsFromPreview(previewColumns, previewRows)
+  const effectiveCategorical =
+    categorical ?? dataset?.categorical_columns ?? (previewRows.length ? defaultCategoricalFromPreview(previewColumns, previewRows) : [])
 
   // Unlike Create, the editor here always opens holding the *saved* query —
   // which counts as a manual edit from the start — so picking a table
@@ -64,6 +96,7 @@ export function EditDatasetModal({
         setTable(parsed.table)
       }
       lastAutoFilledSql.current = null
+      setCategorical(null)
       setError(null)
       reset()
     }
@@ -98,7 +131,9 @@ export function EditDatasetModal({
   // than throwing or reading stale true.
   const sqlChanged =
     !!dataset && isSql && (connectionId !== (dataset.connection_id ?? undefined) || sql !== (dataset.sql_text ?? ''))
-  const isDirty = !!dataset && open && (name.trim() !== dataset.filename || sqlChanged)
+  const categoricalChanged =
+    !!dataset && categorical !== null && !sameStringSet(categorical, dataset.categorical_columns)
+  const isDirty = !!dataset && open && (name.trim() !== dataset.filename || sqlChanged || categoricalChanged)
   const { guard } = useUnsavedGuard(isDirty)
 
   if (!dataset) return null
@@ -133,8 +168,14 @@ export function EditDatasetModal({
         sql_text?: string
         source_schema?: string
         source_table?: string
+        categorical_columns?: string[]
       } = {}
       if (name.trim() && name.trim() !== dataset.filename) body.name = name.trim()
+      // Send the resolved categorical list whenever it differs from what's
+      // stored (also backfills datasets that had none).
+      if (!sameStringSet(effectiveCategorical, dataset.categorical_columns)) {
+        body.categorical_columns = effectiveCategorical
+      }
       if (sqlChanged) {
         body.connection_id = connectionId
         body.sql_text = sql
@@ -246,6 +287,25 @@ export function EditDatasetModal({
           To change data, upload a new dataset.
         </Typography.Paragraph>
       )}
+
+      <Collapse
+        style={{ marginBottom: 12 }}
+        items={[
+          {
+            key: 'columns',
+            label: 'Column types (categorical vs binned)',
+            children: (
+              <ColumnTypeEditor
+                columns={previewColumns}
+                numericColumns={numericCols}
+                value={effectiveCategorical}
+                onChange={setCategorical}
+                disabled={running}
+              />
+            ),
+          },
+        ]}
+      />
 
       <Collapse
         defaultActiveKey={['preview']}

@@ -520,6 +520,7 @@ class DatasetRepo:
         fetched_at: datetime | None = None,
         source_schema: str | None = None,
         source_table: str | None = None,
+        categorical_columns: list[str] | None = None,
     ) -> uuid_mod.UUID:
         with session_scope() as s:
             ds = Dataset(
@@ -537,17 +538,22 @@ class DatasetRepo:
                 fetched_at=fetched_at,
                 source_schema=source_schema,
                 source_table=source_table,
+                categorical_columns=categorical_columns,
             )
             s.add(ds)
             s.flush()
             return ds.id
 
     def update_after_refresh(
-        self, dataset_id: uuid_mod.UUID, *, n_rows: int, columns: list[str], sha256: str
+        self, dataset_id: uuid_mod.UUID, *, n_rows: int, columns: list[str], sha256: str,
+        categorical_columns: list[str] | None = None,
     ) -> None:
         """POST /datasets/{id}/refresh (source='sql', DB2): re-ran sql_text,
         parquet on disk was overwritten in place — update the row's stats to
-        match, storage_path/sql_text/connection_id are unchanged."""
+        match, storage_path/sql_text/connection_id are unchanged.
+
+        categorical_columns (Part 2): the reconciled flag list (user flags kept
+        for surviving columns, heuristic for new ones, dropped columns removed)."""
         with session_scope() as s:
             ds = s.get(Dataset, dataset_id)
             if ds is None:
@@ -556,6 +562,16 @@ class DatasetRepo:
             ds.columns = columns
             ds.sha256 = sha256
             ds.fetched_at = datetime.now(timezone.utc)
+            ds.categorical_columns = categorical_columns
+
+    def set_categorical_columns(self, dataset_id: uuid_mod.UUID, categorical_columns: list[str]) -> None:
+        """Part 2: persist the user's per-column categorical choices (Edit
+        dataset). Independent of a SQL refresh — works for upload/demo too."""
+        with session_scope() as s:
+            ds = s.get(Dataset, dataset_id)
+            if ds is None:
+                raise RepoError(f"Dataset {dataset_id} not found")
+            ds.categorical_columns = categorical_columns
 
     def get_by_id(self, dataset_id: uuid_mod.UUID) -> Dataset | None:
         with session_scope() as s:

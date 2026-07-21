@@ -668,6 +668,7 @@ def compute_strata_power_rows(
     alpha: float,
     power_target: float,
     n_buckets_continuous: int = 4,
+    categorical_cols: frozenset[str] = frozenset(),
 ) -> dict[str, list[StratumPowerRow]]:
     """Item 2 (strata power check, wizard Parameters step, after proportions
     are set): for each stratification DIMENSION individually (e.g. "gender"
@@ -690,7 +691,8 @@ def compute_strata_power_rows(
         return {}
 
     dimensions: dict[str, pd.Series] = {
-        col: bucket_column(candidates[col], n_buckets_continuous) for col in strata_cols
+        col: bucket_column(candidates[col], n_buckets_continuous, categorical=col in categorical_cols)
+        for col in strata_cols
     }
     if len(strata_cols) > 1:
         combined = pd.DataFrame(dimensions).astype(str).agg("|".join, axis=1)
@@ -792,6 +794,7 @@ class Experiment:
         progress_callback: Callable[[str], None] | None = None,
         owner_id: str | None = None,
         is_redesign: bool = False,
+        categorical_columns: list[str] | None = None,
     ) -> "Experiment":
         """Полный цикл дизайна: валидация -> изоляция -> мощность -> страты -> сплит ->
         проверки -> сохранение. Возвращает Experiment с заполненным .report и .assignments.
@@ -895,6 +898,7 @@ class Experiment:
             strata_cols=config.strata,
             n_buckets_continuous=config.n_buckets_continuous,
             min_stratum_size=config.min_stratum_size,
+            categorical_cols=frozenset(categorical_columns or []),
         )
 
         cb("Splitting into groups...")
@@ -1170,6 +1174,7 @@ class Experiment:
         group_mapping: dict[str, str] | None = None,
         segment_columns: list[str] | None = None,
         segment_combinations: list[list[str]] | None = None,
+        categorical_columns: list[str] | None = None,
         created_at: datetime | None = None,
         started_at: datetime | None = None,
         completed_at: datetime | None = None,
@@ -1249,6 +1254,10 @@ class Experiment:
         global_warnings: list[str] = []
         loss_result = None
         strata_balance_result: checks.BalanceResult | None = None
+        # Part 2: columns to treat per-value (not binned) when bucketing strata/
+        # segment cuts — resolved from the analysis dataset's categorical flags
+        # by the caller (router). frozenset for cheap `col in` checks below.
+        categorical_set = frozenset(categorical_columns or [])
 
         if self.config.split_source == "external":
             if not group_column or not group_mapping:
@@ -1300,6 +1309,7 @@ class Experiment:
                 merged["stratum"] = build_strata(
                     merged, external_strata, self.config.n_buckets_continuous,
                     self.config.min_stratum_size,
+                    categorical_cols=categorical_set,
                 )
         else:
             if self.assignments is None:
@@ -1451,7 +1461,8 @@ class Experiment:
                 # a categorical column stays as-is; NaN → "unknown" (its own
                 # segment), matching nan_strategy="separate_stratum".
                 dimension_series[col] = bucket_column(
-                    merged[col], self.config.n_buckets_continuous
+                    merged[col], self.config.n_buckets_continuous,
+                    categorical=col in categorical_set,
                 )
                 ad_hoc_dimensions.append(col)
             else:
@@ -1488,7 +1499,8 @@ class Experiment:
             covered_cut_sets.add(key)
             label = " × ".join(present)
             dimension_series[label] = cross_columns(
-                merged, present, self.config.n_buckets_continuous
+                merged, present, self.config.n_buckets_continuous,
+                categorical_cols=categorical_set,
             )
             combination_dimensions.append(label)
 

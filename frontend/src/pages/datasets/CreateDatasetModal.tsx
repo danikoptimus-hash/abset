@@ -11,9 +11,15 @@ import { SchemaTableCascade } from '../../components/datasets/SchemaTableCascade
 import { QueryResultPreview } from '../../components/datasets/QueryResultPreview'
 import { buildSelectAllSql } from '../../components/datasets/parseSchemaTableFromSql'
 import { StopClickPropagation } from '../../components/StopClickPropagation'
+import { ColumnTypeEditor, numericColumnsFromPreview } from '../../components/datasets/ColumnTypeEditor'
 
 const { Dragger } = Upload
 const { TextArea } = Input
+
+function sameStringSet(a: string[], b: string[] | null | undefined): boolean {
+  const bs = new Set(b ?? [])
+  return a.length === bs.size && a.every((x) => bs.has(x))
+}
 
 // Item 1.3: mirrors the backend's forbidden-character check
 // (abkit/jobs.py::run_update_dataset) — checked client-side too for
@@ -34,6 +40,7 @@ interface UploadedForRename {
   columns: string[]
   dtypes: Record<string, string> | null
   previewRows: Record<string, unknown>[]
+  categorical: string[]
 }
 
 // Item 1.1 (upload confirmation step): shown right after a file finishes
@@ -49,6 +56,10 @@ function RenameStep({ uploaded, onDone }: { uploaded: UploadedForRename; onDone:
   const [columnNames, setColumnNames] = useState<Record<string, string>>(
     Object.fromEntries(uploaded.columns.map((c) => [c, c])),
   )
+  // Part 2: categorical flags, keyed by the ORIGINAL column name; mapped to the
+  // (possibly renamed) final names on save.
+  const [categorical, setCategorical] = useState<string[]>(uploaded.categorical)
+  const numericCols = numericColumnsFromPreview(uploaded.columns, uploaded.previewRows)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -70,12 +81,16 @@ function RenameStep({ uploaded, onDone }: { uploaded: UploadedForRename; onDone:
           .map((c) => [c, columnNames[c].trim()]),
       )
       const nameChanged = name.trim() !== uploaded.originalFilename
-      if (nameChanged || Object.keys(columnRenames).length > 0) {
+      // Map categorical flags onto the final (post-rename) column names.
+      const finalCategorical = categorical.map((c) => columnNames[c]?.trim() ?? c)
+      const categoricalChanged = !sameStringSet(finalCategorical, uploaded.categorical)
+      if (nameChanged || Object.keys(columnRenames).length > 0 || categoricalChanged) {
         const { error: patchError } = await apiClient.PATCH('/api/v1/datasets/{dataset_id}', {
           params: { path: { dataset_id: uploaded.id } },
           body: {
             name: nameChanged ? name.trim() : undefined,
             column_renames: Object.keys(columnRenames).length > 0 ? columnRenames : undefined,
+            categorical_columns: categoricalChanged ? finalCategorical : undefined,
           },
         })
         if (patchError) throw new Error(errorMessage(patchError))
@@ -152,6 +167,18 @@ function RenameStep({ uploaded, onDone }: { uploaded: UploadedForRename; onDone:
         ]}
       />
 
+      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>
+        Column types
+      </Typography.Text>
+      <div style={{ marginBottom: 12 }}>
+        <ColumnTypeEditor
+          columns={uploaded.columns}
+          numericColumns={numericCols}
+          value={categorical}
+          onChange={setCategorical}
+        />
+      </div>
+
       {emptyName && <Alert type="error" showIcon message="Column names cannot be empty" style={{ marginBottom: 8 }} />}
       {forbiddenChar && (
         <Alert
@@ -200,11 +227,14 @@ function UploadTab({ onDone }: { onDone: () => void }) {
         // Item 1.1: a few sample rows for the "First values" column — the
         // upload response itself only carries dtypes, not row data.
         const { data: previewData } = await apiClient.GET('/api/v1/datasets/{dataset_id}/preview', {
-          params: { path: { dataset_id: data.id }, query: { rows: 3 } },
+          params: { path: { dataset_id: data.id }, query: { rows: 20 } },
         })
         setUploaded({
           id: data.id, originalFilename: data.filename, columns: data.columns,
           dtypes: data.dtypes ?? null, previewRows: previewData?.rows ?? [],
+          // Part 2: the backend-computed heuristic default; the user can adjust
+          // it in the rename/confirm step below.
+          categorical: data.categorical_columns ?? [],
         })
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to upload file')

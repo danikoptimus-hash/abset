@@ -235,6 +235,12 @@ class Dataset(Base):
     # was renamed, or for source in ('sql', 'demo') where this doesn't
     # apply (item 1.4).
     renamed_columns: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Part 2 (per-column categorical flag): the list of columns the user (or
+    # the heuristic default) marked categorical — stratified/segmented
+    # per-value instead of binned. NULL = never resolved (created before this
+    # feature); resolved lazily by the heuristic on first design/analyze read,
+    # so no migration backfill is needed. See abkit/dataset_categorical.py.
+    categorical_columns: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
 
 class ExperimentDataset(Base):

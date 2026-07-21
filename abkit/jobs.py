@@ -239,6 +239,7 @@ def preview_strata_power(
     exclude_experiments: Any,
     isolation_selected_experiments: list[str],
     experiment_name: str | None,
+    categorical_columns: list[str] | None = None,
 ) -> dict[str, Any]:
     """Item 2 (strata power check, wizard Parameters step): after the user
     has calculated a sample size AND set real group proportions — per
@@ -292,6 +293,7 @@ def preview_strata_power(
     dimensions = compute_strata_power_rows(
         isolation_result.candidates, control_name, groups, primary_metrics, strata,
         overall_mde_rel, alpha=alpha, power_target=power_,
+        categorical_cols=frozenset(categorical_columns or []),
     )
     return {
         "eligible_n": eligible_n,
@@ -624,6 +626,7 @@ def run_update_dataset(
     source_schema: str | None = None,
     source_table: str | None = None,
     column_renames: dict[str, str] | None = None,
+    categorical_columns: list[str] | None = None,
 ) -> dict[str, Any]:
     """PATCH /datasets/{id} (UX package, Datasets п.2.3) — owner or admin,
     same rule as delete. `name` (-> Dataset.filename) applies to any source.
@@ -742,6 +745,14 @@ def run_update_dataset(
                 sha256=DatasetRepo.compute_sha256(data),
             )
             changes["columns"] = {"old": current_columns, "new": new_names}
+
+    # Part 2: persist the user's categorical choices (after any rename, so the
+    # list is in the new column names). For a source='sql' edit that triggers a
+    # re-fetch, this becomes the "previous" flags the refresh reconcile keeps —
+    # so a just-flagged surviving column stays flagged.
+    if categorical_columns is not None:
+        DatasetRepo().set_categorical_columns(ds.id, categorical_columns)
+        changes["categorical_columns"] = {"old": ds.categorical_columns, "new": categorical_columns}
 
     if changes:
         _audit(
@@ -885,6 +896,7 @@ def run_create_dataset_from_sql(
     experiment_id: str | None = None,
     source_schema: str | None = None,
     source_table: str | None = None,
+    categorical_columns: list[str] | None = None,
     progress_callback: Any = None,
 ) -> dict[str, Any]:
     """POST /datasets/from-sql (DB2, CLAUDE.md dataset-from-SQL feature) —
@@ -925,12 +937,21 @@ def run_create_dataset_from_sql(
         )
         sha256 = DatasetRepo.compute_sha256_from_file(str(dest_path))
         exp_uuid = uuid_mod.UUID(experiment_id) if experiment_id else None
+        # Part 2: use the user's explicit list if given, else the heuristic
+        # default computed from the just-fetched parquet.
+        if categorical_columns is None:
+            import pandas as pd
+
+            from abkit.dataset_categorical import default_categorical_columns
+
+            categorical_columns = default_categorical_columns(pd.read_parquet(dest_path))
         dataset_id = DatasetRepo().create(
             kind=kind, filename=f"{name}.parquet", n_rows=result.n_rows, columns=result.columns,
             storage_path=str(dest_path), sha256=sha256, experiment_id=exp_uuid,
             uploaded_by=uuid_mod.UUID(current_user.id), source="sql", connection_id=conn_row.id,
             sql_text=sql, fetched_at=datetime.now(timezone.utc),
             source_schema=source_schema, source_table=source_table,
+            categorical_columns=categorical_columns,
         )
     _audit(
         current_user, "dataset.create_from_sql",
@@ -987,7 +1008,19 @@ def run_refresh_sql_dataset(
             raise
         tmp_path.replace(live_path)
         sha256 = DatasetRepo.compute_sha256_from_file(ds.storage_path)
-        DatasetRepo().update_after_refresh(ds.id, n_rows=result.n_rows, columns=result.columns, sha256=sha256)
+        # Part 2: reconcile categorical flags — surviving columns keep the
+        # user's flag, new columns get the heuristic, vanished columns drop out.
+        import pandas as pd
+
+        from abkit.dataset_categorical import reconcile_categorical_columns
+
+        reconciled = reconcile_categorical_columns(
+            ds.columns, ds.categorical_columns, pd.read_parquet(ds.storage_path)
+        )
+        DatasetRepo().update_after_refresh(
+            ds.id, n_rows=result.n_rows, columns=result.columns, sha256=sha256,
+            categorical_columns=reconciled,
+        )
     _audit(
         current_user, "dataset.refresh",
         object_type="dataset", object_id=str(ds.id), object_name=ds.filename,
