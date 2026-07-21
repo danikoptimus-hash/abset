@@ -421,6 +421,17 @@ edit flow for it.
   *before* running the test that a segment-level result you plan to look at
   later won't have the power to back it up.
 
+  This same power check is now saved with the design, so you don't have to
+  re-open the wizard to see it: it also appears on the experiment's **Design
+  tab** (alongside the strata balance table) and in **both** the design report
+  and the analysis report. Everywhere it's the same table — collapsed by
+  default when there are more than 12 strata, with a summary header ("Strata
+  power check: N strata · M weak"); in the app your expand/collapse choice is
+  remembered, and the downloaded reports collapse it with a plain
+  details/summary that works offline. The other large strata tables (the
+  balance/composition table and the per-segment breakdowns) collapse the same
+  way in the reports.
+
 **Run** produces the split plus a design report: sample size / MDE table per
 metric (with and without CUPED, and ρ — the pre/post correlation CUPED
 exploits), and the split-quality checks below. Both the design report and the

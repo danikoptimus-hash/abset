@@ -9,7 +9,7 @@ export type CurrentUser = components['schemas']['UserOut']
 /** Per-user UI-настройки (пакет share+folders — пока одна). Новая настройка
  * добавляется полем сюда и в UpdatePreferencesRequest на бэке. */
 export type PreferencePatch = Partial<
-  Pick<CurrentUser, 'folders_panel_collapsed' | 'strata_balance_expanded'>
+  Pick<CurrentUser, 'folders_panel_collapsed' | 'strata_balance_expanded' | 'strata_power_expanded'>
 >
 
 interface AuthContextValue {

@@ -1,3 +1,4 @@
+{%- from "_strata_power_section.html.j2" import strata_power_section -%}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -83,6 +84,16 @@
 </section>
 {% endif %}
 
+{% if strata_power %}
+{# §2: the DESIGN's power check, restated here so readers of the analysis
+   report don't have to open the design report to see which strata were
+   underpowered. Sourced from the stored design snapshot (config.computed);
+   omitted for external splits / designs without strata. #}
+<section id="section-strata-power">
+  {{ strata_power_section(strata_power) }}
+</section>
+{% endif %}
+
 <section id="section-verdicts">
   <h2>Verdicts</h2>
   <div class="cards">
@@ -154,12 +165,15 @@
     <h3>Effect by segment <span class="exploratory-tag">exploratory</span></h3>
     {% if section.segment_sections %}
       <div class="warnings">{{ chart_warning('segment_forest') }}</div>
-      {% for dim_label, dim_htmls, is_ad_hoc in section.segment_sections %}
-        <h4>By {{ dim_label }}{% if is_ad_hoc %} <span class="exploratory-tag">ad-hoc segment (not declared at design)</span>{% endif %}</h4>
-        {% for treat_name, html in dim_htmls %}
-          <p>{{ section.name }}: {{ treat_name }} by {{ dim_label }}</p>
-          {{ html | safe }}
-        {% endfor %}
+      {% for dim_label, dim_htmls, is_ad_hoc, n_segments in section.segment_sections %}
+        {# §3: a many-segment (> 12) breakdown collapses by default, JS-free. #}
+        <details class="strata-details"{% if n_segments <= 12 %} open{% endif %}>
+          <summary>By {{ dim_label }}: {{ n_segments }} segments (exploratory){% if is_ad_hoc %} · ad-hoc{% endif %}</summary>
+          {% for treat_name, html in dim_htmls %}
+            <p>{{ section.name }}: {{ treat_name }} by {{ dim_label }}</p>
+            {{ html | safe }}
+          {% endfor %}
+        </details>
       {% endfor %}
       {{ help_details('segment_forest') }}
     {% else %}

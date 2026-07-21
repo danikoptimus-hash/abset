@@ -530,7 +530,10 @@ def test_analysis_report_has_help_expanders_for_all_chart_types(tmp_path):
 def test_design_report_has_mde_table_help_expander(tmp_path):
     experiment = _demo_design(tmp_path)
     html = (experiment.path / "design_report.html").read_text(encoding="utf-8")
-    assert html.count("<details>") == html.count("</details>")
+    # Count opening tags with OR without attributes — the strata balance/power
+    # collapse uses <details class="strata-details">, help expanders use bare
+    # <details>.
+    assert html.count("<details") == html.count("</details>")
     assert "❓ How do I read this table?" in html
 
 

@@ -237,15 +237,21 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
         segment_sections = []
         for dim_label, dim_results in segment_results_by_dimension.items():
             dim_htmls = []
+            n_segments = 0
             for treat_name, seg_list in dim_results.get(metric_name, {}).items():
                 if not seg_list:
                     continue
+                # §3: number of strata in this dimension drives the > 12
+                # collapse threshold — same rule as the balance/power tables.
+                n_segments = max(n_segments, len(seg_list))
                 fig = segment_forest_plot(
                     seg_list, title=f"{metric_name} by {dim_label}: {control_name} vs {treat_name}"
                 )
                 dim_htmls.append((treat_name, fig_to_html_div(fig)))
             if dim_htmls:
-                segment_sections.append((dim_label, dim_htmls, dim_label in ad_hoc_dimensions))
+                segment_sections.append(
+                    (dim_label, dim_htmls, dim_label in ad_hoc_dimensions, n_segments)
+                )
 
         daily_htmls = []
         for treat_name, daily_df in daily_results.get(metric_name, {}).items():
@@ -306,6 +312,16 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
             checks.strata_balance_groups(context["strata_balance"])
             if context.get("strata_balance") is not None else []
         ),
+        # Strata power check (visibility package §2): the DESIGN's power check,
+        # sourced from the stored design snapshot on config.computed. Redesign
+        # deletes analysis results (jobs.py::run_redesign), so any surviving run
+        # was computed against the CURRENT design → config.computed IS this
+        # run's design snapshot; no stale-snapshot risk. None (section omitted)
+        # when the design has no strata, the design predates this feature, or
+        # the experiment is external-split (external stores no power/MDE).
+        strata_power=strata_power_view(
+            config.computed.get("strata_power") if getattr(config, "computed", None) else None
+        ),
         global_warnings=results.global_warnings,
         metric_sections=metric_sections,
         detailed_columns=detailed_columns,
@@ -315,6 +331,44 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
         product_name=PRODUCT_NAME,
         logo_data_uri=_logo_data_uri(),
     )
+
+
+def strata_power_view(strata_power: dict[str, list[dict[str, Any]]] | None) -> dict[str, Any] | None:
+    """Transform the stored strata power check ({dimension: [row]}, from
+    config.computed['strata_power']) into the per-metric block structure the
+    Design tab and both HTML reports render, plus collapse metadata. One block
+    per metric (matching the design report's per-metric MDE structure), each
+    with a table per stratification dimension. Returns None when there's no
+    strata power to show (no strata / external split / pre-feature design).
+
+    n_rows = total power-check rows (= strata for the common single-metric/
+    single-group case) → drives the >12 collapse threshold, shared by the app
+    (AntD Collapse) and the reports (details/summary) so they read identically.
+    n_weak = rows whose status isn't "ok" (weak or insufficient)."""
+    if not strata_power:
+        return None
+    all_rows = [r for rows in strata_power.values() for r in rows]
+    if not all_rows:
+        return None
+    multi_group = len({r["treatment_group"] for r in all_rows}) > 1
+    metrics: list[str] = []
+    for r in all_rows:
+        if r["metric"] not in metrics:
+            metrics.append(r["metric"])
+    blocks = []
+    for metric in metrics:
+        dims = [
+            {"label": label, "rows": [r for r in rows if r["metric"] == metric]}
+            for label, rows in strata_power.items()
+            if any(r["metric"] == metric for r in rows)
+        ]
+        blocks.append({"metric": metric, "dimensions": dims})
+    return {
+        "blocks": blocks,
+        "n_rows": len(all_rows),
+        "n_weak": sum(1 for r in all_rows if r.get("status") != "ok"),
+        "multi_group": multi_group,
+    }
 
 
 def render_design_report(
@@ -390,6 +444,9 @@ def render_design_report(
         strata_balance_rows=checks.strata_balance_rows(report.strata_balance),
         strata_balance_groups=checks.strata_balance_groups(report.strata_balance),
         n_strata=len(report.strata_balance.table.index),
+        # Strata power check (visibility package) — from the stored computed
+        # snapshot; None when no strata (section then omitted).
+        strata_power=strata_power_view(config.computed.get("strata_power") if config.computed else None),
         pre_period_aa=report.pre_period_aa,
         strata_nan_rows=strata_nan_rows,
         n_dropped_for_nan_strata=report.n_dropped_for_nan_strata,

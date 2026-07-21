@@ -3199,6 +3199,8 @@ export interface components {
             folders_panel_collapsed?: boolean | null;
             /** Strata Balance Expanded */
             strata_balance_expanded?: boolean | null;
+            /** Strata Power Expanded */
+            strata_power_expanded?: boolean | null;
         };
         /** UserAdminOut */
         UserAdminOut: {
@@ -3263,6 +3265,11 @@ export interface components {
              * @default false
              */
             strata_balance_expanded: boolean;
+            /**
+             * Strata Power Expanded
+             * @default false
+             */
+            strata_power_expanded: boolean;
         };
         /** ValidateRequest */
         ValidateRequest: {

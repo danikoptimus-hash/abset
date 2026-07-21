@@ -30,6 +30,7 @@ class CurrentUser:
     # ходили бы в БД второй раз за тем же самым. Гварды/jobs ее игнорируют.
     folders_panel_collapsed: bool = True
     strata_balance_expanded: bool = False
+    strata_power_expanded: bool = False
 
 
 def require_login(current_user: CurrentUser | None) -> CurrentUser:

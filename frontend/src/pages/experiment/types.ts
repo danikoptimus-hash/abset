@@ -45,6 +45,20 @@ export interface PrePeriodAA {
   passed: boolean
 }
 
+// Visibility package: one (dimension, stratum, group, metric) row of the strata
+// power check — mirrors abkit/experiment.py::StratumPowerRow / the wizard's
+// StrataPowerSection row.
+export interface StrataPowerRow {
+  stratum: string
+  treatment_group: string
+  metric: string
+  n_control: number
+  n_treatment: number
+  mde_rel: number | null
+  mde_rel_cuped: number | null
+  status: 'ok' | 'weak' | 'insufficient'
+}
+
 export interface ComputedDesignSummary {
   n_candidates_total: number
   n_excluded_by_isolation: number
@@ -56,6 +70,10 @@ export interface ComputedDesignSummary {
   power: Record<string, PowerResult>
   srm: CheckResult
   strata_balance: StrataBalanceResult
+  // Visibility package: per-dimension per-stratum achievable MDE at the design
+  // split ({dimension: [row]}). Absent on designs with no strata or persisted
+  // before this feature — optional.
+  strata_power?: Record<string, StrataPowerRow[]>
   pre_period_aa: PrePeriodAA[]
   warnings: string[]
 }

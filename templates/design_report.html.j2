@@ -1,3 +1,4 @@
+{%- from "_strata_power_section.html.j2" import strata_power_section -%}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -154,17 +155,28 @@
   </p>
   <p class="badges"><span class="badge {{ 'ok' if strata_balance.passed else 'fail' }}">{{ 'ok' if strata_balance.passed else 'IMBALANCE' }} (p={{ '%.4g' % strata_balance.p_value }})</span></p>
   {% if strata_balance_rows %}
-  <table>
-    <tr><th>Stratum</th>{% for g in strata_balance_groups %}<th>{{ g }}</th>{% endfor %}</tr>
-    {% for row in strata_balance_rows %}
-    <tr>
-      <td>{{ row.stratum }}</td>
-      {% for g in strata_balance_groups %}<td>{{ row[g] }}</td>{% endfor %}
-    </tr>
-    {% endfor %}
-  </table>
+  {# §3: collapse a long table (> 12 strata) by default, JS-free — same
+     threshold + summary text as report.html.j2 and the in-app tab. #}
+  <details class="strata-details"{% if strata_balance_rows|length <= 12 %} open{% endif %}>
+    <summary>{{ strata_balance_rows|length }} strata · balance chi-square p={{ '%.4g' % strata_balance.p_value }} · {{ 'passed' if strata_balance.passed else 'FAILED' }}</summary>
+    <table>
+      <tr><th>Stratum</th>{% for g in strata_balance_groups %}<th>{{ g }}</th>{% endfor %}</tr>
+      {% for row in strata_balance_rows %}
+      <tr>
+        <td>{{ row.stratum }}</td>
+        {% for g in strata_balance_groups %}<td>{{ row[g] }}</td>{% endfor %}
+      </tr>
+      {% endfor %}
+    </table>
+  </details>
   {% endif %}
 </section>
+
+{% if strata_power %}
+<section id="section-strata-power">
+  {{ strata_power_section(strata_power) }}
+</section>
+{% endif %}
 
 <section id="section-srm">
   <h2>SRM</h2>

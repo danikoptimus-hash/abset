@@ -4,6 +4,8 @@ import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { RelativeTime } from '../../components/RelativeTime'
+import { StrataBalanceTable } from '../../components/analysis/StrataBalanceTable'
+import { StrataPowerTable } from '../../components/analysis/StrataPowerTable'
 import { getComputed } from './types'
 import type { ComputedDesignSummary } from './types'
 
@@ -544,31 +546,25 @@ export function DesignSection({ name, config, availableReports }: Props) {
             />
           </Space>
           {/* table/groups are absent on computed summaries persisted before
-              this field existed (older designed experiments) — optional
-              chaining so those don't crash, just skip the collapse. */}
-          {computed.strata_balance.table?.length > 0 && (
-            <Collapse
-              size="small"
-              style={{ marginBottom: 16 }}
-              items={[
-                {
-                  key: 'strata-balance-table',
-                  label: 'Strata balance table',
-                  children: (
-                    <Table
-                      size="small"
-                      dataSource={computed.strata_balance.table}
-                      rowKey="stratum"
-                      pagination={false}
-                      columns={[
-                        { title: 'Stratum', dataIndex: 'stratum' },
-                        ...(computed.strata_balance.groups ?? []).map((g) => ({ title: g, dataIndex: g })),
-                      ]}
-                    />
-                  ),
-                },
-              ]}
+              this field existed (older designed experiments) — guard so those
+              don't crash, just skip the table. Visibility package: uses the
+              shared collapsible StrataBalanceTable (> 12 threshold, persisted
+              expand state) so the Design tab reads identically to the reports. */}
+          {(computed.strata_balance.table?.length ?? 0) > 0 && (
+            <StrataBalanceTable
+              balance={{
+                chi2: computed.strata_balance.chi2,
+                p_value: computed.strata_balance.p_value,
+                passed: computed.strata_balance.passed,
+                groups: computed.strata_balance.groups ?? [],
+                rows: computed.strata_balance.table,
+              }}
             />
+          )}
+          {/* Visibility package: strata power check on the Design tab, same
+              data + collapse as the design report. */}
+          {computed.strata_power && Object.keys(computed.strata_power).length > 0 && (
+            <StrataPowerTable strataPower={computed.strata_power} />
           )}
           {computed.pre_period_aa.length > 0 && (
             <div style={{ marginBottom: 16 }}>

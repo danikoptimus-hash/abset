@@ -112,3 +112,25 @@ def test_strata_balance_expanded_defaults_false_and_persists(app_client):
         "/api/v1/auth/login", json={"email": "editor@co.com", "password": "pw12345"}
     )
     assert relogin.json()["strata_balance_expanded"] is True
+
+
+def test_strata_power_expanded_defaults_false_and_persists(app_client):
+    """Настройка №3 (visibility package: collapsible strata power check) —
+    тот же паттерн, независима от balance."""
+    login = _login(app_client)
+    assert login.json()["strata_power_expanded"] is False
+
+    patched = app_client.patch(
+        "/api/v1/auth/me/preferences", json={"strata_power_expanded": True}
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["strata_power_expanded"] is True
+    # neighbouring prefs untouched by a power-only patch.
+    assert patched.json()["strata_balance_expanded"] is False
+    assert patched.json()["folders_panel_collapsed"] is True
+
+    app_client.post("/api/v1/auth/logout")
+    relogin = app_client.post(
+        "/api/v1/auth/login", json={"email": "editor@co.com", "password": "pw12345"}
+    )
+    assert relogin.json()["strata_power_expanded"] is True

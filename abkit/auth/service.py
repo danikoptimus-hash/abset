@@ -120,6 +120,7 @@ def current_user_from_token(token: str | None) -> CurrentUser | None:
         must_change_password=user.must_change_password,
         folders_panel_collapsed=user.folders_panel_collapsed,
         strata_balance_expanded=user.strata_balance_expanded,
+        strata_power_expanded=user.strata_power_expanded,
     )
 
 

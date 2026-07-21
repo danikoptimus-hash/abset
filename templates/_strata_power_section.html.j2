@@ -1,0 +1,31 @@
+{# Strata power check (visibility package): rendered identically in the design
+   report and the analysis report. `sp` is the strata_power_view() dict
+   (blocks per metric, each with per-dimension tables, plus n_rows/n_weak/
+   multi_group). Collapsed by default when > 12 strata via JS-free
+   details/summary — same threshold + summary text as the in-app tab. #}
+{% macro strata_power_section(sp) %}
+<h2>Strata power check</h2>
+<p>Achievable MDE inside each stratum at the chosen split — a stratified split can be balanced overall yet leave individual strata (especially combined ones) without enough data for a reliable segment-level analysis.</p>
+<details class="strata-details"{% if sp.n_rows <= 12 %} open{% endif %}>
+  <summary>Strata power check: {{ sp.n_rows }} strata · {% if sp.n_weak > 0 %}<strong>{{ sp.n_weak }} weak</strong>{% else %}{{ sp.n_weak }} weak{% endif %}</summary>
+  {% for block in sp.blocks %}
+  <h3>{{ block.metric }}</h3>
+  {% for dim in block.dimensions %}
+  <h4>By {{ dim.label }}</h4>
+  <table>
+    <tr><th>Stratum</th>{% if sp.multi_group %}<th>vs. group</th>{% endif %}<th>n (control)</th><th>n (test)</th><th>MDE (rel.)</th><th>MDE with CUPED</th><th>Status</th></tr>
+    {% for r in dim.rows %}
+    <tr>
+      <td>{{ r.stratum }}</td>
+      {% if sp.multi_group %}<td>{{ r.treatment_group }}</td>{% endif %}
+      <td>{{ r.n_control }}</td><td>{{ r.n_treatment }}</td>
+      <td>{{ '%.1f%%' % (r.mde_rel * 100) if r.mde_rel is not none else '—' }}</td>
+      <td>{{ '%.1f%%' % (r.mde_rel_cuped * 100) if r.mde_rel_cuped is not none else '—' }}</td>
+      <td><span class="badge {{ 'ok' if r.status == 'ok' else 'fail' }}">{{ r.status }}</span></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endfor %}
+  {% endfor %}
+</details>
+{% endmacro %}

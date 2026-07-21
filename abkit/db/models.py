@@ -50,6 +50,7 @@ class User(Base):
     # default=True здесь — зеркало server_default=true в миграции.
     folders_panel_collapsed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     strata_balance_expanded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    strata_power_expanded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     failed_logins: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

@@ -135,6 +135,7 @@ def update_my_preferences(
             uuid_mod.UUID(user.id),
             folders_panel_collapsed=body.folders_panel_collapsed,
             strata_balance_expanded=body.strata_balance_expanded,
+            strata_power_expanded=body.strata_power_expanded,
         )
     except RepoError as e:
         raise APIError(404, "not_found", str(e)) from e
@@ -147,6 +148,7 @@ def update_my_preferences(
         must_change_password=updated.must_change_password,
         folders_panel_collapsed=updated.folders_panel_collapsed,
         strata_balance_expanded=updated.strata_balance_expanded,
+        strata_power_expanded=updated.strata_power_expanded,
     )
 
 

@@ -129,6 +129,7 @@ class UserRepo:
         self, user_id: uuid_mod.UUID, *,
         folders_panel_collapsed: bool | None = None,
         strata_balance_expanded: bool | None = None,
+        strata_power_expanded: bool | None = None,
     ) -> None:
         """Частичный патч UI-настроек: None = "не трогать". Новая настройка —
         новый именованный аргумент здесь и новое поле в
@@ -141,6 +142,8 @@ class UserRepo:
                 user.folders_panel_collapsed = folders_panel_collapsed
             if strata_balance_expanded is not None:
                 user.strata_balance_expanded = strata_balance_expanded
+            if strata_power_expanded is not None:
+                user.strata_power_expanded = strata_power_expanded
 
     def set_password_hash(
         self, user_id: uuid_mod.UUID, password_hash: str, must_change_password: bool = False

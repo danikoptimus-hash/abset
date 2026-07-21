@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -231,6 +232,12 @@ class DesignReport:
     """Число пропусков по каждой стратификационной колонке (до применения nan_strategy)."""
     n_dropped_for_nan_strata: int = 0
     """Сколько юзеров удалено из-за пропусков в стратах (только при nan_strategy='drop')."""
+    strata_power: dict[str, list["StratumPowerRow"]] = field(default_factory=dict)
+    """Strata power check (пакет visibility): per-dimension per-stratum
+    достижимый MDE при финальных пропорциях групп — раньше считался только в
+    превью визарда и выбрасывался, теперь считается на этапе дизайна и
+    сохраняется (см. config.computed['strata_power']), чтобы Design tab и
+    отчет анализа могли его показать без пересчета. Пусто, если страт нет."""
     warnings: list[str] = field(default_factory=list)
 
 
@@ -614,6 +621,28 @@ def _power_results_to_dict(results: dict[str, power.PowerResult]) -> dict[str, A
     }
 
 
+def _strata_power_to_dict(
+    strata_power: dict[str, list["StratumPowerRow"]],
+) -> dict[str, list[dict[str, Any]]]:
+    """JSON-safe serialization of the strata power check for storage in
+    config.computed (same row shape jobs.py::preview_strata_power emits for the
+    wizard). Non-finite MDE floats → None (Postgres JSONB rejects NaN)."""
+    def _num(v: float | None) -> float | None:
+        return v if (v is not None and isinstance(v, (int, float)) and math.isfinite(v)) else None
+
+    return {
+        label: [
+            {
+                "stratum": r.stratum, "treatment_group": r.treatment_group, "metric": r.metric,
+                "n_control": r.n_control, "n_treatment": r.n_treatment,
+                "mde_rel": _num(r.mde_rel), "mde_rel_cuped": _num(r.mde_rel_cuped), "status": r.status,
+            }
+            for r in rows
+        ]
+        for label, rows in strata_power.items()
+    }
+
+
 @dataclass
 class StratumPowerRow:
     """Item 2 (strata power check): one (dimension, stratum value,
@@ -930,6 +959,21 @@ class Experiment:
             candidates, split_result.group, config.metrics, control_name=control_name
         )
 
+        # Strata power check (visibility package): computed HERE at design time
+        # (was only ever computed ephemerally in the wizard preview and thrown
+        # away) so the Design tab and the analysis report can show it later
+        # without recomputing — at the FINAL group proportions. Empty when
+        # there are no strata (the function guards for that).
+        strata_power = compute_strata_power_rows(
+            candidates, control_name, config.groups,
+            [m for m in config.metrics if m.role == "primary"],
+            config.strata,
+            {name: pr.mde_rel for name, pr in power_results.items() if pr.mde_rel is not None},
+            alpha=config.alpha, power_target=config.power,
+            n_buckets_continuous=config.n_buckets_continuous,
+            categorical_cols=frozenset(categorical_columns or []),
+        )
+
         report_warnings = list(split_result.warnings) + strata_nan_warnings
         if not srm_result.passed:
             report_warnings.append(
@@ -959,6 +1003,7 @@ class Experiment:
             pre_period_aa=aa_results,
             strata_nan_counts=strata_nan_counts,
             n_dropped_for_nan_strata=n_dropped_for_nan_strata,
+            strata_power=strata_power,
             warnings=report_warnings,
         )
 
@@ -992,6 +1037,10 @@ class Experiment:
                         "groups": checks.strata_balance_groups(balance_result),
                         "n_strata": len(balance_result.table.index),
                     },
+                    # Strata power check (visibility package) — per-dimension
+                    # per-stratum achievable MDE at the final proportions, so
+                    # the Design tab and analysis report can show it.
+                    "strata_power": _strata_power_to_dict(strata_power),
                     "pre_period_aa": [
                         {
                             "metric": aa.metric,
