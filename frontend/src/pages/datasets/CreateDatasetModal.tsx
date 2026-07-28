@@ -11,7 +11,11 @@ import { SchemaTableCascade } from '../../components/datasets/SchemaTableCascade
 import { QueryResultPreview } from '../../components/datasets/QueryResultPreview'
 import { buildSelectAllSql } from '../../components/datasets/parseSchemaTableFromSql'
 import { StopClickPropagation } from '../../components/StopClickPropagation'
-import { ColumnTypeEditor, numericColumnsFromPreview } from '../../components/datasets/ColumnTypeEditor'
+import {
+  ColumnTypeEditor,
+  numericColumnsFromPreview,
+  defaultCategoricalFromPreview,
+} from '../../components/datasets/ColumnTypeEditor'
 
 const { Dragger } = Upload
 const { TextArea } = Input
@@ -59,6 +63,10 @@ function RenameStep({ uploaded, onDone }: { uploaded: UploadedForRename; onDone:
   // Part 2: categorical flags, keyed by the ORIGINAL column name; mapped to the
   // (possibly renamed) final names on save.
   const [categorical, setCategorical] = useState<string[]>(uploaded.categorical)
+  // Part 2 (removable columns): columns excluded on the preview step, keyed by
+  // ORIGINAL name; mapped to final names on save (like categorical). Typical
+  // flow: upload a results file, drop 'group' here, Finish — no Edit round-trip.
+  const [excluded, setExcluded] = useState<string[]>([])
   const numericCols = numericColumnsFromPreview(uploaded.columns, uploaded.previewRows)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -84,13 +92,17 @@ function RenameStep({ uploaded, onDone }: { uploaded: UploadedForRename; onDone:
       // Map categorical flags onto the final (post-rename) column names.
       const finalCategorical = categorical.map((c) => columnNames[c]?.trim() ?? c)
       const categoricalChanged = !sameStringSet(finalCategorical, uploaded.categorical)
-      if (nameChanged || Object.keys(columnRenames).length > 0 || categoricalChanged) {
+      // Part 2: map excluded columns onto their final names too.
+      const finalExcluded = excluded.map((c) => columnNames[c]?.trim() ?? c)
+      const excludedChanged = finalExcluded.length > 0
+      if (nameChanged || Object.keys(columnRenames).length > 0 || categoricalChanged || excludedChanged) {
         const { error: patchError } = await apiClient.PATCH('/api/v1/datasets/{dataset_id}', {
           params: { path: { dataset_id: uploaded.id } },
           body: {
             name: nameChanged ? name.trim() : undefined,
             column_renames: Object.keys(columnRenames).length > 0 ? columnRenames : undefined,
             categorical_columns: categoricalChanged ? finalCategorical : undefined,
+            excluded_columns: excludedChanged ? finalExcluded : undefined,
           },
         })
         if (patchError) throw new Error(errorMessage(patchError))
@@ -176,6 +188,8 @@ function RenameStep({ uploaded, onDone }: { uploaded: UploadedForRename; onDone:
           numericColumns={numericCols}
           value={categorical}
           onChange={setCategorical}
+          excluded={excluded}
+          onExcludedChange={setExcluded}
         />
       </div>
 
@@ -267,6 +281,93 @@ function UploadTab({ onDone }: { onDone: () => void }) {
   )
 }
 
+// Part 2 (removable columns): after a From-SQL dataset is created (async job),
+// this confirm step lets the user drop columns before finishing — the same
+// preview-step-with-remove-action contract as the upload flow, adapted for SQL
+// (no rename; SQL columns come from the query). categorical flags are shown too
+// for parity with the upload confirm step.
+function SqlColumnsConfirmStep({ datasetId, onDone }: { datasetId: string; onDone: () => void }) {
+  const [categorical, setCategorical] = useState<string[] | null>(null)
+  const [excluded, setExcluded] = useState<string[]>([])
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const { data: preview, isLoading } = useQuery({
+    queryKey: queryKeys.datasetColumnsPreview(datasetId),
+    queryFn: async () => {
+      const { data, error } = await apiClient.GET('/api/v1/datasets/{dataset_id}/preview', {
+        params: { path: { dataset_id: datasetId }, query: { rows: 50 } },
+      })
+      if (error) throw new Error(errorMessage(error))
+      return data
+    },
+  })
+  const { data: datasetRow } = useQuery({
+    queryKey: queryKeys.datasetsForSelect(),
+    queryFn: async () => {
+      const { data } = await apiClient.GET('/api/v1/datasets', { params: { query: { page_size: 200 } } })
+      return data?.items ?? []
+    },
+    select: (items) => items.find((d) => d.id === datasetId),
+  })
+
+  const columns = preview?.columns ?? []
+  const previewRows = (preview?.rows ?? []) as Record<string, unknown>[]
+  const numericCols = numericColumnsFromPreview(columns, previewRows)
+  const effectiveCategorical =
+    categorical ?? datasetRow?.categorical_columns ?? (previewRows.length ? defaultCategoricalFromPreview(columns, previewRows) : [])
+
+  const runSave = async () => {
+    setSaving(true)
+    setError(null)
+    try {
+      const body: { categorical_columns?: string[]; excluded_columns?: string[] } = {}
+      if (categorical !== null && !sameStringSet(effectiveCategorical, datasetRow?.categorical_columns)) {
+        body.categorical_columns = effectiveCategorical
+      }
+      if (excluded.length > 0) body.excluded_columns = excluded
+      if (body.categorical_columns || body.excluded_columns) {
+        const { error: patchError } = await apiClient.PATCH('/api/v1/datasets/{dataset_id}', {
+          params: { path: { dataset_id: datasetId } },
+          body,
+        })
+        if (patchError) throw new Error(errorMessage(patchError))
+      }
+      onDone()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div>
+      <Typography.Paragraph type="secondary" style={{ marginTop: -4 }}>
+        Dataset created. Confirm the columns before finishing — or just click Finish to keep them all.
+      </Typography.Paragraph>
+      {isLoading ? (
+        <div style={{ marginBottom: 12 }}><Spin /> Loading columns...</div>
+      ) : (
+        <div style={{ marginBottom: 12 }}>
+          <ColumnTypeEditor
+            columns={columns}
+            numericColumns={numericCols}
+            value={effectiveCategorical}
+            onChange={setCategorical}
+            excluded={excluded}
+            onExcludedChange={setExcluded}
+          />
+        </div>
+      )}
+      {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 8 }} closable onClose={() => setError(null)} />}
+      <Button type="primary" onClick={runSave} loading={saving}>
+        Finish
+      </Button>
+    </div>
+  )
+}
+
 function FromSqlTab({ onDone, onDirtyChange }: { onDone: () => void; onDirtyChange: (dirty: boolean) => void }) {
   const [connectionId, setConnectionId] = useState<string | undefined>(undefined)
   const [schema, setSchema] = useState<string | undefined>(undefined)
@@ -274,6 +375,9 @@ function FromSqlTab({ onDone, onDirtyChange }: { onDone: () => void; onDirtyChan
   const [sql, setSql] = useState('')
   const [name, setName] = useState('')
   const [createError, setCreateError] = useState<string | null>(null)
+  // Part 2 (removable columns): set once the create job succeeds — switches
+  // this tab to the column-confirm step (drop columns before finishing).
+  const [createdDatasetId, setCreatedDatasetId] = useState<string | null>(null)
 
   const { phase, stage, error, poll, reset } = useJobPolling<{ dataset_id: string; n_rows: number; truncated: boolean }>()
 
@@ -335,11 +439,16 @@ function FromSqlTab({ onDone, onDirtyChange }: { onDone: () => void; onDirtyChan
       return
     }
     const result = await poll(data.job_id)
-    if (result) onDone()
+    // Part 2: go to the column-confirm step instead of finishing immediately.
+    if (result) setCreatedDatasetId(result.dataset_id)
   }
 
   const running = phase === 'running'
   const canCreate = !!connectionId && !!sql.trim() && !!name.trim() && !running
+
+  if (createdDatasetId) {
+    return <SqlColumnsConfirmStep datasetId={createdDatasetId} onDone={onDone} />
+  }
 
   return (
     <div>

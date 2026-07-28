@@ -524,6 +524,7 @@ class DatasetRepo:
         source_schema: str | None = None,
         source_table: str | None = None,
         categorical_columns: list[str] | None = None,
+        excluded_columns: list[str] | None = None,
     ) -> uuid_mod.UUID:
         with session_scope() as s:
             ds = Dataset(
@@ -542,6 +543,7 @@ class DatasetRepo:
                 source_schema=source_schema,
                 source_table=source_table,
                 categorical_columns=categorical_columns,
+                excluded_columns=excluded_columns,
             )
             s.add(ds)
             s.flush()
@@ -550,13 +552,17 @@ class DatasetRepo:
     def update_after_refresh(
         self, dataset_id: uuid_mod.UUID, *, n_rows: int, columns: list[str], sha256: str,
         categorical_columns: list[str] | None = None,
+        excluded_columns: list[str] | None = None,
     ) -> None:
         """POST /datasets/{id}/refresh (source='sql', DB2): re-ran sql_text,
         parquet on disk was overwritten in place — update the row's stats to
         match, storage_path/sql_text/connection_id are unchanged.
 
         categorical_columns (Part 2): the reconciled flag list (user flags kept
-        for surviving columns, heuristic for new ones, dropped columns removed)."""
+        for surviving columns, heuristic for new ones, dropped columns removed).
+        excluded_columns (Part 2, removable columns): the reconciled exclusion
+        list — the key case, exclusions must survive Refresh (a column that was
+        excluded and comes back in the re-fetch stays excluded)."""
         with session_scope() as s:
             ds = s.get(Dataset, dataset_id)
             if ds is None:
@@ -566,6 +572,7 @@ class DatasetRepo:
             ds.sha256 = sha256
             ds.fetched_at = datetime.now(timezone.utc)
             ds.categorical_columns = categorical_columns
+            ds.excluded_columns = excluded_columns
 
     def set_categorical_columns(self, dataset_id: uuid_mod.UUID, categorical_columns: list[str]) -> None:
         """Part 2: persist the user's per-column categorical choices (Edit
@@ -575,6 +582,16 @@ class DatasetRepo:
             if ds is None:
                 raise RepoError(f"Dataset {dataset_id} not found")
             ds.categorical_columns = categorical_columns
+
+    def set_excluded_columns(self, dataset_id: uuid_mod.UUID, excluded_columns: list[str]) -> None:
+        """Part 2 (removable columns): persist the user's exclusion list (Edit
+        dataset, or the upload/SQL create confirmation step). Works for any
+        source — exclusion is applied lazily on read, the file is untouched."""
+        with session_scope() as s:
+            ds = s.get(Dataset, dataset_id)
+            if ds is None:
+                raise RepoError(f"Dataset {dataset_id} not found")
+            ds.excluded_columns = excluded_columns
 
     def get_by_id(self, dataset_id: uuid_mod.UUID) -> Dataset | None:
         with session_scope() as s:

@@ -897,7 +897,14 @@ def _load_dataset_df(dataset_id: str, unit_col: str | None = None) -> pd.DataFra
     # необратимо теряет их при авто-парсинге pandas в int64 (CSV-датасеты —
     # parquet, source='sql', уже хранит dtype как есть).
     dtype = {unit_col: str} if unit_col else None
-    return read_dataset_file(dataset.storage_path, dtype=dtype)
+    df = read_dataset_file(dataset.storage_path, dtype=dtype)
+    # Part 2 (removable columns): the analyze/validate choke point — drop
+    # excluded columns before they can be used (or collide). Removing a
+    # dataset's 'group'/'stratum' column here is exactly what resolves the
+    # reserved-column collision after an Edit (Part 1's recovery path).
+    from abkit.dataset_exclusions import apply_column_exclusions
+
+    return apply_column_exclusions(df, dataset.excluded_columns)
 
 
 def _segment_cell_count(data: pd.DataFrame, cols: list[str], n_buckets: int) -> int:
@@ -1104,6 +1111,10 @@ def start_redesign(
     config = body.config
     confirmed = body.confirmed
     data = read_dataset_file(dataset.storage_path, dtype={config.unit_col: str})
+    # Part 2 (removable columns): drop excluded columns (same as design).
+    from abkit.dataset_exclusions import apply_column_exclusions
+
+    data = apply_column_exclusions(data, dataset.excluded_columns)
     from abkit.dataset_categorical import resolve_categorical_columns
 
     categorical_columns = sorted(resolve_categorical_columns(dataset.categorical_columns, data))

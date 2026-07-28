@@ -551,6 +551,64 @@ class DatasetInUseError(Exception):
         super().__init__(f"Dataset is used by experiments: {', '.join(experiment_names)}")
 
 
+class ProtectedColumnError(Exception):
+    """Raised by run_update_dataset when the user tries to exclude a column
+    that is an experiment's unit/ID column (Part 2, removable columns): the
+    ID column is the join key, removing it would make the dataset meaningless
+    for that experiment, so it's hard-blocked (mapped to 400 in
+    backend/errors.py) rather than warned-and-confirmed like a metric/pre/
+    stratum column."""
+
+    def __init__(self, column: str, experiment_names: list[str]) -> None:
+        self.column = column
+        self.experiment_names = experiment_names
+        super().__init__(
+            f"Column '{column}' is the ID column of experiment(s): "
+            f"{', '.join(experiment_names)} — it can't be removed."
+        )
+
+
+def get_dataset_column_usage(current_user: CurrentUser, dataset_id: str) -> dict[str, list[dict[str, str]]]:
+    """Per-column usage of a dataset across the experiments that use it (via
+    experiment_datasets OR the legacy experiment_id) — Part 2 (removable
+    columns), drives the remove-column guard in Edit. For each referenced
+    column: [{experiment, role}], role ∈ {'unit','metric','pre','stratum'}.
+    Only columns with at least one reference appear. Read-only (viewer+)."""
+    require_role(current_user, "viewer")
+    from abkit import storage
+    from abkit.db.repositories import DatasetRepo, ExperimentDatasetRepo, ExperimentRepo
+
+    ds = DatasetRepo().get_by_id(uuid_mod.UUID(dataset_id))
+    if ds is None:
+        raise storage.StorageError(f"Dataset '{dataset_id}' not found")
+
+    exp_ids = set(ExperimentDatasetRepo().experiments_using_dataset(ds.id))
+    if ds.experiment_id:
+        exp_ids.add(ds.experiment_id)
+    usage: dict[str, list[dict[str, str]]] = {}
+    if not exp_ids:
+        return usage
+
+    for e in ExperimentRepo().list_all():
+        if e.id not in exp_ids:
+            continue
+        cfg = e.config or {}
+
+        def add(col: object, role: str) -> None:
+            if not col or not isinstance(col, str):
+                return
+            usage.setdefault(col, []).append({"experiment": e.name, "role": role})
+
+        add(cfg.get("unit_col"), "unit")
+        for m in cfg.get("metrics", []) or []:
+            if isinstance(m, dict):
+                add(m.get("name"), "metric")
+                add(m.get("pre_col"), "pre")
+        for stratum in cfg.get("strata", []) or []:
+            add(stratum, "stratum")
+    return usage
+
+
 def _experiment_names_using_dataset(ds) -> list[str]:
     from abkit.db.repositories import ExperimentDatasetRepo, ExperimentRepo
 
@@ -627,6 +685,7 @@ def run_update_dataset(
     source_table: str | None = None,
     column_renames: dict[str, str] | None = None,
     categorical_columns: list[str] | None = None,
+    excluded_columns: list[str] | None = None,
 ) -> dict[str, Any]:
     """PATCH /datasets/{id} (UX package, Datasets п.2.3) — owner or admin,
     same rule as delete. `name` (-> Dataset.filename) applies to any source.
@@ -745,6 +804,15 @@ def run_update_dataset(
                 sha256=DatasetRepo.compute_sha256(data),
             )
             changes["columns"] = {"old": current_columns, "new": new_names}
+            # Part 2: an excluded column that got renamed must keep following
+            # its new name (the physical column stays in the file under the new
+            # name). Only relevant when the caller didn't also send a fresh
+            # excluded_columns list (which is already in new-name space).
+            if excluded_columns is None and ds.excluded_columns:
+                remapped = [old_to_new.get(c, c) for c in ds.excluded_columns]
+                if remapped != list(ds.excluded_columns):
+                    DatasetRepo().set_excluded_columns(ds.id, remapped)
+                    changes["excluded_columns"] = {"old": ds.excluded_columns, "new": remapped}
 
     # Part 2: persist the user's categorical choices (after any rename, so the
     # list is in the new column names). For a source='sql' edit that triggers a
@@ -753,6 +821,24 @@ def run_update_dataset(
     if categorical_columns is not None:
         DatasetRepo().set_categorical_columns(ds.id, categorical_columns)
         changes["categorical_columns"] = {"old": ds.categorical_columns, "new": categorical_columns}
+
+    # Part 2 (removable columns): persist the exclusion list (after any rename,
+    # same as categorical). Hard guard: a column used as an experiment's unit/
+    # ID column can't be excluded — it's the join key. Metric/pre/stratum
+    # columns are allowed (the frontend already warned+confirmed); re-analysis
+    # then fails with a normal missing-column message, recoverable via Part 1.
+    # For a source='sql' edit that re-fetches, this becomes the "previous"
+    # exclusion the refresh reconcile keeps — so exclusions survive Refresh.
+    if excluded_columns is not None:
+        newly_excluded = set(excluded_columns) - set(ds.excluded_columns or [])
+        if newly_excluded:
+            col_usage = get_dataset_column_usage(current_user, dataset_id)
+            for col in newly_excluded:
+                unit_refs = [r["experiment"] for r in col_usage.get(col, []) if r["role"] == "unit"]
+                if unit_refs:
+                    raise ProtectedColumnError(col, sorted(set(unit_refs)))
+        DatasetRepo().set_excluded_columns(ds.id, excluded_columns)
+        changes["excluded_columns"] = {"old": ds.excluded_columns, "new": excluded_columns}
 
     if changes:
         _audit(
@@ -897,6 +983,7 @@ def run_create_dataset_from_sql(
     source_schema: str | None = None,
     source_table: str | None = None,
     categorical_columns: list[str] | None = None,
+    excluded_columns: list[str] | None = None,
     progress_callback: Any = None,
 ) -> dict[str, Any]:
     """POST /datasets/from-sql (DB2, CLAUDE.md dataset-from-SQL feature) —
@@ -945,13 +1032,19 @@ def run_create_dataset_from_sql(
             from abkit.dataset_categorical import default_categorical_columns
 
             categorical_columns = default_categorical_columns(pd.read_parquet(dest_path))
+        # Part 2 (removable columns): only keep exclusions that actually exist
+        # in the fetched result — a stale name from the create form is dropped.
+        if excluded_columns:
+            from abkit.dataset_exclusions import reconcile_excluded_columns
+
+            excluded_columns = reconcile_excluded_columns(excluded_columns, result.columns)
         dataset_id = DatasetRepo().create(
             kind=kind, filename=f"{name}.parquet", n_rows=result.n_rows, columns=result.columns,
             storage_path=str(dest_path), sha256=sha256, experiment_id=exp_uuid,
             uploaded_by=uuid_mod.UUID(current_user.id), source="sql", connection_id=conn_row.id,
             sql_text=sql, fetched_at=datetime.now(timezone.utc),
             source_schema=source_schema, source_table=source_table,
-            categorical_columns=categorical_columns,
+            categorical_columns=categorical_columns, excluded_columns=excluded_columns or None,
         )
     _audit(
         current_user, "dataset.create_from_sql",
@@ -1013,13 +1106,19 @@ def run_refresh_sql_dataset(
         import pandas as pd
 
         from abkit.dataset_categorical import reconcile_categorical_columns
+        from abkit.dataset_exclusions import reconcile_excluded_columns
 
         reconciled = reconcile_categorical_columns(
             ds.columns, ds.categorical_columns, pd.read_parquet(ds.storage_path)
         )
+        # Part 2 (removable columns), THE key case: exclusions must survive
+        # Refresh. The re-fetch brings excluded columns back into the raw
+        # snapshot; keep excluding the ones that are still present, drop those
+        # that vanished from the source.
+        reconciled_excluded = reconcile_excluded_columns(ds.excluded_columns, result.columns)
         DatasetRepo().update_after_refresh(
             ds.id, n_rows=result.n_rows, columns=result.columns, sha256=sha256,
-            categorical_columns=reconciled,
+            categorical_columns=reconciled, excluded_columns=reconciled_excluded or None,
         )
     _audit(
         current_user, "dataset.refresh",

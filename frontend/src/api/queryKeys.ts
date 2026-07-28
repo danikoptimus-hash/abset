@@ -32,6 +32,8 @@ export const queryKeys = {
   datasetPreview: (id: string | null | undefined) => ['dataset-preview', id] as const,
   datasetsForSelect: () => ['datasets-for-select'] as const,
   datasetUsage: (id: string | undefined) => ['dataset-usage', id] as const,
+  // Part 2 (removable columns): per-column usage — drives the remove guard.
+  datasetColumnUsage: (id: string | undefined) => ['dataset-column-usage', id] as const,
   datasetsBulkUsage: (ids: string[]) => ['datasets-bulk-usage', ids] as const,
   datasetColumnValues: (id: string | undefined, groupColumn: string | undefined) =>
     ['dataset-column-values', id, groupColumn] as const,

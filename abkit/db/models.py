@@ -242,6 +242,14 @@ class Dataset(Base):
     # feature); resolved lazily by the heuristic on first design/analyze read,
     # so no migration backfill is needed. See abkit/dataset_categorical.py.
     categorical_columns: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # Part 2 (removable columns): the list of columns the user excluded from
+    # this dataset. The physical file/snapshot is never rewritten — exclusion
+    # is applied lazily wherever the data is read (see abkit/dataset_exclusions.
+    # py::apply_column_exclusions), so it works for upload/SQL/demo alike and
+    # survives an SQL Refresh (the re-fetch brings the column back, the stored
+    # exclusion re-applies). NULL/[] = nothing excluded. Excluded columns can
+    # be restored by taking them off this list (Edit dataset).
+    excluded_columns: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
 
 class ExperimentDataset(Base):

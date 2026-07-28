@@ -52,6 +52,11 @@ class DatasetOut(BaseModel):
     # heuristic default). None for datasets created before this feature — the
     # Edit modal computes a default from the preview in that case.
     categorical_columns: list[str] | None = None
+    # Part 2 (removable columns): the columns the user excluded from this
+    # dataset. `columns` above is already the VISIBLE set (excluded names
+    # filtered out) — this carries the removed names separately so the Edit /
+    # create-confirm UI can offer "restore". None/[] = nothing excluded.
+    excluded_columns: list[str] | None = None
     # Item 1 bug fix: every experiment that has actually used this dataset
     # (design/analyze/validate), from experiment_datasets — the Datasets
     # list column renders all of these, not just the legacy single
@@ -76,6 +81,9 @@ class DatasetFromSqlRequest(BaseModel):
     # Part 2: explicit categorical flags chosen in the Create modal. None →
     # the backend applies the heuristic default to the fetched data.
     categorical_columns: list[str] | None = None
+    # Part 2 (removable columns): columns to exclude, chosen in the Create
+    # modal's confirm step. None/[] = nothing excluded.
+    excluded_columns: list[str] | None = None
 
 
 class DatasetFromSqlResult(BaseModel):
@@ -248,6 +256,24 @@ class DatasetUsageResponse(BaseModel):
     experiments: list[str]
 
 
+class ColumnUsageRef(BaseModel):
+    experiment: str
+    # 'unit' (the ID column — hard-blocked from removal), or 'metric' /
+    # 'pre' / 'stratum' (removable, but with a confirming warning).
+    role: Literal["unit", "metric", "pre", "stratum"]
+
+
+class DatasetColumnUsageResponse(BaseModel):
+    """GET /datasets/{id}/column-usage (Part 2, removable columns) — per
+    column, which experiments reference it and in what role. Drives the
+    remove-column guard in Edit: a column used as an experiment's unit/ID
+    column can't be removed at all; a metric/pre-period/stratum column can,
+    but the UI warns and names the experiments first. Only columns with at
+    least one reference appear."""
+
+    usage: dict[str, list[ColumnUsageRef]]
+
+
 class DeleteDatasetRequest(BaseModel):
     confirm: str | None = None
 
@@ -268,6 +294,10 @@ class PatchDatasetRequest(BaseModel):
     # Part 2: the full resolved categorical-column list from the Edit modal's
     # checkboxes. None = "don't touch" (partial-patch convention).
     categorical_columns: list[str] | None = None
+    # Part 2 (removable columns): the full resolved exclusion list. None =
+    # "don't touch"; [] = clear all exclusions (restore everything). Excluding
+    # a column used as an experiment's unit/ID column is rejected server-side.
+    excluded_columns: list[str] | None = None
     # Item 1 (upload rename step): {old_name: new_name} — only entries that
     # actually change are required, but sending every current column
     # mapped to itself is also fine (a no-op rename). source='upload' only;

@@ -1050,6 +1050,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/datasets/{dataset_id}/column-usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Dataset Column Usage
+         * @description Part 2 (removable columns): per-column usage across the experiments
+         *     that use this dataset — drives the remove-column guard in Edit (unit/ID
+         *     column can't be removed; metric/pre/stratum warn+confirm).
+         */
+        get: operations["get_dataset_column_usage_api_v1_datasets__dataset_id__column_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/datasets/{dataset_id}": {
         parameters: {
             query?: never;
@@ -1959,6 +1981,16 @@ export interface components {
                 [key: string]: number;
             };
         };
+        /** ColumnUsageRef */
+        ColumnUsageRef: {
+            /** Experiment */
+            experiment: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "unit" | "metric" | "pre" | "stratum";
+        };
         /** ColumnValueCount */
         ColumnValueCount: {
             /** Value */
@@ -2082,6 +2114,21 @@ export interface components {
             updated_at: string;
         };
         /**
+         * DatasetColumnUsageResponse
+         * @description GET /datasets/{id}/column-usage (Part 2, removable columns) — per
+         *     column, which experiments reference it and in what role. Drives the
+         *     remove-column guard in Edit: a column used as an experiment's unit/ID
+         *     column can't be removed at all; a metric/pre-period/stratum column can,
+         *     but the UI warns and names the experiments first. Only columns with at
+         *     least one reference appear.
+         */
+        DatasetColumnUsageResponse: {
+            /** Usage */
+            usage: {
+                [key: string]: components["schemas"]["ColumnUsageRef"][];
+            };
+        };
+        /**
          * DatasetExperimentUse
          * @description One (experiment, kind) row from experiment_datasets — item 1 bug fix:
          *     the Datasets list column used to read only datasets.experiment_id (the
@@ -2119,6 +2166,8 @@ export interface components {
             source_table?: string | null;
             /** Categorical Columns */
             categorical_columns?: string[] | null;
+            /** Excluded Columns */
+            excluded_columns?: string[] | null;
         };
         /** DatasetOut */
         DatasetOut: {
@@ -2172,6 +2221,8 @@ export interface components {
             } | null;
             /** Categorical Columns */
             categorical_columns?: string[] | null;
+            /** Excluded Columns */
+            excluded_columns?: string[] | null;
             /**
              * Experiments
              * @default []
@@ -2846,6 +2897,8 @@ export interface components {
             source_table?: string | null;
             /** Categorical Columns */
             categorical_columns?: string[] | null;
+            /** Excluded Columns */
+            excluded_columns?: string[] | null;
             /** Column Renames */
             column_renames?: {
                 [key: string]: string;
@@ -5217,6 +5270,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DatasetUsageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_dataset_column_usage_api_v1_datasets__dataset_id__column_usage_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetColumnUsageResponse"];
                 };
             };
             /** @description Validation Error */

@@ -80,6 +80,22 @@ def register_exception_handlers(app: FastAPI) -> None:
             ),
         )
 
+    from abkit.jobs import ProtectedColumnError
+
+    @app.exception_handler(ProtectedColumnError)
+    async def _handle_protected_column_error(request: Request, exc: ProtectedColumnError) -> JSONResponse:
+        # PATCH /datasets/{id} trying to exclude a column that is an
+        # experiment's unit/ID column (Part 2, removable columns) — the join
+        # key, hard-blocked from removal. The frontend already disables the
+        # remove control for such columns; this is the server-side backstop.
+        return JSONResponse(
+            status_code=400,
+            content=_error_body(
+                "protected_column", str(exc),
+                {"column": exc.column, "experiments": exc.experiment_names},
+            ),
+        )
+
     from abkit.jobs import TagNameConflictError
 
     @app.exception_handler(TagNameConflictError)

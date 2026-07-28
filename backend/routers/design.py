@@ -109,6 +109,12 @@ def start_design(
     # unit_col как str: иначе числовой ID с ведущими нулями ("007123")
     # необратимо теряет их при авто-парсинге pandas в int64.
     data = read_dataset_file(dataset.storage_path, dtype={config.unit_col: str})
+    # Part 2 (removable columns): design reads columns as metric/strata/unit —
+    # drop the excluded ones so they can't be picked up (they're already absent
+    # from the pickers the wizard offered).
+    from abkit.dataset_exclusions import apply_column_exclusions
+
+    data = apply_column_exclusions(data, dataset.excluded_columns)
 
     # Part 2: which columns to stratify per-value (not bin) — the dataset's
     # stored categorical flags, or the heuristic default for datasets predating

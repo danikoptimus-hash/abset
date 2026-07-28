@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 
 from abkit.auth.guards import CurrentUser
 from abkit.dataset_categorical import default_categorical_columns
+from abkit.dataset_exclusions import apply_column_exclusions, visible_columns
 from abkit.dataset_files import read_dataset_file
 from abkit.db.repositories import (
     DatabaseConnectionRepo,
@@ -39,8 +40,10 @@ from backend.schemas.datasets import (
     BulkDeleteDatasetsResult,
     BulkDeleteDatasetsSkipped,
     ColumnCardinalitiesResponse,
+    ColumnUsageRef,
     ColumnValueCount,
     ColumnValuesResponse,
+    DatasetColumnUsageResponse,
     DatasetExperimentUse,
     DatasetFromSqlRequest,
     DatasetOut,
@@ -76,7 +79,12 @@ def _to_dataset_out(
     return DatasetOut(
         id=str(d.id), experiment_id=str(d.experiment_id) if d.experiment_id else None,
         experiment_name=exp_name_by_id.get(d.experiment_id),
-        kind=d.kind, filename=d.filename, n_rows=d.n_rows, columns=d.columns,
+        # Part 2 (removable columns): `columns` is the VISIBLE set — excluded
+        # names filtered out so every picker/preview that reads it stops
+        # offering them; the removed names travel separately as
+        # excluded_columns for the restore UI.
+        kind=d.kind, filename=d.filename, n_rows=d.n_rows,
+        columns=visible_columns(d.columns, d.excluded_columns),
         uploaded_by=str(d.uploaded_by) if d.uploaded_by else None,
         uploaded_by_email=email_by_id.get(d.uploaded_by) if d.uploaded_by else None,
         uploaded_at=d.uploaded_at, source=d.source,
@@ -86,6 +94,7 @@ def _to_dataset_out(
         source_schema=d.source_schema, source_table=d.source_table,
         renamed_columns=d.renamed_columns,
         categorical_columns=d.categorical_columns,
+        excluded_columns=d.excluded_columns,
         # Item 1 bug fix: one entry per real (experiment, kind) use, from
         # experiment_datasets — not the legacy single experiment_id/kind
         # pair above, which only ever reflects a dataset's creation-time
@@ -235,11 +244,15 @@ def preview_dataset(
     except OSError as e:
         raise APIError(404, "not_found", "Dataset file is not available on disk") from e
 
+    # Part 2 (removable columns): a preview must not show excluded columns —
+    # drop them from both the rows and the reported column list.
+    preview_df = apply_column_exclusions(preview_df, ds.excluded_columns)
     # NaN не валиден в JSON (json.dumps с allow_nan=True пишет литерал NaN,
     # который не парсится стандартными JS/JSON-клиентами) — заменяем на None.
     preview_df = preview_df.where(pd.notnull(preview_df), None)
     return DatasetPreview(
-        filename=ds.filename, n_rows=ds.n_rows, columns=ds.columns,
+        filename=ds.filename, n_rows=ds.n_rows,
+        columns=visible_columns(ds.columns, ds.excluded_columns),
         rows=preview_df.to_dict(orient="records"),
         renamed_columns=ds.renamed_columns,
     )
@@ -264,7 +277,7 @@ def get_column_values(
     ds = DatasetRepo().get_by_id(parsed_id)
     if ds is None:
         raise APIError(404, "not_found", f"Dataset '{dataset_id}' not found")
-    if column not in ds.columns:
+    if column not in visible_columns(ds.columns, ds.excluded_columns):
         raise APIError(422, "validation_error", f"Column '{column}' is not in this dataset")
 
     try:
@@ -304,13 +317,14 @@ def get_column_cardinalities(
     if ds is None:
         raise APIError(404, "not_found", f"Dataset '{dataset_id}' not found")
 
-    wanted = [c for c in columns if c in ds.columns]
+    wanted = [c for c in columns if c in visible_columns(ds.columns, ds.excluded_columns)]
     if not wanted:
         return ColumnCardinalitiesResponse(cardinalities={})
     try:
         df = read_dataset_file(ds.storage_path)
     except OSError as e:
         raise APIError(404, "not_found", "Dataset file is not available on disk") from e
+    df = apply_column_exclusions(df, ds.excluded_columns)
 
     # Default bucket count (4) matches DesignConfig.n_buckets_continuous. Part
     # 2: a column flagged categorical reports its RAW distinct count (each value
@@ -345,7 +359,7 @@ def check_duplicates(
     ds = DatasetRepo().get_by_id(parsed_id)
     if ds is None:
         raise APIError(404, "not_found", f"Dataset '{dataset_id}' not found")
-    if column not in ds.columns:
+    if column not in visible_columns(ds.columns, ds.excluded_columns):
         raise APIError(422, "validation_error", f"Column '{column}' is not in this dataset")
 
     try:
@@ -424,7 +438,7 @@ def get_metric_baseline(
     if ds is None:
         raise APIError(404, "not_found", f"Dataset '{dataset_id}' not found")
 
-    data = read_dataset_file(ds.storage_path)
+    data = apply_column_exclusions(read_dataset_file(ds.storage_path), ds.excluded_columns)
     metric = MetricConfig(name=body.name, type=body.type, pre_col=body.pre_col, num=body.num, den=body.den)
     baseline_mean = compute_metric_baseline_mean(metric, data)
     return MetricBaselineResponse(baseline_mean=baseline_mean)
@@ -450,7 +464,7 @@ def preview_sample_size(
     if ds is None:
         raise APIError(404, "not_found", f"Dataset '{dataset_id}' not found")
 
-    data = read_dataset_file(ds.storage_path)
+    data = apply_column_exclusions(read_dataset_file(ds.storage_path), ds.excluded_columns)
     result = _preview_sample_size(
         user, data,
         unit_col=body.unit_col, group_names=body.group_names, metrics=body.metrics,
@@ -483,7 +497,7 @@ def preview_strata_power(
     if ds is None:
         raise APIError(404, "not_found", f"Dataset '{dataset_id}' not found")
 
-    data = read_dataset_file(ds.storage_path)
+    data = apply_column_exclusions(read_dataset_file(ds.storage_path), ds.excluded_columns)
     from abkit.dataset_categorical import resolve_categorical_columns
 
     result = _preview_strata_power(
@@ -524,6 +538,7 @@ def create_dataset_from_sql(
             kind=body.kind, experiment_id=body.experiment_id, progress_callback=reporter.stage,
             source_schema=body.source_schema, source_table=body.source_table,
             categorical_columns=body.categorical_columns,
+            excluded_columns=body.excluded_columns,
         )
 
     job = runner.submit("dataset_from_sql", uuid_mod.UUID(user.id), _run)
@@ -556,6 +571,24 @@ def get_dataset_usage(dataset_id: str, user: CurrentUser = Depends(get_current_u
     from abkit.jobs import get_dataset_usage as _get_dataset_usage
 
     return DatasetUsageResponse(experiments=_get_dataset_usage(user, dataset_id))
+
+
+@router.get("/{dataset_id}/column-usage", response_model=DatasetColumnUsageResponse)
+def get_dataset_column_usage(
+    dataset_id: str, user: CurrentUser = Depends(get_current_user),
+) -> DatasetColumnUsageResponse:
+    """Part 2 (removable columns): per-column usage across the experiments
+    that use this dataset — drives the remove-column guard in Edit (unit/ID
+    column can't be removed; metric/pre/stratum warn+confirm)."""
+    from abkit.jobs import get_dataset_column_usage as _get_column_usage
+
+    usage = _get_column_usage(user, dataset_id)
+    return DatasetColumnUsageResponse(
+        usage={
+            col: [ColumnUsageRef(experiment=r["experiment"], role=r["role"]) for r in refs]
+            for col, refs in usage.items()
+        }
+    )
 
 
 @router.delete("/{dataset_id}", status_code=204)
@@ -622,6 +655,7 @@ def patch_dataset(
         source_schema=body.source_schema, source_table=body.source_table,
         column_renames=body.column_renames,
         categorical_columns=body.categorical_columns,
+        excluded_columns=body.excluded_columns,
     )
 
     job_id = None

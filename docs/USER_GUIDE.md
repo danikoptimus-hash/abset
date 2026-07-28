@@ -121,6 +121,25 @@ This is what keeps an integer *code* column (small set of meaningful values)
 from being sliced into meaningless numeric ranges. A SQL **Refresh** keeps your
 choices for columns that still exist and applies the default to any new ones.
 
+**Removing columns.** The same section has a **Remove** action (the trash icon)
+next to each column — use it to drop a column you don't want in the dataset, for
+example a stray `group` column left over in an exported results file (that
+particular name collides with ABSet's own split columns and would otherwise
+block analysis). Removing a column doesn't touch the underlying file or query —
+it's just hidden everywhere the dataset is used: it disappears from every column
+picker (design wizard, Analyze, segments) and from the preview, and it's dropped
+before any analysis reads the data. Removed columns are listed under **Removed
+columns** with a **Restore** button, so nothing is ever lost. You can remove
+columns right on the upload/creation confirm step (the typical *upload results
+file → drop the extra column → Finish* flow, no round-trip through Edit) or later
+in **Edit dataset**. Two guards apply: a dataset's **ID column** (the unit column
+some experiment joins on) can't be removed at all; and removing a column that an
+experiment uses as a **metric, pre-period, or stratum** column asks you to
+confirm first and names those experiments — re-analysis of them will then report
+that column as missing until you restore it. On a SQL **Refresh**, removals
+persist: the re-fetch brings the column back into the raw snapshot and the
+removal simply re-applies.
+
 Datasets are independent of any one experiment — **deleting an experiment
 never deletes the datasets it used.** Only that experiment's own assignments
 and analysis results go away; its datasets simply lose that one link and stay

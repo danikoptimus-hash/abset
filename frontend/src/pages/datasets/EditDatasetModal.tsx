@@ -51,6 +51,9 @@ export function EditDatasetModal({
   // Part 2: categorical column flags. null = untouched (fall back to the
   // stored list, or a preview heuristic for datasets predating the feature).
   const [categorical, setCategorical] = useState<string[] | null>(null)
+  // Part 2 (removable columns): the exclusion list. null = untouched (fall
+  // back to the stored list).
+  const [excluded, setExcluded] = useState<string[] | null>(null)
   const { phase, stage, error: jobError, poll, reset } = useJobPolling<{ n_rows: number; truncated: boolean }>()
 
   const isSql = dataset?.source === 'sql'
@@ -68,11 +71,31 @@ export function EditDatasetModal({
       return data
     },
   })
+  // Part 2 (removable columns): per-column usage — a column used as an
+  // experiment's ID column can't be removed; metric/pre/stratum warn+confirm.
+  const { data: columnUsage } = useQuery({
+    queryKey: queryKeys.datasetColumnUsage(dataset?.id),
+    enabled: !!dataset && open,
+    queryFn: async () => {
+      const { data, error } = await apiClient.GET('/api/v1/datasets/{dataset_id}/column-usage', {
+        params: { path: { dataset_id: dataset!.id } },
+      })
+      if (error) throw new Error(errorMessage(error))
+      return data.usage
+    },
+  })
+
   const previewColumns = preview?.columns ?? dataset?.columns ?? []
   const previewRows = (preview?.rows ?? []) as Record<string, unknown>[]
   const numericCols = numericColumnsFromPreview(previewColumns, previewRows)
   const effectiveCategorical =
     categorical ?? dataset?.categorical_columns ?? (previewRows.length ? defaultCategoricalFromPreview(previewColumns, previewRows) : [])
+  // Part 2: the exclusion list, and the FULL column universe for the editor —
+  // preview/`columns` are already the VISIBLE set, so union in the stored
+  // excluded names to render the "Removed columns" restore section.
+  const storedExcluded = dataset?.excluded_columns ?? []
+  const effectiveExcluded = excluded ?? storedExcluded
+  const allColumns = Array.from(new Set([...previewColumns, ...storedExcluded]))
 
   // Unlike Create, the editor here always opens holding the *saved* query —
   // which counts as a manual edit from the start — so picking a table
@@ -97,6 +120,7 @@ export function EditDatasetModal({
       }
       lastAutoFilledSql.current = null
       setCategorical(null)
+      setExcluded(null)
       setError(null)
       reset()
     }
@@ -133,7 +157,10 @@ export function EditDatasetModal({
     !!dataset && isSql && (connectionId !== (dataset.connection_id ?? undefined) || sql !== (dataset.sql_text ?? ''))
   const categoricalChanged =
     !!dataset && categorical !== null && !sameStringSet(categorical, dataset.categorical_columns)
-  const isDirty = !!dataset && open && (name.trim() !== dataset.filename || sqlChanged || categoricalChanged)
+  const excludedChanged =
+    !!dataset && excluded !== null && !sameStringSet(excluded, dataset.excluded_columns)
+  const isDirty =
+    !!dataset && open && (name.trim() !== dataset.filename || sqlChanged || categoricalChanged || excludedChanged)
   const { guard } = useUnsavedGuard(isDirty)
 
   if (!dataset) return null
@@ -169,12 +196,18 @@ export function EditDatasetModal({
         source_schema?: string
         source_table?: string
         categorical_columns?: string[]
+        excluded_columns?: string[]
       } = {}
       if (name.trim() && name.trim() !== dataset.filename) body.name = name.trim()
       // Send the resolved categorical list whenever it differs from what's
       // stored (also backfills datasets that had none).
       if (!sameStringSet(effectiveCategorical, dataset.categorical_columns)) {
         body.categorical_columns = effectiveCategorical
+      }
+      // Part 2: send the exclusion list whenever it differs from what's stored
+      // (including [] to restore everything).
+      if (excluded !== null && !sameStringSet(excluded, dataset.excluded_columns)) {
+        body.excluded_columns = excluded
       }
       if (sqlChanged) {
         body.connection_id = connectionId
@@ -196,9 +229,13 @@ export function EditDatasetModal({
       if (error) throw new Error(errorMessage(error))
       queryClient.invalidateQueries({ queryKey: queryKeys.datasetsAll() })
       queryClient.invalidateQueries({ queryKey: queryKeys.datasetsForSelect() })
+      // Part 2: a visible-column change (exclude/restore) must refresh both
+      // preview caches so the drawer / column editor reflect it, even when no
+      // re-fetch job runs (upload/demo exclusion is synchronous).
+      queryClient.invalidateQueries({ queryKey: queryKeys.datasetPreview(dataset.id) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.datasetColumnsPreview(dataset.id) })
       if (data.job_id) {
         const result = await poll(data.job_id)
-        queryClient.invalidateQueries({ queryKey: queryKeys.datasetPreview(dataset.id) })
         if (!result) return // job failed — error already shown via useJobPolling's `error`
       }
       onClose()
@@ -293,13 +330,16 @@ export function EditDatasetModal({
         items={[
           {
             key: 'columns',
-            label: 'Column types (categorical vs binned)',
+            label: 'Columns (types & removal)',
             children: (
               <ColumnTypeEditor
-                columns={previewColumns}
+                columns={allColumns}
                 numericColumns={numericCols}
                 value={effectiveCategorical}
                 onChange={setCategorical}
+                excluded={effectiveExcluded}
+                onExcludedChange={setExcluded}
+                columnUsage={columnUsage}
                 disabled={running}
               />
             ),
