@@ -1653,6 +1653,61 @@ class Experiment:
                         metric, data, control_name, treat_name, date_col, designed_steps, agg_methods
                     )
 
+        # Contract (bugfix: ad-hoc segment columns must not be silently
+        # dropped): every requested single column / combination either produced
+        # a breakdown above or gets a structured skip notice here (rendered in
+        # the segments section), naming the cut and why. The silent drops were:
+        # a column with a single distinct value (the `< 2 distinct` guard), and
+        # — more insidiously — a high-cardinality column where every cell was
+        # too small to compute (each cell raised AnalysisError -> caught by the
+        # per-dimension loop's `except ValueError`, then the whole dimension
+        # left no trace because dim_seg_list was empty). Neither wrote a warning,
+        # so the requested column just vanished from the report.
+        produced_dims = set(segment_results_by_dimension.keys())
+        segment_skips: list[dict[str, str]] = []
+        skip_labels_seen: set[str] = set()
+
+        def _record_skip(label: str, reason: str) -> None:
+            if label in produced_dims or label in skip_labels_seen:
+                return
+            skip_labels_seen.add(label)
+            segment_skips.append({"label": label, "reason": reason})
+
+        for col in requested_segment_columns:
+            if col in produced_dims:
+                continue
+            if col not in merged.columns:
+                _record_skip(col, "column is not in the analysis dataset")
+                continue
+            series = dimension_series.get(col)
+            if series is None:
+                # A declared column represented only inside the combined
+                # cross-product label (multi-strata) — not a silent drop.
+                continue
+            if series.dropna().nunique() < 2:
+                _record_skip(col, "only one distinct value — nothing to break down")
+            else:
+                _record_skip(
+                    col,
+                    "no segment had enough data to compute (each needs at least 2 users per group)",
+                )
+
+        for combo in (segment_combinations or []):
+            present = [c for c in combo if c in merged.columns]
+            label = " × ".join(present) if len(present) >= 2 else " × ".join(combo)
+            if label in produced_dims or label in skip_labels_seen:
+                continue
+            missing = [c for c in combo if c not in merged.columns]
+            if missing:
+                _record_skip(label, f"column(s) not in the analysis dataset: {', '.join(missing)}")
+            elif len(present) < 2:
+                _record_skip(label, "a combination needs at least 2 columns present in the data")
+            else:
+                _record_skip(
+                    label,
+                    "no segment had enough data to compute (each needs at least 2 users per group)",
+                )
+
         cb("Applying multiple-testing correction...")
         # поправка на множественность раздельно для primary (влияет на вердикт) и
         # secondary/exploratory (только информативно, в вердикт не входит)
@@ -1678,6 +1733,7 @@ class Experiment:
             segment_results_by_dimension=segment_results_by_dimension,
             ad_hoc_segment_dimensions=ad_hoc_dimensions,
             combination_segment_dimensions=combination_dimensions,
+            segment_skips=segment_skips,
             strata_balance=strata_balance_result,
             daily_results=daily_results,
             correction=correction,

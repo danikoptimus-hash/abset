@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Typography, Tag, Space, Segmented, Button, Tooltip } from 'antd'
+import { Typography, Tag, Space, Segmented, Button, Tooltip, Alert } from 'antd'
 import { DeleteOutlined } from '@ant-design/icons'
 import { ForestPlotChart } from '../../charts/ForestPlotChart'
 import { HelpCollapse } from '../../pages/experiment/HelpCollapse'
@@ -17,29 +17,37 @@ export function SegmentBreakdown({
   adHocDimensions,
   combinationDimensions,
   postHocDimensions,
+  segmentSkips,
   onRemoveDimension,
 }: {
   metricChart: MetricChartData
   adHocDimensions: string[]
   combinationDimensions: string[]
   postHocDimensions: string[]
+  // Bugfix (ad-hoc segment columns must not be silently dropped): requested
+  // cuts that produced no breakdown, with a reason — shown as a per-cut notice
+  // so a requested column never just disappears from the section.
+  segmentSkips?: { label: string; reason: string }[]
   onRemoveDimension?: (label: string) => void
 }) {
   const [segmentDimension, setSegmentDimension] = useState<string | null>(null)
   const dimensionLabels = Object.keys(metricChart.segments_by_dimension)
   const activeDimension =
     segmentDimension && dimensionLabels.includes(segmentDimension) ? segmentDimension : dimensionLabels[0]
+  const skips = segmentSkips ?? []
 
-  if (dimensionLabels.length === 0 || !activeDimension) return null
+  // Only bail entirely when there is genuinely nothing to say — neither a
+  // produced breakdown NOR a skip notice to explain a vanished cut.
+  if (dimensionLabels.length === 0 && skips.length === 0) return null
 
   const controlName = metricChart.control_name
-  const isCombo = combinationDimensions.includes(activeDimension)
-  const isAdHoc = adHocDimensions.includes(activeDimension)
-  const isPostHoc = postHocDimensions.includes(activeDimension)
+  const isCombo = activeDimension ? combinationDimensions.includes(activeDimension) : false
+  const isAdHoc = activeDimension ? adHocDimensions.includes(activeDimension) : false
+  const isPostHoc = activeDimension ? postHocDimensions.includes(activeDimension) : false
 
   return (
     <div>
-      {dimensionLabels.length > 1 && (
+      {dimensionLabels.length > 1 && activeDimension && (
         <Space style={{ marginBottom: 12 }} wrap>
           <Typography.Text type="secondary">Segment by:</Typography.Text>
           <Segmented
@@ -49,7 +57,7 @@ export function SegmentBreakdown({
           />
         </Space>
       )}
-      {Object.entries(metricChart.segments_by_dimension[activeDimension] ?? {}).map(([treatName, segs]) => {
+      {activeDimension && Object.entries(metricChart.segments_by_dimension[activeDimension] ?? {}).map(([treatName, segs]) => {
         const powered = segs.filter((s) => !underpowered(s))
         const weak = segs.filter((s) => underpowered(s))
         return (
@@ -103,6 +111,23 @@ export function SegmentBreakdown({
           </div>
         )
       })}
+      {skips.length > 0 && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginTop: 12 }}
+          message="Requested segment cuts not shown"
+          description={
+            <ul style={{ margin: 0, paddingInlineStart: 20 }}>
+              {skips.map((s) => (
+                <li key={s.label}>
+                  <strong>{s.label}</strong> — {s.reason}
+                </li>
+              ))}
+            </ul>
+          }
+        />
+      )}
     </div>
   )
 }

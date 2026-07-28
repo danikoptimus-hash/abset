@@ -141,6 +141,10 @@ export interface ChartData {
   // Segment-combinations package §2: dimension labels appended post-hoc to a
   // finished run — removable in the UI.
   post_hoc_dimensions?: string[]
+  // Bugfix (ad-hoc segment columns must not be silently dropped): requested
+  // cuts that produced no breakdown, with a reason — rendered as a per-cut
+  // notice in the segments section so a requested column never just vanishes.
+  segment_skips?: { label: string; reason: string }[]
   metrics: Record<string, MetricChartData>
 }
 

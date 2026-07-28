@@ -234,6 +234,11 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
         # External split rework (§3): dimensions chosen ad-hoc at analyze time
         # (not declared as strata at design) are tagged in the report.
         ad_hoc_dimensions = set(context.get("ad_hoc_segment_dimensions", []))
+        # Bugfix (ad-hoc segment columns must not be silently dropped): requested
+        # cuts that produced no breakdown, rendered as a visible notice below the
+        # segment plots instead of vanishing. Global (metric-independent), shown
+        # in each metric's segment section for self-containedness.
+        segment_skips = context.get("segment_skips", [])
         segment_sections = []
         for dim_label, dim_results in segment_results_by_dimension.items():
             dim_htmls = []
@@ -277,6 +282,7 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
                 forest_html=forest_html,
                 distribution_htmls=distribution_htmls,
                 segment_sections=segment_sections,
+                segment_skips=segment_skips,
                 daily_htmls=daily_htmls,
                 verdicts=verdicts,
                 results=metric_results,

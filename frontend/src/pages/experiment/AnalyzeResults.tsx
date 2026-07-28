@@ -250,6 +250,7 @@ export function AnalyzeResults({ data, alpha }: { data: AnalysisResultsOut; alph
               adHocDimensions={adHocDimensions}
               combinationDimensions={combinationDimensions}
               postHocDimensions={postHocDimensions}
+              segmentSkips={data.chart_data.segment_skips ?? []}
             />
           )}
         </div>

@@ -326,5 +326,10 @@ def build_chart_data(results: AnalysisResults) -> dict[str, Any]:
         # marked here when merged into the stored payload (removable in the UI).
         # Absent/empty on a fresh run.
         "post_hoc_dimensions": list(context.get("post_hoc_segment_dimensions", [])),
+        # Bugfix (ad-hoc segment columns must not be silently dropped): every
+        # requested cut that produced no breakdown, with a human reason —
+        # rendered as a per-cut notice in the segments section instead of the
+        # column just vanishing. [{label, reason}, ...].
+        "segment_skips": list(context.get("segment_skips", [])),
         "metrics": chart_data,
     }

@@ -176,8 +176,20 @@
         </details>
       {% endfor %}
       {{ help_details('segment_forest') }}
-    {% else %}
+    {% elif not section.segment_skips %}
       <p>Not enough strata for a segment breakdown.</p>
+    {% endif %}
+    {# Bugfix: requested segment cuts that produced no breakdown get a visible
+       notice here — a requested column must never silently vanish. #}
+    {% if section.segment_skips %}
+      <div class="warnings">
+        <strong>Requested segment cuts not shown:</strong>
+        <ul>
+          {% for skip in section.segment_skips %}
+          <li><strong>{{ skip.label }}</strong> — {{ skip.reason }}</li>
+          {% endfor %}
+        </ul>
+      </div>
     {% endif %}
   </section>
 

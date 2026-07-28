@@ -655,11 +655,17 @@ The **Results** tab has, per metric:
     the combination is refused ("this many segments is noise, not analysis —
     narrow the combination").
 
-  In the results, each declared cut renders under its own **Segment by** block
-  (single dimensions and combinations side by side). A cell with **fewer than
-  100 users per group** is shown greyed with an **underpowered** badge instead
-  of a lift — an overall balanced split can still leave an individual cell too
-  small to say anything about.
+  You can pick **any column present in the analysis dataset**, not only the
+  strata declared at design — an undeclared one is tagged **ad-hoc (not declared
+  at design)** in the results. In the results, each cut renders under its own
+  **Segment by** block (single dimensions and combinations side by side). A cell
+  with **fewer than 100 users per group** is shown greyed with an
+  **underpowered** badge instead of a lift — an overall balanced split can still
+  leave an individual cell too small to say anything about. If a requested cut
+  can't be broken down at all — the column has a single value, every one of its
+  segments is too small to compute, or the column isn't in the dataset — it is
+  **not silently dropped**: a *"Requested segment cuts not shown"* notice names
+  the column and the reason.
 - **Adding a cut after the run (post-hoc).** On the **Results** tab, **Analyze
   segments** opens the same picker and computes an *additional* cut against the
   run's stored dataset — appended to the segments, individually removable, and

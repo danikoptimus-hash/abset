@@ -141,6 +141,11 @@ function ResultsSegmentsPanel({
   const activeMetric = metric && metricNames.includes(metric) ? metric : metricNames[0]
   const metricChart = activeMetric ? chart.metrics[activeMetric] : undefined
   const hasSegments = !!metricChart && Object.keys(metricChart.segments_by_dimension).length > 0
+  // Bugfix (ad-hoc segment columns must not be silently dropped): a requested
+  // cut that produced nothing still gets a notice — so render the breakdown
+  // (which carries the notice) even when there are no produced segments.
+  const segmentSkips = chart.segment_skips ?? []
+  const hasSkipNotices = segmentSkips.length > 0
 
   const datasetId = results.run_meta.dataset_id ?? undefined
   const [modalOpen, setModalOpen] = useState(false)
@@ -226,12 +231,13 @@ function ResultsSegmentsPanel({
           />
         </Space>
       )}
-      {metricChart && hasSegments ? (
+      {metricChart && (hasSegments || hasSkipNotices) ? (
         <SegmentBreakdown
           metricChart={metricChart}
           adHocDimensions={chart.ad_hoc_dimensions ?? []}
           combinationDimensions={chart.combination_dimensions ?? []}
           postHocDimensions={chart.post_hoc_dimensions ?? []}
+          segmentSkips={segmentSkips}
           onRemoveDimension={removeDimension}
         />
       ) : (
