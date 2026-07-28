@@ -628,6 +628,7 @@ def get_results(name: str, user: CurrentUser = Depends(get_current_user)) -> dic
     if result is None:
         raise APIError(404, "not_found", "Analysis results for this experiment are not ready yet")
 
+    params = result.results.get("analysis_params") or {}
     return {
         **result.results,
         "run_meta": {
@@ -639,6 +640,12 @@ def get_results(name: str, user: CurrentUser = Depends(get_current_user)) -> dic
             # Package §2: the live dataset id (None if the dataset was deleted)
             # — the Results tab needs it to compute a post-hoc segment cut.
             "dataset_id": str(result.dataset_id) if result.dataset_id else None,
+            # Run-identity/staleness UX: the segment cuts THIS run was asked to
+            # break down by (None = design-declared strata only). Lets the
+            # Results tab state the run's segment set and the Analyze form flag
+            # when its current selection differs from the displayed run.
+            "segment_columns": params.get("segment_columns"),
+            "segment_combinations": params.get("segment_combinations"),
         },
     }
 
@@ -1199,6 +1206,13 @@ def start_analyze(
                 "group_mapping": body.group_mapping,
                 "methods": body.methods,
                 "date_col": body.date_col,
+                # Run-identity/staleness UX: record WHICH segment cuts this run
+                # was asked to break down by, so the Results tab can state it and
+                # the Analyze form can flag when its current selection diverges
+                # from the displayed run. None = "design-declared strata only"
+                # (the default when nothing explicit was requested).
+                "segment_columns": body.segment_columns,
+                "segment_combinations": body.segment_combinations,
             },
         )
         # DB3 (dataset-centric model): record this dataset as used for

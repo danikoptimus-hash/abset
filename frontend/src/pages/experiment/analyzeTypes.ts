@@ -155,6 +155,12 @@ export interface RunMeta {
   // Segment-combinations package §2: live dataset id (null if deleted) — the
   // Results tab needs it to compute a post-hoc segment cut.
   dataset_id?: string | null
+  // Run-identity/staleness UX: the segment cuts THIS run was asked to break
+  // down by (null/undefined = design-declared strata only). Used to state the
+  // run's segment set and to flag when the Analyze form's current selection
+  // differs from the displayed run.
+  segment_columns?: string[] | null
+  segment_combinations?: string[][] | null
 }
 
 export interface AnalysisResultsOut {

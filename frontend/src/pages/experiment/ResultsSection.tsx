@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Typography, Button, Alert, Space, Modal, Select, Tag, Tooltip, message } from 'antd'
 import { DownloadOutlined, EyeOutlined } from '@ant-design/icons'
 import { VerdictCards } from './AnalyzeResults'
+import { describeRunSegments } from './segmentRunIdentity'
 import { DetailedResultsTable } from './DetailedResultsTable'
 import { HelpCollapse } from './HelpCollapse'
 import { MarkdownBlockView } from './MarkdownBlockView'
@@ -64,6 +65,7 @@ export function ResultsSection({
           <Typography.Paragraph type="secondary" style={{ marginTop: -4, marginBottom: 4, fontSize: 13 }}>
             Analyzed <RelativeTime iso={results.run_meta.created_at} /> with{' '}
             {results.run_meta.dataset_filename ?? 'unknown dataset'} (run #{results.run_meta.run_number})
+            {' · '}Segments: {describeRunSegments(results.run_meta)}
           </Typography.Paragraph>
           <div style={{ marginBottom: 16 }}>
             <LifecycleDates createdAt={createdAt} startedAt={startedAt} completedAt={completedAt} />

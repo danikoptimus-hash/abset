@@ -8,6 +8,7 @@ import { queryKeys } from '../../api/queryKeys'
 import { useJobPolling } from '../../api/useJobPolling'
 import { DatasetSelect } from '../../components/DatasetSelect'
 import { SegmentCutPicker, type SegmentCuts } from '../../components/analysis/SegmentCutPicker'
+import { segmentSelectionDiffersFromRun } from './segmentRunIdentity'
 import { AnalyzeResults } from './AnalyzeResults'
 import { experimentResultsQueryKey, fetchExperimentResults } from './resultsQuery'
 import { methodOptions, recommendedMethodId } from './methodOptions'
@@ -147,12 +148,28 @@ export function AnalyzeSection({
   const panelOpen = panelOverride ?? !results
   const running = phase === 'running'
 
+  // Run-identity/staleness UX: does the current form selection differ from the
+  // segments the DISPLAYED run was computed with? If so the report/Results on
+  // screen do NOT reflect the form — surface it so a stale run is never
+  // mistaken for a dropped column.
+  const displayedRun = results?.run_meta
+  const segmentsDifferFromRun =
+    !!displayedRun && segmentSelectionDiffersFromRun(segmentCuts, displayedRun, declaredStrata)
+
   const openRerunPanel = () => {
     setPrepared(null)
     setDateCol(undefined)
     setGroupColumn(undefined)
     setGroupMapping({})
-    setSegmentCuts({ columns: declaredStrata, combinations: [] })
+    // Staleness bugfix: restore the segment cuts the DISPLAYED run actually
+    // used (fall back to declared strata) instead of silently wiping them to
+    // the defaults — re-running should start from what produced the report on
+    // screen, not quietly drop the user's channel/combination selection.
+    const rm = results?.run_meta
+    setSegmentCuts({
+      columns: rm?.segment_columns ?? declaredStrata,
+      combinations: rm?.segment_combinations ?? [],
+    })
     reset()
     setPanelOverride(true)
   }
@@ -483,6 +500,15 @@ export function AnalyzeSection({
                   Exploratory only (no multiple-testing correction). Columns not declared at design are marked
                   "ad-hoc" in the results.
                 </Typography.Paragraph>
+                {segmentsDifferFromRun && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginTop: 8 }}
+                    message="This segment selection hasn't been run yet"
+                    description={`The results and report on screen are from run #${displayedRun?.run_number} and use a different segment set. Run analysis to apply your current selection.`}
+                  />
+                )}
               </div>
             )}
           </div>

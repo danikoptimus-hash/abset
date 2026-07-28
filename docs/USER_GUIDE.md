@@ -674,6 +674,15 @@ The **Results** tab has, per metric:
   attribute you didn't think to declare before running. **Every segment result
   is hypothesis-generating only** — no multiple-testing correction, not a
   decision input; validate any segment finding with a fresh, targeted test.
+- **Which run am I looking at?** The **Results** tab header names the run —
+  *"Analyzed … (run #N) · Segments: …"* — listing the exact cuts that run was
+  computed with (or *"design-declared strata"* when none were added). Segment
+  changes only take effect when you **Run analysis** again: if you edit the
+  Segments picker so it no longer matches the run on screen, the Analyze form
+  warns *"This segment selection hasn't been run yet"*. So a report that's
+  missing a column you just added isn't dropping it — it's a **previous run**;
+  re-run to apply. Re-running starts from the displayed run's segment set (not a
+  blank slate), so your cuts aren't silently lost between runs.
 - **Stratum balance table.** When strata are declared (or a segment cut is
   chosen), the results show the group × stratum composition with a chi-square
   balance check — was the split balanced across those attributes? A long table

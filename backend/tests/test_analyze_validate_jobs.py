@@ -198,6 +198,46 @@ def test_re_analyze_creates_new_history_row_and_updates_run_meta(app_client, tmp
     assert ResultRepo().count_for_experiment(exp.id) == 2
 
 
+def test_run_meta_records_requested_segment_cuts(app_client, tmp_path, monkeypatch):
+    """Run-identity/staleness UX: a run must record WHICH segment cuts it was
+    asked to break down by, so the Results tab can state its segment set and the
+    Analyze form can flag divergence — the fix for a stale report being mistaken
+    for a dropped column."""
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+    _design_experiment(app_client, "seg_id_exp")
+
+    csv = "user_id,revenue,channel\n" + "\n".join(
+        f"u{i},{95 + i % 15},{'organic' if i % 2 else 'paid'}" for i in range(200)
+    )
+    ds = _upload_csv(app_client, csv, kind="post_analysis", experiment_name="seg_id_exp")
+    resp = app_client.post(
+        "/api/v1/experiments/seg_id_exp/analyze",
+        json={"dataset_id": ds, "segment_columns": ["channel"], "segment_combinations": []},
+    )
+    assert _poll_job(app_client, resp.json()["job_id"])["status"] == "completed"
+
+    rm = app_client.get("/api/v1/experiments/seg_id_exp/results").json()["run_meta"]
+    assert rm["segment_columns"] == ["channel"]
+    assert rm["segment_combinations"] == []
+
+
+def test_run_meta_default_run_reports_no_explicit_segments(app_client, tmp_path, monkeypatch):
+    """A run submitted WITHOUT explicit segments records None — the Results tab
+    renders this as "design-declared strata", and it's exactly the shape a
+    stale default run has, distinguishing it from a run that requested cuts."""
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _login(app_client)
+    _design_experiment(app_client, "seg_default_exp")
+    ds = _upload_csv(app_client, _post_csv(), kind="post_analysis", experiment_name="seg_default_exp")
+    resp = app_client.post("/api/v1/experiments/seg_default_exp/analyze", json={"dataset_id": ds})
+    assert _poll_job(app_client, resp.json()["job_id"])["status"] == "completed"
+
+    rm = app_client.get("/api/v1/experiments/seg_default_exp/results").json()["run_meta"]
+    assert rm["segment_columns"] is None
+    assert rm["segment_combinations"] is None
+
+
 def test_demo_post_data_prepares_dataset_without_running_analysis(app_client, tmp_path, monkeypatch):
     """UX package (explicit run, item B): "Generate demo post-period data"
     only PREPARES a dataset (synchronous, 201) — it must NOT start analysis
