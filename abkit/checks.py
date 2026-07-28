@@ -138,8 +138,20 @@ def check_pre_period_aa(
     return results
 
 
-class AnalysisError(Exception):
-    """Пользовательская ошибка на этапе анализа (не баг): нечестные/некорректные данные."""
+class AnalysisError(ValueError):
+    """Пользовательская ошибка на этапе анализа (не баг): нечестные/некорректные данные.
+
+    Наследуется от ValueError НАМЕРЕННО (bugfix ref 0f63af75): статистические
+    test-шаги (abkit/analysis/tests.py) поднимают её на вырожденных данных
+    ("нет наблюдений", "нулевая дисперсия в обеих группах", "нечисловая
+    метрика"). Пер-сегментные/пер-дневные разбивки в analyze() уже пропускают
+    вырожденный кусок через `except ValueError: continue` — поэтому AnalysisError,
+    будучи ValueError, там корректно пропускается (сегмент выкидывается, а не
+    роняет весь анализ 500-й), тогда как в ОСНОВНОМ прогоне (без try/except) она
+    долетает до job-раннера и отдаётся пользователю осмысленным сообщением
+    (backend/jobs/runner.py::_human_readable_message трактует AnalysisError как
+    пользовательскую, не "Internal processing error (ref: ...)"). Существующие
+    `pytest.raises(ValueError)` на этих гардах при этом остаются зелёными."""
 
 
 def check_no_duplicates(data: pd.DataFrame, unit_col: str) -> None:

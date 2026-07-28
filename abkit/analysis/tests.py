@@ -10,6 +10,7 @@ from scipy import stats as sp_stats
 from statsmodels.stats.proportion import proportions_ztest
 
 from abkit.analysis.results import TestResult
+from abkit.checks import AnalysisError
 from abkit.design.power import delta_method_variance
 from abkit.pipeline import MetricContext, Step, method_display_name
 
@@ -19,6 +20,14 @@ def _welch_df(var_control: float, n_control: int, var_treat: float, n_treat: int
     se_treat = var_treat / n_treat
     numerator = (se_control + se_treat) ** 2
     denominator = se_control**2 / (n_control - 1) + se_treat**2 / (n_treat - 1)
+    # Bugfix (ref 0f63af75): both groups constant (zero variance) -> denominator
+    # is 0 and numerator is 0 too, so `numerator / denominator` raised a raw
+    # ZeroDivisionError (Python float division, unlike numpy). The Welch-
+    # Satterthwaite df is undefined there; WelchTTest.apply rejects that case up
+    # front with a clean message, so this is only a defensive backstop for any
+    # direct caller — return inf rather than crash.
+    if denominator == 0:
+        return float("inf")
     return numerator / denominator
 
 
@@ -32,10 +41,26 @@ class WelchTTest(Step):
         treat_vals = ctx.values[ctx.group == ctx.treatment_name].dropna()
         n_control, n_treat = len(control_vals), len(treat_vals)
         if n_control < 2 or n_treat < 2:
-            raise ValueError("Not enough observations for Welch t-test (need at least 2 per group)")
+            raise AnalysisError(
+                f"Metric '{ctx.metric_name}': not enough non-missing observations for a Welch "
+                f"t-test (need at least 2 per group; have {n_control} control / {n_treat} treatment). "
+                f"This usually means the metric column is (almost) all empty after joining with "
+                f"assignments."
+            )
 
         mean_control, mean_treat = float(control_vals.mean()), float(treat_vals.mean())
         var_control, var_treat = float(control_vals.var(ddof=1)), float(treat_vals.var(ddof=1))
+        # Bugfix (ref 0f63af75): if BOTH groups have zero variance (every value
+        # identical, e.g. a constant metric or a tiny segment where all units
+        # share one value), the Welch-Satterthwaite df is 0/0. Reject it with a
+        # clean message instead of crashing in _welch_df. Being an AnalysisError
+        # (-> ValueError), a per-segment/per-day breakdown skips this case; a
+        # whole-metric constant surfaces the message to the user.
+        if var_control == 0 and var_treat == 0:
+            raise AnalysisError(
+                f"Metric '{ctx.metric_name}' has no variance in either group (every value is "
+                f"identical) — a Welch t-test can't be computed on it."
+            )
 
         effect_abs = mean_treat - mean_control
         effect_rel = effect_abs / mean_control if mean_control != 0 else float("nan")
@@ -112,7 +137,10 @@ class MannWhitney(Step):
         treat_vals = ctx.values[ctx.group == ctx.treatment_name].dropna().to_numpy()
         n_control, n_treat = len(control_vals), len(treat_vals)
         if n_control < 1 or n_treat < 1:
-            raise ValueError("Not enough observations for Mann-Whitney")
+            raise AnalysisError(
+                f"Metric '{ctx.metric_name}': not enough non-missing observations for Mann-Whitney "
+                f"(have {n_control} control / {n_treat} treatment)."
+            )
 
         _stat, p_value = sp_stats.mannwhitneyu(treat_vals, control_vals, alternative="two-sided")
         hl_estimate, ci_abs = _hodges_lehmann_shift(control_vals, treat_vals, ctx.alpha)
@@ -299,7 +327,10 @@ class DeltaMethodTTest(Step):
         num_t, den_t = ctx.num[treat_mask], ctx.den[treat_mask]
         n_control, n_treat = len(num_c), len(num_t)
         if n_control < 2 or n_treat < 2:
-            raise ValueError("Not enough observations for DeltaMethodTTest")
+            raise AnalysisError(
+                f"Ratio metric '{ctx.metric_name}': not enough observations for the delta method "
+                f"(need at least 2 per group; have {n_control} control / {n_treat} treatment)."
+            )
 
         ratio_c, var_unit_c = delta_method_variance(num_c, den_c)
         ratio_t, var_unit_t = delta_method_variance(num_t, den_t)
@@ -357,7 +388,10 @@ class ZTestProportions(Step):
         treat_vals = ctx.values[ctx.group == ctx.treatment_name].dropna()
         n_control, n_treat = len(control_vals), len(treat_vals)
         if n_control < 1 or n_treat < 1:
-            raise ValueError("Not enough observations for Z-test of proportions")
+            raise AnalysisError(
+                f"Metric '{ctx.metric_name}': not enough non-missing observations for a z-test of "
+                f"proportions (have {n_control} control / {n_treat} treatment)."
+            )
 
         x_control, x_treat = float(control_vals.sum()), float(treat_vals.sum())
         p_control, p_treat = x_control / n_control, x_treat / n_treat
@@ -413,7 +447,10 @@ class ChiSquareTest(Step):
         treat_vals = ctx.values[ctx.group == ctx.treatment_name].dropna()
         n_control, n_treat = len(control_vals), len(treat_vals)
         if n_control < 1 or n_treat < 1:
-            raise ValueError("Not enough observations for Chi-square test")
+            raise AnalysisError(
+                f"Metric '{ctx.metric_name}': not enough non-missing observations for a chi-square "
+                f"test (have {n_control} control / {n_treat} treatment)."
+            )
 
         x_control, x_treat = float(control_vals.sum()), float(treat_vals.sum())
         p_control, p_treat = x_control / n_control, x_treat / n_treat

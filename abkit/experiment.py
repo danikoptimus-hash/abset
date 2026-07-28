@@ -278,6 +278,21 @@ def build_metric_context(
                 f"Data is missing metric column '{metric.name}' after joining with assignments"
             )
         values = subset[metric.name]
+        # Bugfix (ref 0f63af75, adjacent audit): a continuous/binary metric
+        # pointed at a non-numeric column (text/object) used to blow up later in
+        # the test step with a raw TypeError ("Cannot perform reduction 'mean'
+        # with string dtype") -> "Internal processing error". Reject it here
+        # with a clean message. Coerce object columns that are actually numeric
+        # strings ("1.0") rather than rejecting them outright.
+        if not pd.api.types.is_numeric_dtype(values) and not pd.api.types.is_bool_dtype(values):
+            coerced = pd.to_numeric(values, errors="coerce")
+            if coerced.notna().any():
+                values = coerced
+            else:
+                raise checks.AnalysisError(
+                    f"Metric '{metric.name}' column is not numeric (it looks like text) — a "
+                    f"{metric.type} metric needs a numeric column."
+                )
         num, den = None, None
 
     covariate = None
