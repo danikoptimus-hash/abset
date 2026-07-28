@@ -24,6 +24,11 @@ const CORRECTION_OPTIONS = [
 
 const EXCLUDE_VALUE = '__exclude__'
 
+// Column names ABSet's assignments join reserves — a post-period dataset
+// carrying any of these collides with the join and fails the analyze job
+// (mirror of abkit/checks.py::_RESERVED_ASSIGNMENT_COLUMNS). ABSet split only.
+const RESERVED_ANALYSIS_COLUMNS = ['group', 'stratum', 'assigned_at']
+
 interface PreparedDataset {
   id: string
   filename: string
@@ -195,9 +200,29 @@ export function AnalyzeSection({
   const mappedGroups = new Set(Object.values(groupMapping).filter((g) => g !== EXCLUDE_VALUE))
   const groupMappingComplete = declaredGroups.every((g) => mappedGroups.has(g))
 
+  // Bugfix (part 1b): the reserved-column collision is detectable client-side
+  // for ABSet-split analyses. The assignments join adds 'group'/'stratum'/
+  // 'assigned_at' (abkit/checks.py::join_with_assignments), so a post-period
+  // dataset carrying any of those names is guaranteed to fail the analyze
+  // job. Detect it up front and disable Run ("disabled only while the
+  // selected dataset is invalid") with an actionable inline hint — remove the
+  // column via Edit dataset, or pick another — rather than letting the user
+  // submit a doomed job and land on an opaque error. External splits have no
+  // such join, so this never applies to them.
+  const reservedCollisions = !isExternal && prepared
+    ? prepared.columns.filter((c) => RESERVED_ANALYSIS_COLUMNS.includes(c))
+    : []
+  const datasetInvalid = reservedCollisions.length > 0
+
   const handleSelectDataset = async (datasetId: string) => {
     setSelecting(true)
     setUploadError(null)
+    // Bugfix (part 1d): re-validate on the next selection instead of caching
+    // a stale error. A prior failed job (e.g. the reserved-column collision)
+    // left phase='failed'; picking another dataset — or re-picking the same
+    // one after editing it (dropping the offending column) — must clear that
+    // banner so the freshly selected data is judged on its own next run.
+    reset()
     try {
       const { data, error } = await apiClient.GET('/api/v1/datasets', { params: { query: { page_size: 200 } } })
       if (error) throw new Error(errorMessage(error))
@@ -232,6 +257,7 @@ export function AnalyzeSection({
   const generateDemoData = async () => {
     setSelecting(true)
     setUploadError(null)
+    reset()
     try {
       const { data, error } = await apiClient.POST('/api/v1/experiments/{name}/demo-post-data', {
         params: { path: { name: experimentName } },
@@ -282,7 +308,15 @@ export function AnalyzeSection({
       setUploadError(errorMessage(error))
       return
     }
-    await poll(data.job_id)
+    // Bugfix (part 1): a FAILED job (poll returns null — e.g. the reserved-
+    // column collision validation) must NOT collapse the form. Previously
+    // setPanelOverride(false) ran unconditionally, hiding the dataset
+    // selector/options/Run and leaving only the error banner — a dead end
+    // with no way to switch datasets or retry. Only collapse to the results
+    // view on SUCCESS; on failure the form stays up and the (dismissible)
+    // error Alert renders below it.
+    const jobResult = await poll(data.job_id)
+    if (jobResult === null) return
     await queryClient.invalidateQueries({ queryKey: experimentResultsQueryKey(experimentName) })
     // UX contract, part B: a completed analysis also changes fields the
     // experiment detail query exposes (lifecycle dates, "Last modified") and
@@ -479,7 +513,7 @@ export function AnalyzeSection({
               </Tooltip>
             )}
 
-            {prepared && (
+            {prepared && !datasetInvalid && (
               <Alert
                 type="success"
                 showIcon
@@ -489,6 +523,21 @@ export function AnalyzeSection({
                   prepared.isDemo
                     ? `Demo data generated: ${prepared.nRows} users, +3% injected effect`
                     : `Data ready: ${prepared.filename} — ${prepared.nRows} rows, ${prepared.columns.length} columns`
+                }
+              />
+            )}
+            {prepared && datasetInvalid && (
+              <Alert
+                type="error"
+                showIcon
+                style={{ marginTop: 12 }}
+                message={`This dataset has reserved column${reservedCollisions.length > 1 ? 's' : ''} ${reservedCollisions.map((c) => `"${c}"`).join(', ')} that collide with ${PRODUCT_NAME}'s own group/stratum columns.`}
+                description={
+                  <>
+                    Remove {reservedCollisions.length > 1 ? 'them' : 'it'} from the dataset (
+                    <Link to="/datasets" target="_blank">edit it on the Datasets page</Link>), then re-select it — or
+                    pick a different dataset.
+                  </>
                 }
               />
             )}
@@ -563,18 +612,20 @@ export function AnalyzeSection({
             title={
               !prepared
                 ? 'Select a dataset or generate demo data first'
-                : isExternal && (!groupColumn || !groupMappingComplete)
-                  ? 'Finish the group assignment mapping first'
-                  : dateColRequired && !dateCol
-                    ? 'This dataset has duplicate unit ids — select the date column first'
-                    : ''
+                : datasetInvalid
+                  ? `Remove the reserved column${reservedCollisions.length > 1 ? 's' : ''} (${reservedCollisions.join(', ')}) from the dataset, or pick another`
+                  : isExternal && (!groupColumn || !groupMappingComplete)
+                    ? 'Finish the group assignment mapping first'
+                    : dateColRequired && !dateCol
+                      ? 'This dataset has duplicate unit ids — select the date column first'
+                      : ''
             }
           >
             <Button
               type="primary"
               onClick={runAnalyze}
               disabled={
-                !prepared || running ||
+                !prepared || running || datasetInvalid ||
                 (isExternal && (!groupColumn || !groupMappingComplete)) ||
                 (dateColRequired && !dateCol)
               }
@@ -602,8 +653,12 @@ export function AnalyzeSection({
         </div>
       )}
 
+      {/* Bugfix (part 1): a failed job renders as a DISMISSIBLE inline error
+          ALONGSIDE the still-open form above (panelOpen stays true on failure)
+          — the user can read it, close it, switch datasets or retry. It is no
+          longer the only thing on the tab. */}
       {phase === 'failed' && error && (
-        <Alert type="error" showIcon message={error} style={{ marginBottom: 24, maxWidth: 480 }} />
+        <Alert type="error" showIcon closable onClose={reset} message={error} style={{ marginBottom: 24, maxWidth: 480 }} />
       )}
 
       {results && !panelOpen && (
