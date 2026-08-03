@@ -1,11 +1,14 @@
 import { test, expect } from '@playwright/test'
 import { loginViaUi, uploadDataset } from './helpers'
 
-// Item 3 (per-dimension segment analysis): with 2+ strata columns, the
-// Results tab's segment forest plot gets a "Segment by" selector switching
-// between each dimension alone (gender, country) and their combination
-// (gender × country) — previously only the combination was ever shown.
-test('Results "Segment by" selector switches between per-dimension and combined segments', async ({
+// Per-dimension segment analysis + the segment-set-from-the-request bugfix:
+// with 2+ declared strata, the Results tab's "Segment by" selector switches
+// between each declared dimension ALONE (gender, country). It must NOT
+// fabricate their "gender × country" cross — the segment set comes from the
+// REQUEST, and this default demo run requested no combination (the raw gender/
+// country columns aren't even in the post-period demo data — they live only in
+// the stratum — so the cross isn't requestable here either).
+test('Results "Segment by" selector switches between declared per-dimension segments, no auto-cross', async ({
   page,
   request,
 }) => {
@@ -77,7 +80,11 @@ test('Results "Segment by" selector switches between per-dimension and combined 
   const segmentedControl = page.locator('.ant-segmented')
   await expect(segmentedControl.getByText('gender', { exact: true })).toBeVisible()
   await expect(segmentedControl.getByText('country', { exact: true })).toBeVisible()
-  await expect(segmentedControl.getByText('gender × country', { exact: true })).toBeVisible()
+  // The fabricated all-strata cross must NOT be offered as a segment cut (it
+  // was never requested). Scoped to the "Segment by" toggle — the unchanged
+  // design-time strata-power table legitimately says "gender × country".
+  await expect(segmentedControl.getByText('gender × country', { exact: true })).toHaveCount(0)
+  await expect(page.getByText(/By gender × country: .* vs treatment/)).toHaveCount(0)
 
   // Defaults to the first dimension ("gender") — its forest plot heading
   // is visible; switching to "country" changes the heading accordingly.
@@ -85,7 +92,4 @@ test('Results "Segment by" selector switches between per-dimension and combined 
   await segmentedControl.getByText('country', { exact: true }).click()
   await expect(page.getByText(/By country: .* vs treatment/)).toBeVisible()
   await expect(page.getByText(/By gender: .* vs treatment/)).not.toBeVisible()
-
-  await segmentedControl.getByText('gender × country', { exact: true }).click()
-  await expect(page.getByText(/By gender × country: .* vs treatment/)).toBeVisible()
 })

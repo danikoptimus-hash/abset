@@ -1449,22 +1449,22 @@ class Experiment:
 
         all_results: list[TestResult] = []
         raw_values: dict[str, dict[str, pd.Series]] = {}
+        # Legacy: the old combined-only structure. No longer populated (the
+        # fabricated all-strata cross it held was the bug) nor read anywhere —
+        # kept as an empty dict only to preserve attach_context()'s signature.
         segment_results: dict[str, dict[str, list[tuple[str, TestResult]]]] = {}
-        # Item 3 (per-dimension segment analysis): {dimension_label:
-        # {metric_name: {treat_name: [(value, TestResult), ...]}}} —
-        # dimension_label is one of self.config.strata's column names, or
-        # (when there's more than one) their " × " join for the combined
-        # cross-product, which duplicates segment_results' content under
-        # that label so the frontend/report have ONE structure to read
-        # instead of two. The combined "stratum" column IS the pipe-joined
-        # per-row string build_strata() produces at design time — cheaply
-        # decomposable back into individual dimension values by splitting
-        # on "|" (item 3.4: no re-read/re-bucketing of the original raw
-        # columns needed). Rows merged into "_other_" (small strata) or
-        # "_all_" (no strata configured) aren't decomposable and are
-        # excluded from the PER-DIMENSION breakdown only (not combined) —
-        # the same "too rare to say anything individually" reasoning that
-        # put them there in the first place.
+        # Per-dimension segment analysis: {dimension_label: {metric_name:
+        # {treat_name: [(value, TestResult), ...]}}}. dimension_label is one of
+        # the REQUESTED segment columns (a declared stratum's own name, or an
+        # ad-hoc column's name), or a " × "-joined label for an explicitly
+        # requested cross-combination. This is the SOLE structure the frontend/
+        # report read for the "Segment by" toggle. A declared stratum's values
+        # come from decomposing the pipe-joined `stratum` string build_strata()
+        # produces at design time (no re-read/re-bucketing of the raw columns —
+        # for ABSet they aren't even in `merged`). Rows merged into "_other_"
+        # (small strata) / "_all_" (no strata) aren't decomposable and are
+        # excluded from the per-dimension view — the same "too rare to say
+        # anything individually" reasoning that put them there.
         segment_results_by_dimension: dict[str, dict[str, dict[str, list[tuple[str, TestResult]]]]] = {}
 
         # Strata balance (§2a): group × stratum composition + chi-square, on
@@ -1483,47 +1483,67 @@ class Experiment:
         # stratum column actually encodes: all of them for ABSet (the stratum
         # was built over the full list at design time), only those present in
         # the uploaded data for external (the rest were skipped + warned about
-        # above). Everything below (decomposition, combined label) keys off
-        # this, so a partially-present external strata set stays self-
-        # consistent (pipe count matches).
+        # above). The declared-stratum decomposition below keys off this, so a
+        # partially-present external strata set stays self-consistent (the pipe
+        # count of the `stratum` string matches the number of columns).
         if self.config.split_source == "external":
             effective_strata = [c for c in self.config.strata if c in merged.columns]
         else:
             effective_strata = list(self.config.strata)
 
-        dimension_series: dict[str, pd.Series] = {}
-        if len(effective_strata) > 1 and "stratum" in merged.columns:
-            split_cols = merged["stratum"].str.split("|", expand=True)
-            if split_cols.shape[1] == len(effective_strata):
-                decomposable = ~merged["stratum"].isin(["_other_", "_all_"])
-                for i, col_name in enumerate(effective_strata):
-                    dimension_series[col_name] = split_cols[i].where(decomposable)
-        combined_dimension_label = (
-            " × ".join(effective_strata) if len(effective_strata) > 1
-            else (effective_strata[0] if effective_strata else None)
-        )
-
-        # Ad-hoc segments (§3): columns chosen at analyze time that are NOT
-        # design-declared strata — broken down directly on their raw values
-        # in the uploaded data (both flows). `segment_columns` is the full
-        # resolved list the caller passed (declared + ad-hoc); None means "the
-        # design-declared strata only", i.e. no ad-hoc, preserving the old
-        # behavior. Declared columns are handled by the stratum path above, so
-        # only the non-declared ones are processed here.
-        requested_segment_columns = (
-            list(self.config.strata) if segment_columns is None else list(segment_columns)
-        )
+        # Segment dimensions to render — the column set comes from the REQUEST,
+        # NOT the design declaration (bugfix, confirmed on a live experiment:
+        # the pipeline used to decompose EVERY declared stratum regardless of
+        # what was requested AND fabricate a cross of ALL declared strata the
+        # analyst never asked for). The rendered set is EXACTLY the requested
+        # single columns + explicitly requested cross-combinations. `None` still
+        # DEFAULTS to the design-declared strata (each broken down individually),
+        # preserving "no explicit choice → break down by what was designed", but
+        # the choice — including DESELECTING a declared column — is honored, and
+        # the all-strata auto-cross appears only when requested as a combination.
+        requested_segment_columns: list[str] = []
+        for col in (list(self.config.strata) if segment_columns is None else list(segment_columns)):
+            if col not in requested_segment_columns:
+                requested_segment_columns.append(col)  # dedup, preserve request order
         declared_set = set(self.config.strata)
+
+        # Declared strata are broken down by DECOMPOSING the design `stratum`
+        # column: for ABSet the raw stratum columns aren't in `merged` at all
+        # (only the joined `stratum` is), so decomposition is the ONLY source;
+        # for external `stratum` was synthesized above from those same columns.
+        # A single declared stratum IS the whole `stratum` value. Rows merged
+        # into "_other_" (small strata) / "_all_" (no strata) aren't decomposable
+        # and are excluded from the per-dimension view — the same "too rare to
+        # say anything individually" reasoning that put them there.
+        declared_dimension_series: dict[str, pd.Series] = {}
+        if "stratum" in merged.columns and effective_strata:
+            decomposable = ~merged["stratum"].isin(["_other_", "_all_"])
+            if len(effective_strata) == 1:
+                declared_dimension_series[effective_strata[0]] = merged["stratum"].where(decomposable)
+            else:
+                split_cols = merged["stratum"].str.split("|", expand=True)
+                if split_cols.shape[1] == len(effective_strata):
+                    for i, col_name in enumerate(effective_strata):
+                        declared_dimension_series[col_name] = split_cols[i].where(decomposable)
+
+        dimension_series: dict[str, pd.Series] = {}
         ad_hoc_dimensions: list[str] = []
         for col in requested_segment_columns:
-            if col in declared_set or col in dimension_series:
-                continue
-            if col in merged.columns:
-                # Same bucketing the declared strata get at design time: a
-                # high-cardinality numeric column becomes quantile buckets
-                # (else it would explode into hundreds of singleton segments);
-                # a categorical column stays as-is; NaN → "unknown" (its own
-                # segment), matching nan_strategy="separate_stratum".
+            if col in declared_set:
+                # Declared stratum — from the decomposed `stratum` column. When
+                # absent from the (external) data it isn't in effective_strata
+                # (already warned in missing_strata above) → no series, and a
+                # per-cut skip notice is added below (never a silent drop).
+                series = declared_dimension_series.get(col)
+                if series is not None:
+                    dimension_series[col] = series
+            elif col in merged.columns:
+                # Ad-hoc segment (not declared at design) — broken down directly
+                # on the raw column's values, same bucketing the declared strata
+                # get at design time: a high-cardinality numeric column becomes
+                # quantile buckets (else it would explode into hundreds of
+                # singleton segments); a categorical column stays as-is; NaN →
+                # "unknown" (its own segment), matching nan_strategy.
                 dimension_series[col] = bucket_column(
                     merged[col], self.config.n_buckets_continuous,
                     categorical=col in categorical_set,
@@ -1535,17 +1555,18 @@ class Experiment:
                 )
 
         # Segment COMBINATIONS (package §1): analyst-declared crosses of 2+
-        # columns (country × platform). Each is one extra dimension whose
-        # cells are the cross-product of the (bucketed) column values — added
-        # to dimension_series so the same per-dimension loop below computes it,
-        # no shape change downstream. Deduped by the SET of columns so
-        # "country × platform" and "platform × country" (and a combo equal to
-        # the design cross-product) collapse to one cut — the caller may pass
-        # either order (see the post-hoc flow). Missing columns → warn + skip.
+        # columns (country × platform) — the ONLY way a cross dimension is
+        # produced (the all-strata auto-cross is gone). Each is one extra
+        # dimension whose cells are the cross-product of the (bucketed) column
+        # values — added to dimension_series so the same per-dimension loop
+        # below computes it, no shape change downstream. Deduped by the SET of
+        # columns so "country × platform" and "platform × country" collapse to
+        # one cut — the caller may pass either order (see the post-hoc flow).
+        # A combination equal to the full declared-strata set is NOT deduped
+        # away anymore: if the analyst explicitly asks for that cross, they get
+        # it. Missing columns → warn + skip.
         combination_dimensions: list[str] = []
         covered_cut_sets: set[frozenset[str]] = {frozenset([lbl]) for lbl in dimension_series}
-        if len(effective_strata) > 1:
-            covered_cut_sets.add(frozenset(effective_strata))
         for combo in (segment_combinations or []):
             present = [c for c in combo if c in merged.columns]
             missing = [c for c in combo if c not in merged.columns]
@@ -1606,28 +1627,13 @@ class Experiment:
                             )
                         )
 
-                strata_values = merged["stratum"].unique() if "stratum" in merged.columns else []
-                if len(strata_values) > 1:
-                    seg_list = []
-                    for s in sorted(strata_values, key=str):
-                        seg_subset = merged[merged["stratum"] == s]
-                        seg_ctx = build_metric_context(metric, seg_subset, control_name, treat_name, self.config.alpha, False)
-                        try:
-                            seg_ctx = Pipeline(designed_steps).run(seg_ctx)
-                        except ValueError:
-                            continue
-                        seg_list.append((str(s), seg_ctx.result))
-                    segment_results.setdefault(metric.name, {})[treat_name] = seg_list
-                    if combined_dimension_label:
-                        segment_results_by_dimension.setdefault(combined_dimension_label, {}).setdefault(
-                            metric.name, {}
-                        )[treat_name] = seg_list
-
-                # Item 3: same computation as the combined block above, but
-                # grouped by EACH stratification dimension alone instead of
-                # their cross-product — cheap (reuses dimension_series,
-                # already decomposed once before this loop) and exploratory
-                # in exactly the same sense as the combined segments.
+                # One breakdown per REQUESTED dimension (declared individual,
+                # ad-hoc individual, or explicit combination) — every entry in
+                # dimension_series, nothing else. The former unconditional
+                # "combined cross of all declared strata" block was removed:
+                # that dimension was fabricated from the design declaration, not
+                # requested, and is the bug this fixes. An explicit all-strata
+                # cross now arrives as a normal combination entry above.
                 for dim_label, dim_series in dimension_series.items():
                     dim_values = dim_series.dropna().unique()
                     if len(dim_values) < 2:
@@ -1676,13 +1682,15 @@ class Experiment:
         for col in requested_segment_columns:
             if col in produced_dims:
                 continue
-            if col not in merged.columns:
-                _record_skip(col, "column is not in the analysis dataset")
-                continue
             series = dimension_series.get(col)
             if series is None:
-                # A declared column represented only inside the combined
-                # cross-product label (multi-strata) — not a silent drop.
+                # Requested but no breakdown series was built — the column is
+                # absent from the analysis data: an ad-hoc column that isn't
+                # there, or a declared stratum column not present in an
+                # external-split upload (raw declared columns of an ABSet split
+                # always yield a series from the decomposed stratum, so this
+                # only fires for genuinely missing columns). Never a silent drop.
+                _record_skip(col, "column is not in the analysis dataset")
                 continue
             if series.dropna().nunique() < 2:
                 _record_skip(col, "only one distinct value — nothing to break down")

@@ -934,11 +934,7 @@ def test_analyze_aa_false_positive_rate_in_expected_range(tmp_path):
     assert 0.035 <= fpr <= 0.065, f"Эмпирический FPR {fpr:.4f} вне ожидаемого диапазона"
 
 
-def test_analyze_computes_per_dimension_and_combined_segments(tmp_path):
-    """Item 3: with 2+ strata columns, segment_results_by_dimension carries
-    one entry per INDIVIDUAL column (gender alone, country alone) plus their
-    combination ("gender × country") — decomposed cheaply from the combined
-    "stratum" column rather than a separate pass over the raw columns."""
+def _two_strata_experiment(tmp_path):
     n = 2000
     rng = np.random.default_rng(11)
     design_data = pd.DataFrame(
@@ -961,18 +957,51 @@ def test_analyze_computes_per_dimension_and_combined_segments(tmp_path):
     )
     experiment = Experiment.design(config, design_data, experiments_dir=tmp_path)
     assignments = experiment.assignments
-
+    # Carry the strata columns into the post-data too (aligned by user_id) so an
+    # explicit combination — which crosses the RAW columns — is buildable; the
+    # individual per-column breakdowns still come from the decomposed stratum.
+    attrs = design_data.set_index("user_id")
+    ids = assignments["unit_id"].to_numpy()
     post_data = pd.DataFrame(
-        {"user_id": assignments["unit_id"], "revenue": rng.normal(100, 20, size=len(assignments))}
+        {
+            "user_id": ids,
+            "revenue": rng.normal(100, 20, size=len(assignments)),
+            "gender": attrs.loc[ids, "gender"].to_numpy(),
+            "country": attrs.loc[ids, "country"].to_numpy(),
+        }
     )
+    return experiment, post_data
+
+
+def test_analyze_computes_per_dimension_segments_without_autocross(tmp_path):
+    """Segment set comes from the REQUEST, not the design declaration: a
+    default run (segment_columns=None) with 2 declared strata breaks the effect
+    down by EACH declared column INDIVIDUALLY (gender alone, country alone) —
+    decomposed cheaply from the "stratum" column — and does NOT fabricate their
+    "gender × country" cross (that auto-cross was the bug; it appears only when
+    requested as a combination, see the companion test below)."""
+    experiment, post_data = _two_strata_experiment(tmp_path)
     results = experiment.analyze(post_data)
     dims = results.context["segment_results_by_dimension"]
 
-    assert set(dims.keys()) == {"gender", "country", "gender × country"}
+    assert set(dims.keys()) == {"gender", "country"}
     revenue_gender = dims["gender"]["revenue"]["treatment"]
     assert {s for s, _r in revenue_gender} == {"M", "F"}
     revenue_country = dims["country"]["revenue"]["treatment"]
     assert {s for s, _r in revenue_country} == {"KZ", "RU"}
+    assert results.context["combination_segment_dimensions"] == []
+
+
+def test_analyze_autocross_appears_only_when_requested_as_combination(tmp_path):
+    """The all-strata cross is rendered ONLY when the analyst explicitly asks
+    for it as a combination — then verbatim, badged as a combination."""
+    experiment, post_data = _two_strata_experiment(tmp_path)
+    results = experiment.analyze(
+        post_data, segment_combinations=[["gender", "country"]]
+    )
+    dims = results.context["segment_results_by_dimension"]
+    assert set(dims.keys()) == {"gender", "country", "gender × country"}
+    assert results.context["combination_segment_dimensions"] == ["gender × country"]
     revenue_combined = dims["gender × country"]["revenue"]["treatment"]
     assert len(revenue_combined) == 4
 

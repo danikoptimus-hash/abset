@@ -109,9 +109,78 @@ test('declare a country × gender combination before running, then add a cut pos
   await page.keyboard.press('Escape')
   await dialog.getByRole('button', { name: 'Add segments' }).click()
 
-  // The post-hoc "gender" cut appears, tagged and removable.
-  await expect(page.getByText('added post-hoc')).toBeVisible({ timeout: 20_000 })
-  await expect(page.getByText(/By gender/).first()).toBeVisible()
+  // The post-hoc "gender" cut appears, tagged and removable. Both the
+  // Analysis and Results tab panels render the same run (shared query cache),
+  // so scope to the Results panel to avoid a strict-mode double match.
+  const resultsPanel = page.getByLabel('Results')
+  await expect(resultsPanel.getByText('added post-hoc')).toBeVisible({ timeout: 20_000 })
+  await expect(resultsPanel.getByText(/By gender/).first()).toBeVisible()
+})
+
+// Bug (confirmed on a live experiment): the rendered segment set must come
+// from the REQUEST, not the design declaration — an undeclared column added on
+// Analyze must appear (badged "ad-hoc"), and the all-strata auto-cross the
+// declaration used to fabricate must NOT appear unless requested.
+test('an undeclared column added on Analyze appears as ad-hoc; no auto-cross of declared strata', async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(90_000)
+  const name = `adhoc_no_autocross_e2e_${Date.now()}`
+
+  // Two declared strata (country, plan) — before the fix these would produce a
+  // fabricated "country × plan" cross. Plus an undeclared categorical 'channel'.
+  const rows = ['variant,value,country,plan,channel']
+  for (const country of ['US', 'UK']) {
+    for (const plan of ['free', 'pro']) {
+      for (const channel of ['push', 'sms']) {
+        for (let i = 0; i < 80; i++) {
+          rows.push(`A,${100 + (i % 5)},${country},${plan},${channel}`)
+          rows.push(`B,${130 + (i % 5)},${country},${plan},${channel}`)
+        }
+      }
+    }
+  }
+  const filename = `adhoc_${Date.now()}.csv`
+  await login(request)
+  await designExternal(request, name, ['country', 'plan'])
+  await uploadDataset(request, rows.join('\n'), filename)
+
+  await loginViaUi(page)
+  await page.goto(`/experiments/${name}`)
+  await page.getByRole('tab', { name: 'Analysis' }).click()
+
+  const datasetSelect = page.getByRole('combobox', { name: 'post-period-dataset-select' })
+  await datasetSelect.click()
+  await datasetSelect.fill(filename)
+  await page.getByTitle(filename).click()
+  await expect(page.getByText(new RegExp(`Data ready: ${filename.replace('.', '\\.')}`))).toBeVisible({
+    timeout: 15_000,
+  })
+
+  await pickGroupMapping(page)
+
+  // Add the undeclared 'channel' to the single-columns picker (country, plan
+  // are pre-filled from the declared strata).
+  await pickOption(page, page.getByRole('combobox', { name: 'segment-columns-select' }), 'channel')
+  await page.keyboard.press('Escape')
+
+  await page.getByRole('button', { name: 'Run analysis' }).click()
+  await expect(
+    page.getByText(/significant positive|significant negative|no effect detected/).first(),
+  ).toBeVisible({ timeout: 20_000 })
+
+  // The "Segment by" toggle offers each requested column individually...
+  const segmented = page.locator('.ant-segmented').first()
+  await expect(segmented.getByText('channel', { exact: true })).toBeVisible()
+  await expect(segmented.getByText('country', { exact: true })).toBeVisible()
+  await expect(segmented.getByText('plan', { exact: true })).toBeVisible()
+  // ...and NOT the fabricated auto-cross of the declared strata.
+  await expect(page.getByText('country × plan')).toHaveCount(0)
+
+  // Selecting 'channel' shows it badged ad-hoc (not silently dropped).
+  await segmented.getByText('channel', { exact: true }).click()
+  await expect(page.getByText('ad-hoc (not declared at design)')).toBeVisible()
 })
 
 // §3: a many-strata balance table is collapsed by default with a summary line.
