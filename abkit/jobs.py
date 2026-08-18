@@ -19,6 +19,7 @@ import math
 import time
 import uuid as uuid_mod
 from contextlib import contextmanager
+from datetime import date, datetime
 from typing import Any
 
 import pandas as pd
@@ -118,16 +119,33 @@ def _audit(
 
 
 def run_design(
-    current_user: CurrentUser, config: DesignConfig, data: pd.DataFrame, **kwargs: Any
+    current_user: CurrentUser,
+    config: DesignConfig,
+    data: pd.DataFrame,
+    planned_end_date: date | None = None,
+    **kwargs: Any
 ) -> Experiment:
-    """Создавать эксперименты может Editor+ (DOCKER.md §4.1)."""
+    """Создавать эксперименты может Editor+ (DOCKER.md §4.1).
+
+    planned_end_date (item B2) — необязательная плановая дата окончания,
+    объявленная в визарде. Пишется в КОЛОНКУ experiments.planned_end_date уже
+    после создания строки, а не в config: колонка редактируема потом (Edit
+    Properties) и по ней ходит авто-завершение (abkit/lifecycle.py), так что
+    копия внутри config JSONB немедленно устарела бы при первой же правке.
+    Остальные kwargs (в т.ч. overlap_action, item A3) уходят в
+    Experiment.design() как были."""
     require_role(current_user, "editor")
     with _timed("design", user=current_user.email, experiment=config.name, n_rows=len(data)):
         experiment = Experiment.design(config, data, owner_id=current_user.id, **kwargs)
     exp_row = _get_experiment_row(config.name)
+    if planned_end_date is not None:
+        from abkit.db.repositories import ExperimentRepo
+
+        ExperimentRepo().update_planned_end_date(config.name, planned_end_date)
     _audit(
         current_user, "experiment.create",
         object_type="experiment", object_id=str(exp_row.id), object_name=config.name,
+        details={"planned_end_date": planned_end_date.isoformat()} if planned_end_date else None,
     )
     return experiment
 
@@ -303,6 +321,13 @@ def preview_strata_power(
                     "stratum": r.stratum, "treatment_group": r.treatment_group, "metric": r.metric,
                     "n_control": r.n_control, "n_treatment": r.n_treatment,
                     "mde_rel": r.mde_rel, "mde_rel_cuped": r.mde_rel_cuped, "status": r.status,
+                    # Item C4 — та же форма строки, что и в сохраненном
+                    # config.computed["strata_power"] (_strata_power_to_dict):
+                    # превью визарда и Design tab читаются одним компонентом,
+                    # расхождение полей сразу дало бы пустую колонку в одном
+                    # из двух мест.
+                    "metric_type": r.metric_type, "baseline_mean": r.baseline_mean,
+                    "mde_abs": r.mde_abs, "mde_abs_cuped": r.mde_abs_cuped,
                 }
                 for r in rows
             ]
@@ -856,17 +881,28 @@ def run_update_experiment_properties(
     owner_ids: list[str],
     editor_ids: list[str],
     visible_roles: list[str] | None,
+    started_at: datetime | None = None,
+    planned_end_date: date | None = None,
+    set_lifecycle_dates: bool = False,
 ) -> None:
     """Edit Properties modal (UX package, like Superset's dashboard Properties):
     name, additional owners/editors (experiment_access), visible_roles. Same
     edit-access gate as other owner-gated actions — see CLAUDE.md 'Permissions
     model'. owner_ids/editor_ids always carry the FULL desired list (the modal
     replaces, not appends); the original owner_id is implicit and never stored
-    in experiment_access even if present in owner_ids."""
+    in experiment_access even if present in owner_ids.
+
+    started_at/planned_end_date (items B1/B2) — только если
+    set_lifecycle_dates=True. Флаг, а не "None значит не трогать", ровно
+    потому, что None здесь ЗНАЧАЩЕЕ значение: "плановой даты окончания нет"
+    (и авто-завершение выключено) — без флага очистить дату было бы нечем.
+    Обе даты попадают в audit_log как old -> new, как того требует B1."""
     from abkit.db.repositories import ExperimentAccessRepo, ExperimentRepo, UserRepo
 
     exp_row = _get_experiment_row(name)
     require_experiment_edit_access(current_user, exp_row)
+    old_started_at = exp_row.started_at
+    old_planned_end_date = exp_row.planned_end_date
 
     user_repo = UserRepo()
 
@@ -902,9 +938,13 @@ def run_update_experiment_properties(
             continue
         grants.append((parsed, "editor"))
 
+    repo = ExperimentRepo()
     with _timed("update_experiment_properties", user=current_user.email, experiment=current_name):
         ExperimentAccessRepo().set_for_experiment(exp_row.id, grants)
-        ExperimentRepo().update_visible_roles(current_name, visible_roles)
+        repo.update_visible_roles(current_name, visible_roles)
+        if set_lifecycle_dates:
+            repo.update_started_at(current_name, started_at)
+            repo.update_planned_end_date(current_name, planned_end_date)
 
     new_owner_emails = _emails(owner_uuids)
     new_editor_emails = _emails({u for u, access in grants if access == "editor"})
@@ -915,6 +955,20 @@ def run_update_experiment_properties(
         details["editors"] = {"from": old_editor_emails, "to": new_editor_emails}
     if old_visible_roles != visible_roles:
         details["visible_roles"] = {"from": old_visible_roles, "to": visible_roles}
+    if set_lifecycle_dates:
+        # Сравнение по .isoformat(), а не по объектам: started_at приезжает из
+        # JSON уже как datetime, но БД хранит его с tz, и голое != дало бы
+        # ложное "изменилось" на одном и том же моменте, записанном в разных
+        # представлениях.
+        def _iso(v: Any) -> str | None:
+            return v.isoformat() if v is not None else None
+
+        if _iso(old_started_at) != _iso(started_at):
+            details["started_at"] = {"from": _iso(old_started_at), "to": _iso(started_at)}
+        if _iso(old_planned_end_date) != _iso(planned_end_date):
+            details["planned_end_date"] = {
+                "from": _iso(old_planned_end_date), "to": _iso(planned_end_date),
+            }
 
     _audit(
         current_user, "experiment.properties_change",
@@ -958,7 +1012,38 @@ def run_update_experiment_blocks(
             object_type="experiment", object_id=str(exp_row.id), object_name=name,
             details={"kinds": sorted(changed_kinds)},
         )
+    # Item C2: гипотеза — часть дизайн-контекста отчета, но сохраняется она
+    # ЗДЕСЬ, уже после того как design_report.html записан (визард шлет ее
+    # отдельным вызовом сразу после успешного дизайна, а потом ее можно
+    # править). Так что каждый раз, когда гипотеза изменилась, впечатываем ее
+    # в уже сохраненный отчет — иначе отчет навсегда остался бы без нее.
+    if "hypothesis" in changed_kinds:
+        _regenerate_design_context(exp_row, result)
     return result
+
+
+def _regenerate_design_context(exp_row, blocks) -> None:
+    """Впечатывает актуальную гипотезу в сохраненный design_report.html
+    (abkit/viz/report.py::render_design_context_section). Best-effort — тот же
+    выбор, что у _regenerate_design_report для флоу-картинок: отчет вторичен по
+    отношению к самим данным, и его неудачная перегенерация не должна ронять
+    уже успешно сохраненный блок."""
+    try:
+        from abkit.db.store import DbExperimentStore
+        from abkit.viz.report import render_design_context_section
+
+        hypothesis = next(
+            (b.content_md for b in blocks if b.kind == "hypothesis" and b.content_md), None
+        )
+        report_path = DbExperimentStore().data_dir / exp_row.name / "design_report.html"
+        if not report_path.exists():
+            return
+        html = report_path.read_text(encoding="utf-8")
+        report_path.write_text(
+            render_design_context_section(html, hypothesis), encoding="utf-8"
+        )
+    except Exception:
+        log.error("regenerate_design_context.failed", exc_info=True, experiment=exp_row.name)
 
 
 def _connection_spec(conn_row):

@@ -19,6 +19,12 @@ export function summarizeAuditDetails(action: string, details: AuditDetails): st
   switch (action) {
     case 'experiment.status_change':
       return fromTo(details, 'status')
+    // Item B3: the automatic running -> completed transition. Written by the
+    // scheduler/lazy check with no user attached, so the reason is the whole
+    // point of the row — a bare "status: running → completed" would look
+    // exactly like a person having clicked the button.
+    case 'experiment.auto_completed':
+      return String(details.reason ?? 'auto-completed: planned end date reached')
     case 'experiment.publication_status_change':
       return fromTo(details, 'publication')
     case 'experiment.rename':

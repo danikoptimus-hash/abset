@@ -466,7 +466,12 @@ export function ExperimentPage() {
       </div>
 
       <div style={{ marginTop: -16, marginBottom: 24 }}>
-        <LifecycleDates createdAt={data.created_at} startedAt={data.started_at} completedAt={data.completed_at} />
+        <LifecycleDates
+          createdAt={data.created_at}
+          startedAt={data.started_at}
+          completedAt={data.completed_at}
+          plannedEndDate={data.planned_end_date}
+        />
       </div>
 
       {data.tags.length > 0 && (

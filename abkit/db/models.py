@@ -8,12 +8,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -96,6 +97,12 @@ class Experiment(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Item B2 (planned end date, migration 0023) — declared at design time,
+    # editable afterwards (Edit Properties), and the trigger for the
+    # auto-completion sweep (B3, abkit/lifecycle.py). A calendar DATE, not an
+    # instant: the user states a day, not a moment — see the migration's
+    # docstring for why it is a column rather than a config key.
+    planned_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     # Folders (item 5, folders package) — null means "Uncategorized", not "no
     # opinion yet"; ON DELETE SET NULL (migration 0017) so deleting a folder
     # never touches the experiments in it, same non-destructive pattern as

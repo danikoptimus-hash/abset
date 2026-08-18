@@ -32,7 +32,15 @@ export function HistorySection({ name }: { name: string }) {
         pagination={{ current: page, pageSize, total: data?.total ?? 0, onChange: setPage, showSizeChanger: false }}
         columns={[
           { title: 'When', dataIndex: 'ts', render: (ts: string) => <RelativeTime iso={ts} /> },
-          { title: 'User', dataIndex: 'user_email' },
+          {
+            // Item B3: entries written by the auto-completion sweep have no
+            // user (nobody did it) — that must read as "system", not as an
+            // empty cell, which looks like missing data rather than a fact.
+            title: 'User',
+            dataIndex: 'user_email',
+            render: (email: string | null) =>
+              email ?? <Typography.Text type="secondary">system</Typography.Text>,
+          },
           { title: 'Action', dataIndex: 'action' },
           {
             title: 'Details',

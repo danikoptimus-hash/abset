@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -82,6 +82,9 @@ class ExperimentDetail(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     archived_at: datetime | None
+    # Item B2 — planned end date, shown in the page header area and both
+    # reports; null = none declared (and auto-completion therefore off).
+    planned_end_date: date | None = None
     available_reports: list[str]
     files: list[FileInfo]
     tags: list[TagOut] = []
@@ -241,6 +244,13 @@ class ExperimentPropertiesOut(BaseModel):
     owners: list[UserBrief]
     editors: list[UserBrief]
     visible_roles: list[str] | None
+    # Items B1/B2 — lifecycle dates editable from this same modal. started_at
+    # is the real column (set automatically on the designed->running
+    # transition, corrigible here when the test actually started on a
+    # different day); planned_end_date is the optional planned end that drives
+    # auto-completion (abkit/lifecycle.py).
+    started_at: datetime | None = None
+    planned_end_date: date | None = None
     # Prefill for the Properties modal's Tags field — saving tags is a
     # separate call (PUT /experiments/{name}/tags), not part of this
     # endpoint's own PUT, but this GET is the modal's one "load everything"
@@ -253,3 +263,12 @@ class UpdateExperimentPropertiesRequest(BaseModel):
     owner_ids: list[str] = []
     editor_ids: list[str] = []
     visible_roles: list[str] | None = None
+    # Items B1/B2. Both are FULL-REPLACE like every other field of this modal
+    # (the form always submits what it currently shows), so an explicit null
+    # means "clear this date", not "leave it alone" — clearing the planned end
+    # date is how you turn auto-completion back off, and it must be
+    # expressible. `set_lifecycle_dates` gates whether they are read at all,
+    # so an older client that doesn't send them can't blank them by omission.
+    started_at: datetime | None = None
+    planned_end_date: date | None = None
+    set_lifecycle_dates: bool = False

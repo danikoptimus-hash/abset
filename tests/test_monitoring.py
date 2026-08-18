@@ -267,7 +267,22 @@ def test_monitoring_repo_database_total_mb_and_top_tables(db_url):
     tables = repo.top_tables(limit=10)
     assert len(tables) <= 10
     assert all(t["size_bytes"] >= 0 for t in tables)
-    assert any(t["table_name"].endswith(".users") for t in tables)
+    # Ranked by size, descending — that's the whole contract of top_tables().
+    assert [t["size_bytes"] for t in tables] == sorted(
+        (t["size_bytes"] for t in tables), reverse=True
+    )
+    # A known real table is reported. Deliberately NOT asserted against the
+    # top-10 slice: `users` is one of the SMALLEST tables in this schema, so
+    # whether it lands in a size-ranked top-10 depends entirely on how much
+    # data the rest of the suite happened to leave in the shared test database
+    # — a property of test ordering, not of the code under test. (It silently
+    # held until the design & reporting package added enough experiments/
+    # assignments to push it out.) Query wide enough to cover the schema and
+    # assert the real invariant: the table is there, with a sane size.
+    all_tables = repo.top_tables(limit=200)
+    users = next((t for t in all_tables if t["table_name"].endswith(".users")), None)
+    assert users is not None
+    assert users["size_bytes"] > 0
 
 
 def test_job_repo_update_peak_memory_takes_the_max(db_url):

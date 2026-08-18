@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Modal, Form, Input, Select, Spin, Alert } from 'antd'
+import { Modal, Form, Input, Select, Spin, Alert, DatePicker } from 'antd'
+import dayjs from 'dayjs'
+import type { Dayjs } from 'dayjs'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient, errorMessage } from '../api/client'
 import { queryKeys } from '../api/queryKeys'
@@ -18,6 +20,11 @@ interface FormValues {
   editor_ids: string[]
   visible_roles: string[] | null
   tags: string[]
+  // Items B1/B2 — lifecycle dates, held as Dayjs (what AntD's DatePicker
+  // speaks) and serialized at save time: started_at as a full ISO instant
+  // (it IS one), planned_end_date as a bare calendar day.
+  started_at: Dayjs | null
+  planned_end_date: Dayjs | null
 }
 
 const ROLE_OPTIONS = [
@@ -68,6 +75,8 @@ export function ExperimentPropertiesModal({ name, onCancel, onSaved }: Props) {
   const currentEditorIds = Form.useWatch('editor_ids', form)
   const currentVisibleRoles = Form.useWatch('visible_roles', form)
   const currentTags = Form.useWatch('tags', form)
+  const currentStartedAt = Form.useWatch('started_at', form)
+  const currentPlannedEnd = Form.useWatch('planned_end_date', form)
 
   const [tagSearch, setTagSearch] = useState('')
   const { data: tagOptions } = useQuery({
@@ -88,6 +97,8 @@ export function ExperimentPropertiesModal({ name, onCancel, onSaved }: Props) {
       editor_ids: properties.editors.map((u) => u.id),
       visible_roles: properties.visible_roles,
       tags: properties.tags.map((t) => t.name),
+      started_at: properties.started_at ? dayjs(properties.started_at) : null,
+      planned_end_date: properties.planned_end_date ? dayjs(properties.planned_end_date) : null,
     })
   }, [properties, form])
 
@@ -111,6 +122,14 @@ export function ExperimentPropertiesModal({ name, onCancel, onSaved }: Props) {
           owner_ids: values.owner_ids ?? [],
           editor_ids: values.editor_ids ?? [],
           visible_roles: values.visible_roles ?? null,
+          // Items B1/B2. set_lifecycle_dates tells the backend to actually
+          // read the two fields below — without it a null would be
+          // indistinguishable from "this client doesn't know about dates",
+          // and clearing a planned end date (the way auto-completion is
+          // turned back off) has to stay expressible.
+          set_lifecycle_dates: true,
+          started_at: values.started_at ? values.started_at.toISOString() : null,
+          planned_end_date: values.planned_end_date ? values.planned_end_date.format('YYYY-MM-DD') : null,
         },
       })
       if (error) throw new Error(errorMessage(error))
@@ -181,7 +200,9 @@ export function ExperimentPropertiesModal({ name, onCancel, onSaved }: Props) {
       !arraysEqual(currentOwnerIds, properties.owners.map((u) => u.id)) ||
       !arraysEqual(currentEditorIds, properties.editors.map((u) => u.id)) ||
       !arraysEqual(currentVisibleRoles, properties.visible_roles) ||
-      !arraysEqual(currentTags, properties.tags.map((t) => t.name)))
+      !arraysEqual(currentTags, properties.tags.map((t) => t.name)) ||
+      (currentStartedAt?.toISOString() ?? null) !== (properties.started_at ?? null) ||
+      (currentPlannedEnd?.format('YYYY-MM-DD') ?? null) !== (properties.planned_end_date ?? null))
   const { guard } = useUnsavedGuard(isDirty)
   const guardedCancel = () => guard(onCancel)
 
@@ -234,6 +255,24 @@ export function ExperimentPropertiesModal({ name, onCancel, onSaved }: Props) {
             extra="Empty = default visibility rules (draft: owners/editors/admin only; published: everyone)"
           >
             <Select mode="multiple" allowClear options={ROLE_OPTIONS} placeholder="Everyone (default)" />
+          </Form.Item>
+          {/* Items B1/B2: the two editable lifecycle dates. Start date is
+              normally set automatically when the test is moved to "running" —
+              editable here because the button is often pressed a day or two
+              after the test actually started. */}
+          <Form.Item
+            name="started_at"
+            label="Start date"
+            extra="Set automatically when the test starts running; correct it here if it began on a different day"
+          >
+            <DatePicker showTime style={{ width: '100%' }} aria-label="Start date" />
+          </Form.Item>
+          <Form.Item
+            name="planned_end_date"
+            label="Planned end date"
+            extra="A running test is completed automatically once this day has passed. Clear it to turn that off"
+          >
+            <DatePicker style={{ width: '100%' }} aria-label="Planned end date" />
           </Form.Item>
           <Form.Item name="tags" label="Tags" extra="Pick an existing tag or type a new name and press Enter">
             <Select

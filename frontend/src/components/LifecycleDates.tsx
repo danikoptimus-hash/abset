@@ -9,17 +9,22 @@ import { formatExactTime, formatShortDate } from '../dateFormat'
 // Stage 2 spec deliberately keeps this to those two spots plus report
 // headers, nowhere else (e.g. not the tests list).
 export function LifecycleDates({
-  createdAt, startedAt, completedAt,
+  createdAt, startedAt, completedAt, plannedEndDate,
 }: {
   createdAt: string | null
   startedAt: string | null
   completedAt: string | null
+  // Item B2 — the PLANNED end date (a bare yyyy-mm-dd, not an instant),
+  // shown alongside the actual dates. Optional so the Results-tab usage,
+  // which is about what happened rather than what was planned, can omit it.
+  plannedEndDate?: string | null
 }) {
   const entries: [string, string][] = (
     [
       ['Created', createdAt],
       ['Started', startedAt],
       ['Completed', completedAt],
+      ['Planned end', plannedEndDate ?? null],
     ] as [string, string | null][]
   ).filter((e): e is [string, string] => !!e[1])
 
@@ -30,11 +35,21 @@ export function LifecycleDates({
       {entries.map(([label, iso], i) => (
         <span key={label}>
           {i > 0 && ' · '}
-          <Tooltip title={formatExactTime(iso)}>
+          {/* A planned end date has no time-of-day to reveal, so it gets the
+              plain short date without the exact-timestamp tooltip the real
+              instants carry — a tooltip reading "00:00:00" would invent a
+              precision the user never entered. */}
+          {label === 'Planned end' ? (
             <span>
               {label} {formatShortDate(iso)}
             </span>
-          </Tooltip>
+          ) : (
+            <Tooltip title={formatExactTime(iso)}>
+              <span>
+                {label} {formatShortDate(iso)}
+              </span>
+            </Tooltip>
+          )}
         </span>
       ))}
     </Typography.Text>

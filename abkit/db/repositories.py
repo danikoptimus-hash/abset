@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid as uuid_mod
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import pandas as pd
@@ -287,6 +287,49 @@ class ExperimentRepo:
                 exp.archived_at = None
             elif new_status == "archived":
                 exp.archived_at = now
+
+    def update_started_at(self, name: str, started_at: datetime | None) -> None:
+        """Item B1: дата старта редактируется вручную (Edit Properties). Пишет
+        ТОЛЬКО эту колонку и НЕ трогает status — в отличие от update_status
+        выше, который выводит таймстемпы из перехода. Это осознанно: правка
+        даты — исправление факта ("тест на самом деле стартовал в понедельник,
+        а кнопку нажали в среду"), а не переход по жизненному циклу, и не
+        должна ни двигать статус, ни сбрасывать completed_at."""
+        with session_scope() as s:
+            exp = s.scalar(select(Experiment).where(Experiment.name == name))
+            if exp is None:
+                raise RepoError(f"Experiment '{name}' not found")
+            exp.started_at = started_at
+
+    def update_planned_end_date(self, name: str, planned_end_date: date | None) -> None:
+        """Item B2 — None означает "плановой даты окончания нет" и снимает
+        авто-завершение (abkit/lifecycle.py), а не "не менять": вызывающий код
+        (run_update_experiment_properties) сам решает, передавать поле или нет."""
+        with session_scope() as s:
+            exp = s.scalar(select(Experiment).where(Experiment.name == name))
+            if exp is None:
+                raise RepoError(f"Experiment '{name}' not found")
+            exp.planned_end_date = planned_end_date
+
+    def list_due_for_auto_completion(self, cutoff: date) -> list[Experiment]:
+        """Item B3 — running-эксперименты, чья плановая дата окончания уже
+        наступила (planned_end_date <= cutoff, где cutoff считает вызывающий,
+        см. abkit/lifecycle.py::auto_completion_cutoff).
+
+        Гейт по status == 'running' здесь же, а не у вызывающего: он и есть
+        гарантия "ровно один раз" — как только sweep перевел тест в
+        'completed', следующий проход его уже не увидит, безо всякого
+        отдельного флага "уже авто-завершен"."""
+        with session_scope() as s:
+            stmt = select(Experiment).where(
+                Experiment.status == "running",
+                Experiment.planned_end_date.is_not(None),
+                Experiment.planned_end_date <= cutoff,
+            )
+            exps = list(s.scalars(stmt))
+            for e in exps:
+                s.expunge(e)
+            return exps
 
     def update_publication_status(self, name: str, publication_status: str) -> None:
         """draft<->published — переходы обратимы в обе стороны (FRONTEND.md §3.3)."""

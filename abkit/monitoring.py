@@ -24,6 +24,9 @@ import psutil
 
 from abkit.db.repositories import MonitoringRepo
 from abkit.db.store import get_data_dir
+# Item B3: интервал проверки плановых дат окончания живет рядом с самой
+# логикой (abkit/lifecycle.py), а не здесь — этот поток только вызывает ее.
+from abkit.lifecycle import AUTO_COMPLETE_INTERVAL_SECONDS
 from abkit.logging_config import get_logger
 
 log = get_logger("abkit.monitoring")
@@ -167,6 +170,7 @@ class MonitoringCollector:
         self._thread: threading.Thread | None = None
         self._last_retention_at = 0.0
         self._last_bloat_check_at = 0.0
+        self._last_auto_complete_at = 0.0
 
     def _cached_data_volume_mb(self) -> float | None:
         now = time.monotonic()
@@ -279,6 +283,28 @@ class MonitoringCollector:
                     self.run_bloat_check()
                 except Exception:
                     log.error("monitoring.bloat_check_failed", exc_info=True)
+            if time.monotonic() - self._last_auto_complete_at >= AUTO_COMPLETE_INTERVAL_SECONDS:
+                self._last_auto_complete_at = time.monotonic()
+                try:
+                    self.run_auto_complete()
+                except Exception:
+                    log.error("monitoring.auto_complete_failed", exc_info=True)
+
+    def run_auto_complete(self) -> list[str]:
+        """Item B3 — переводит в 'completed' running-тесты, чья плановая дата
+        окончания прошла (abkit/lifecycle.py). Живет в ЭТОМ потоке, а не в
+        своем: «the existing in-process scheduler (the one used for monitoring/
+        maintenance)» из ТЗ — это ровно он, и заводить второй daemon-тред ради
+        одного запроса раз в 10 минут значило бы дублировать всю обвязку
+        start/shutdown без единой выгоды. Возвращает имена переведенных, чтобы
+        тест мог проверять результат напрямую, а не по логам — тот же прием,
+        что у run_bloat_check выше."""
+        from abkit.lifecycle import auto_complete_due_experiments
+
+        completed = auto_complete_due_experiments()
+        if completed:
+            log.info("monitoring.auto_completed_experiments", count=len(completed))
+        return completed
 
     def start(self) -> None:
         # No synchronous snapshot here on purpose: this runs on every
@@ -291,6 +317,12 @@ class MonitoringCollector:
         # e2e test) covers "I want a data point right now".
         self._last_retention_at = time.monotonic()
         self._last_bloat_check_at = time.monotonic()
+        # Не с time.monotonic(), а с 0.0: первый же тик (через минуту после
+        # старта) должен догнать тесты, чья плановая дата прошла, пока процесс
+        # был выключен — иначе после каждого рестарта они ждали бы еще 10
+        # минут. Для retention/bloat такой догоняющий проход не нужен (их
+        # работа не «протухает» за время простоя), поэтому те остаются как были.
+        self._last_auto_complete_at = 0.0
         self._stop.clear()
         thread = threading.Thread(target=self._loop, daemon=True)
         thread.name = "abkit-monitoring"
