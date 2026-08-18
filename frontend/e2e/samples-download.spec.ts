@@ -41,13 +41,19 @@ test('Design tab has separate per-group CSV download buttons delivering the corr
   const treatmentBody = treatmentRows.slice(1)
   const controlBody = controlRows.slice(1)
 
-  expect(controlHeader).toContain('group')
+  // Item C1: this experiment is seeded with a SIMPLE split, so the file is
+  // exactly `<original id column>,group` — `stratum` would be a degenerate
+  // helper column here and is no longer emitted, and `unit_id` (the engine's
+  // internal name) never crosses the download boundary at all.
+  expect(controlHeader).toBe('user_id,group')
   // Every data row in control.csv is actually a control-group row, and none
   // of them appear in treatment.csv (disjoint, not a copy/mix of both).
   expect(controlBody.length).toBeGreaterThan(0)
   expect(treatmentBody.length).toBeGreaterThan(0)
-  expect(controlBody.every((r) => r.includes(',control,'))).toBe(true)
-  expect(treatmentBody.every((r) => r.includes(',treatment,'))).toBe(true)
+  // `group` is the LAST column now, so match the row ending rather than a
+  // comma-delimited middle field.
+  expect(controlBody.every((r) => r.trim().endsWith(',control'))).toBe(true)
+  expect(treatmentBody.every((r) => r.trim().endsWith(',treatment'))).toBe(true)
   const controlIds = new Set(controlBody.map((r) => r.split(',')[0]))
   const treatmentIds = new Set(treatmentBody.map((r) => r.split(',')[0]))
   expect([...controlIds].some((id) => treatmentIds.has(id))).toBe(false)

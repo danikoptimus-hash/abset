@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import type { APIRequestContext } from '@playwright/test'
+import type { APIRequestContext, Locator, Page } from '@playwright/test'
 import { loginViaUi } from './helpers'
 
 // Пакет design & reporting fixes (A1-A5 / B1-B3 / C1-C4) — сквозные проверки
@@ -21,6 +21,7 @@ async function uploadClientIdDataset(
   request: APIRequestContext,
   tag: string,
   rows = 200,
+  fileName?: string,
 ): Promise<string> {
   const lines = ['client_id,revenue,country'].concat(
     Array.from(
@@ -31,11 +32,44 @@ async function uploadClientIdDataset(
   const resp = await request.post(`${API_BASE}/datasets`, {
     multipart: {
       kind: 'pre_design',
-      file: { name: `${tag}.csv`, mimeType: 'text/csv', buffer: Buffer.from(lines.join('\n')) },
+      file: {
+        name: fileName ?? `${tag}.csv`,
+        mimeType: 'text/csv',
+        buffer: Buffer.from(lines.join('\n')),
+      },
     },
   })
   if (!resp.ok()) throw new Error(`upload failed: ${resp.status()}`)
   return (await resp.json()).id as string
+}
+
+const OPEN_DROPDOWN = '.ant-select-dropdown:not(.ant-select-dropdown-hidden)'
+
+/** Открывает конкретный AntD Select и выбирает в нём опцию по точному тексту.
+ *
+ * Две ловушки, обе реально сработавшие на этом спеке:
+ *  - закрытые дропдауны остаются в DOM (AntD только вешает класс hidden),
+ *    поэтому голый `.ant-select-item-option-content` матчит и опции чужих,
+ *    уже закрытых списков;
+ *  - закрытие АНИМИРОВАНО, так что сразу после выбора в одном селекте его
+ *    список ещё не hidden — а пикер unit-колонки и пикер колонки метрики
+ *    оба содержат "revenue", и два открытых списка снова дают strict mode
+ *    violation.
+ * Отсюда: перед открытием ждём, что открытых списков НЕТ вовсе, и только
+ * потом кликаем — тогда открытый ровно один и он наш.
+ */
+async function pickInSelect(page: Page, select: Locator, label: string) {
+  await expect(page.locator(OPEN_DROPDOWN)).toHaveCount(0)
+  await select.click()
+  await expect(page.locator(OPEN_DROPDOWN)).toHaveCount(1)
+  await page
+    .locator(OPEN_DROPDOWN)
+    .locator('.ant-select-item-option-content')
+    .filter({ hasText: new RegExp(`^${label}$`) })
+    .click()
+  // Дождаться, что список действительно закрылся, — иначе следующий вызов
+  // упрётся в свою же первую проверку.
+  await expect(page.locator(OPEN_DROPDOWN)).toHaveCount(0)
 }
 
 async function designViaApi(
@@ -76,6 +110,9 @@ test('wizard: named metric, planned end date, and the overlap-exclusion path', a
   page,
   request,
 }) => {
+  // Полный проход визарда + два фоновых design-джоба (занимающий и целевой) —
+  // дефолтных 30с не хватает, как и остальным wizard-спекам.
+  test.setTimeout(180_000)
   const suffix = Date.now()
   const occupying = `_dev_e2e_occupy_${suffix}`
   const name = `_dev_e2e_wizard_${suffix}`
@@ -83,47 +120,65 @@ test('wizard: named metric, planned end date, and the overlap-exclusion path', a
   await apiLogin(request)
   // Занимаем юзеров другим активным тестом — иначе пересечению взяться неоткуда.
   const sharedTag = `shared_${suffix}`
-  const occupyingDataset = await uploadClientIdDataset(request, sharedTag, 120)
+  const occupyingDataset = await uploadClientIdDataset(
+    request, sharedTag, 120, `occupy_${suffix}.csv`,
+  )
   await designViaApi(request, occupying, occupyingDataset)
-  // Тот же диапазон ID -> гарантированное пересечение по 120 юзерам.
-  const wizardDataset = await uploadClientIdDataset(request, sharedTag, 200)
+  // Тот же диапазон ID -> гарантированное пересечение ровно по 120 юзерам
+  // (не по всем 200: после исключения должно ОСТАТЬСЯ кого сплитить).
+  const wizardFile = `wizard_${suffix}.csv`
+  await uploadClientIdDataset(request, sharedTag, 200, wizardFile)
 
   await loginViaUi(page)
   await page.goto('/experiments/new')
 
-  // --- Step 1: existing dataset ---
-  await page.getByText('Select an existing dataset').first().click().catch(() => {})
-  const datasetSelect = page.locator('.ant-select').first()
+  // --- Step 1: pick the uploaded dataset by its real filename ---
+  const datasetSelect = page.getByRole('combobox', { name: 'design-dataset-select' })
   await datasetSelect.click()
-  await page.keyboard.type(sharedTag)
-  await page.waitForTimeout(600)
-  await page.locator('.ant-select-item-option').last().click()
-  await page.getByRole('button', { name: 'Next' }).click()
+  await datasetSelect.fill(wizardFile)
+  await page.getByTitle(new RegExp(wizardFile)).click()
+  await expect(page.getByText(/Data loaded:/)).toBeVisible({ timeout: 15_000 })
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
 
-  // --- Step 2: name, metric display name, planned end date ---
+  // --- Step 2: name, unit column, metric display name, planned end date ---
   await page.getByPlaceholder('Experiment name').fill(name)
+  // Unit column is auto-filled only on the demo-data path; picking an
+  // existing dataset leaves it empty, and Next stays disabled until it's set.
+  await pickInSelect(page, page.getByRole('combobox', { name: 'unit-col-select' }), 'client_id')
   await page.getByLabel('Hypothesis').fill('Named metrics render everywhere')
 
   // A1: подпись метрики отдельно от колонки данных.
-  const metricColumn = page.locator('.ant-card .ant-select').nth(1)
-  await metricColumn.click()
-  await page.locator('.ant-select-item-option-content').filter({ hasText: /^revenue$/ }).click()
+  // Селект колонки метрики опознаётся по своему плейсхолдеру — AntD рисует
+  // его текстом внутри самого селекта, так что hasText здесь работает (в
+  // отличие от полей-Input, где это атрибут).
+  const metricColumn = page.locator('.ant-select').filter({ hasText: 'Dataframe column' }).first()
+  await pickInSelect(page, metricColumn, 'revenue')
   await page.getByPlaceholder(/Metric name/).fill('Revenue per user')
 
-  // B2: плановая дата окончания.
-  await page.getByLabel('Planned end date').click()
-  await page.keyboard.type('2031-12-31')
+  // B2: плановая дата окончания. Escape закрывает календарь — пока он открыт,
+  // AntD рисует в шапке "Next month"/"Next year", и кнопка "Next" самого
+  // визарда перестаёт быть единственной (strict mode violation).
+  const plannedEnd = page.getByLabel('Planned end date')
+  await plannedEnd.click()
+  await plannedEnd.fill('2031-12-31')
   await page.keyboard.press('Enter')
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.ant-picker-dropdown:visible')).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
 
   // --- Step 3: isolation=warn, чтобы получить диалог пересечения ---
-  const isolationSelect = page.locator('.ant-select').filter({ hasText: 'exclude' }).last()
-  await isolationSelect.click()
-  await page.locator('.ant-select-item-option-content').filter({ hasText: /^warn/ }).click()
+  await expect(page.locator(OPEN_DROPDOWN)).toHaveCount(0)
+  await page.locator('.ant-select').filter({ hasText: 'exclude' }).last().click()
+  await expect(page.locator(OPEN_DROPDOWN)).toHaveCount(1)
+  await page
+    .locator(OPEN_DROPDOWN)
+    .locator('.ant-select-item-option-content')
+    .filter({ hasText: /^warn/ })
+    .click()
   await page.getByRole('button', { name: 'Calculate sample size' }).click()
   await expect(page.getByText(/eligible users/)).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
 
   // --- Step 4: обе кнопки на пересечении, выбираем "исключить" ---
   await expect(page.getByText('Revenue per user')).toBeVisible()
@@ -149,6 +204,7 @@ test('wizard: named metric, planned end date, and the overlap-exclusion path', a
 })
 
 test('downloaded sample keeps the original id column name', async ({ page, request }) => {
+  test.setTimeout(120_000)
   const name = `_dev_e2e_c1_${Date.now()}`
   await apiLogin(request)
   const datasetId = await uploadClientIdDataset(request, `c1_${Date.now()}`)
@@ -173,9 +229,11 @@ test('downloaded sample keeps the original id column name', async ({ page, reque
 })
 
 test('analysis report carries the hypothesis and the design context', async ({ page, request }) => {
+  test.setTimeout(120_000)
   const name = `_dev_e2e_c2_${Date.now()}`
+  const tag = `c2_${Date.now()}`
   await apiLogin(request)
-  const datasetId = await uploadClientIdDataset(request, `c2_${Date.now()}`)
+  const datasetId = await uploadClientIdDataset(request, tag)
   await designViaApi(request, name, datasetId, {}, {
     metrics: [
       {
@@ -195,8 +253,9 @@ test('analysis report carries the hypothesis and the design context', async ({ p
     data: [{ ...hypothesis, content_md: 'Redesigned checkout lifts revenue' }],
   })
 
-  // Анализ на тех же данных.
-  const postId = await uploadClientIdDataset(request, `c2post_${Date.now()}`)
+  // Анализ на ТЕХ ЖЕ юзерах: датасет должен нести те же client_id, иначе
+  // join с назначениями пуст и анализ честно падает "0 control / 0 treatment".
+  const postId = await uploadClientIdDataset(request, tag)
   const analyzeResp = await request.post(`${API_BASE}/experiments/${name}/analyze`, {
     data: { dataset_id: postId, correction: 'holm' },
   })
@@ -229,6 +288,7 @@ test('an experiment past its planned end date auto-completes and says so in Hist
   page,
   request,
 }) => {
+  test.setTimeout(120_000)
   const name = `_dev_e2e_b3_${Date.now()}`
   await apiLogin(request)
   const datasetId = await uploadClientIdDataset(request, `b3_${Date.now()}`)

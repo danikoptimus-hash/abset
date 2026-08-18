@@ -260,6 +260,11 @@ export function DesignWizardPage() {
           {state.splitMode === 'abkit' && (
             <Select
               placeholder="Unit column (unit_col)"
+              // Same reason as design-dataset-select / external-strata-select:
+              // an unlabeled AntD Select is only addressable by its
+              // placeholder DIV, which is not the element that opens the
+              // dropdown — so e2e can't drive it reliably without this.
+              aria-label="unit-col-select"
               style={{ width: 220 }}
               value={state.unitCol ?? undefined}
               onChange={(unitCol) => setState((prev) => ({ ...prev, unitCol }))}
