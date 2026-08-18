@@ -142,6 +142,10 @@ def run_design(
         from abkit.db.repositories import ExperimentRepo
 
         ExperimentRepo().update_planned_end_date(config.name, planned_end_date)
+        # Item B2: design_report.html уже записан на диск внутри
+        # Experiment.design(), где плановой даты еще не существовало —
+        # впечатываем ее в готовый файл (см. _regenerate_design_context).
+        _regenerate_design_context(config.name)
     _audit(
         current_user, "experiment.create",
         object_type="experiment", object_id=str(exp_row.id), object_name=config.name,
@@ -970,6 +974,11 @@ def run_update_experiment_properties(
                 "from": _iso(old_planned_end_date), "to": _iso(planned_end_date),
             }
 
+    if set_lifecycle_dates and "planned_end_date" in details:
+        # Item B2: правка плановой даты должна быть видна и в уже сохраненном
+        # отчете дизайна, а не только в UI.
+        _regenerate_design_context(current_name)
+
     _audit(
         current_user, "experiment.properties_change",
         object_type="experiment", object_id=str(exp_row.id), object_name=current_name,
@@ -1018,32 +1027,52 @@ def run_update_experiment_blocks(
     # править). Так что каждый раз, когда гипотеза изменилась, впечатываем ее
     # в уже сохраненный отчет — иначе отчет навсегда остался бы без нее.
     if "hypothesis" in changed_kinds:
-        _regenerate_design_context(exp_row, result)
+        _regenerate_design_context(name)
     return result
 
 
-def _regenerate_design_context(exp_row, blocks) -> None:
-    """Впечатывает актуальную гипотезу в сохраненный design_report.html
-    (abkit/viz/report.py::render_design_context_section). Best-effort — тот же
-    выбор, что у _regenerate_design_report для флоу-картинок: отчет вторичен по
-    отношению к самим данным, и его неудачная перегенерация не должна ронять
-    уже успешно сохраненный блок."""
+def _regenerate_design_context(name: str) -> None:
+    """Items C2/B2 — впечатывает АКТУАЛЬНЫЕ гипотезу и плановую дату окончания
+    в сохраненный design_report.html (abkit/viz/report.py::
+    render_design_context_section).
+
+    Оба значения перечитываются здесь ИЗ БД, а не принимаются параметрами:
+    секция рендерится целиком из обоих, и вызывающий, у которого на руках
+    только что изменившееся одно, стер бы второе. Вызывается отовсюду, где
+    любое из них могло поменяться — из run_design (плановая дата
+    проставляется уже после того, как отчет записан), из
+    run_update_experiment_blocks (гипотеза) и из
+    run_update_experiment_properties (правка дат).
+
+    Best-effort — тот же выбор, что у _regenerate_design_report для
+    флоу-картинок: отчет вторичен по отношению к самим данным, и его неудачная
+    перегенерация не должна ронять уже успешно сохраненную правку."""
     try:
+        from abkit.db.repositories import BlockRepo, ExperimentRepo
         from abkit.db.store import DbExperimentStore
         from abkit.viz.report import render_design_context_section
 
-        hypothesis = next(
-            (b.content_md for b in blocks if b.kind == "hypothesis" and b.content_md), None
-        )
-        report_path = DbExperimentStore().data_dir / exp_row.name / "design_report.html"
+        exp_row = ExperimentRepo().get_by_name(name)
+        if exp_row is None:
+            return
+        report_path = DbExperimentStore().data_dir / name / "design_report.html"
         if not report_path.exists():
             return
+        hypothesis = next(
+            (
+                b.content_md
+                for b in BlockRepo().list_for_experiment(exp_row.id)
+                if b.kind == "hypothesis" and b.content_md
+            ),
+            None,
+        )
         html = report_path.read_text(encoding="utf-8")
         report_path.write_text(
-            render_design_context_section(html, hypothesis), encoding="utf-8"
+            render_design_context_section(html, hypothesis, exp_row.planned_end_date),
+            encoding="utf-8",
         )
     except Exception:
-        log.error("regenerate_design_context.failed", exc_info=True, experiment=exp_row.name)
+        log.error("regenerate_design_context.failed", exc_info=True, experiment=name)
 
 
 def _connection_spec(conn_row):

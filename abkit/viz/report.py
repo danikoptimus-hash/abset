@@ -132,25 +132,38 @@ _DESIGN_CONTEXT_SECTION_RE = re.compile(
 )
 
 
-def render_design_context_section(design_report_html: str, hypothesis: str | None) -> str:
-    """Item C2 — впечатывает секцию Hypothesis в УЖЕ СОХРАНЕННЫЙ
-    design_report.html, между якорями templates/_design_context_section.html.j2.
+def render_design_context_section(
+    design_report_html: str,
+    hypothesis: str | None,
+    planned_end_date: Any = None,
+) -> str:
+    """Items C2/B2 — впечатывает секции Hypothesis и Planned end в УЖЕ
+    СОХРАНЕННЫЙ design_report.html, между якорями
+    templates/_design_context_section.html.j2.
 
     Зачем сплайс, а не обычный рендер: design_report.html пишется один раз,
-    внутри Experiment.design(), а гипотеза к этому моменту еще не существует —
-    визард сохраняет ее отдельным вызовом ПОСЛЕ успешного дизайна
-    (Step4Review.tsx::saveHypothesis), и потом ее можно править с вкладки
-    эксперимента сколько угодно. Полный ре-рендер тут невозможен по той же
-    причине, что и у флоу-картинок: для него нужен объект DesignReport, живущий
-    только внутри Experiment.design() и не восстановимый через
-    Experiment.load(). Точная копия механики render_flow_images_section().
+    внутри Experiment.design(), а к этому моменту НИ ОДНОГО из двух значений
+    еще не существует — гипотезу визард сохраняет отдельным вызовом ПОСЛЕ
+    успешного дизайна (Step4Review.tsx::saveHypothesis), плановую дату
+    проставляет run_design в колонку строки эксперимента уже после того, как
+    отчет записан на диск. Обе потом еще и редактируемы. Полный ре-рендер тут
+    невозможен по той же причине, что и у флоу-картинок: для него нужен объект
+    DesignReport, живущий только внутри Experiment.design() и не восстановимый
+    через Experiment.load(). Точная копия механики
+    render_flow_images_section().
+
+    ВАЖНО: функция всегда перерисовывает секцию ЦЕЛИКОМ из обоих переданных
+    значений — вызывающий обязан передать актуальные оба, а не только то, что
+    поменялось, иначе второе будет стерто.
 
     Отчет без якорей (сделан до этой фичи) остается нетронутым — вставлять
     вслепую некуда, и молча дописать секцию в произвольное место хуже, чем не
     трогать файл.
     """
     template = _env.get_template("_design_context_section.html.j2")
-    rendered = template.render(hypothesis=hypothesis)
+    rendered = template.render(
+        hypothesis=hypothesis, planned_end_date=_format_report_date(planned_end_date)
+    )
     new_html, n = _DESIGN_CONTEXT_SECTION_RE.subn(rendered.strip(), design_report_html)
     return design_report_html if n == 0 else new_html
 

@@ -1,11 +1,21 @@
-{# Item C2 — гипотеза в design_report.html.
+{# Item C2/B2 — та часть дизайн-контекста design_report.html, которой в момент
+   рендера отчета еще НЕ СУЩЕСТВУЕТ: гипотеза (визард сохраняет ее отдельным
+   вызовом уже после успешного дизайна) и плановая дата окончания (ее
+   проставляет run_design в колонку строки эксперимента ПОСЛЕ того, как
+   Experiment.design() вернул управление и отчет уже записан на диск). Обе
+   вдобавок редактируемы потом.
 
-   Якорные комментарии присутствуют ВСЕГДА, даже когда гипотезы нет: именно по
-   ним abkit/viz/report.py::render_design_context_section находит, что заменять,
-   когда гипотезу впервые заполнили (или изменили) уже после того, как отчет
-   был сохранен. Тот же прием, что у _flow_images_section.html.j2 — см.
-   комментарий у его include в design_report.html.j2. #}
+   Якорные комментарии присутствуют ВСЕГДА, даже когда показывать нечего:
+   именно по ним abkit/viz/report.py::render_design_context_section находит,
+   что заменять при каждой последующей правке. Тот же прием, что у
+   _flow_images_section.html.j2 — см. комментарий у его include в
+   design_report.html.j2. #}
 <!-- design-context-section:start -->
+{% if planned_end_date %}
+<section id="section-planned-end">
+  <p>Planned end {{ planned_end_date }}</p>
+</section>
+{% endif %}
 {% if hypothesis %}
 <section id="section-hypothesis">
   <h2>Hypothesis</h2>

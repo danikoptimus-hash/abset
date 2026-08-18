@@ -598,6 +598,61 @@ def test_c2_design_report_gets_the_hypothesis_after_the_fact(app_client):
     assert "<h2>Hypothesis</h2>" in after
 
 
+def test_b2_planned_end_date_reaches_the_design_report(app_client):
+    """Найдено сквозным smoke на живом стенде: design_report.html пишется
+    ВНУТРИ Experiment.design(), а плановую дату проставляет run_design уже
+    после — то есть в момент рендера её ещё не существует, и отчёт оставался
+    без неё (в отчёте анализа она при этом была). Впечатывается в готовый файл
+    той же механикой, что и гипотеза."""
+    _login(app_client)
+    dataset_id = _upload(app_client, _csv())
+    resp = app_client.post(
+        "/api/v1/design",
+        json={"config": _config("b2_report"), "dataset_id": dataset_id,
+              "planned_end_date": "2031-03-15"},
+    )
+    assert _poll(app_client, resp.json()["job_id"])["status"] == "completed"
+
+    html = app_client.get("/api/v1/experiments/b2_report/reports/design_report.html").text
+    assert "Planned end" in html and "Mar 15, 2031" in html
+
+    # ...и правка даты тоже долетает до уже сохранённого отчёта.
+    app_client.put(
+        "/api/v1/experiments/b2_report/properties",
+        json={
+            "name": "b2_report", "owner_ids": [], "editor_ids": [], "visible_roles": None,
+            "set_lifecycle_dates": True, "started_at": None, "planned_end_date": "2031-09-01",
+        },
+    )
+    updated = app_client.get("/api/v1/experiments/b2_report/reports/design_report.html").text
+    assert "Sep 1, 2031" in updated
+    assert "Mar 15, 2031" not in updated
+
+
+def test_b2_hypothesis_and_planned_end_survive_each_other(app_client):
+    """Секция рендерится целиком из ОБОИХ значений — правка одного не должна
+    стирать другое (ровно та ловушка, которую создаёт сплайс-подход)."""
+    _login(app_client)
+    dataset_id = _upload(app_client, _csv())
+    resp = app_client.post(
+        "/api/v1/design",
+        json={"config": _config("b2_both"), "dataset_id": dataset_id,
+              "planned_end_date": "2031-03-15"},
+    )
+    assert _poll(app_client, resp.json()["job_id"])["status"] == "completed"
+
+    blocks = app_client.get("/api/v1/experiments/b2_both/blocks").json()
+    hypothesis_block = next(b for b in blocks if b["kind"] == "hypothesis")
+    app_client.put(
+        "/api/v1/experiments/b2_both/blocks",
+        json=[{**hypothesis_block, "content_md": "Both must survive"}],
+    )
+
+    html = app_client.get("/api/v1/experiments/b2_both/reports/design_report.html").text
+    assert "Both must survive" in html
+    assert "Mar 15, 2031" in html
+
+
 def test_a1_display_name_flows_into_reports_and_falls_back(app_client):
     _login(app_client)
     dataset_id = _upload(app_client, _csv())
