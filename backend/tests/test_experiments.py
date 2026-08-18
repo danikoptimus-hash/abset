@@ -268,7 +268,12 @@ def test_experiment_samples_generated_from_assignments_table(app_client, tmp_pat
     assert csv_resp.status_code == 200
     assert csv_resp.headers["content-type"].startswith("text/csv")
     lines = csv_resp.text.strip().splitlines()
-    assert lines[0] == "unit_id,group,stratum"
+    # Item C1: no `stratum` — this fixture's config declares no strata, so the
+    # column would be a degenerate helper. `unit_id` survives as the header
+    # only because this minimal config carries no unit_col to map back to;
+    # a real design keeps its own id column name (see
+    # backend/tests/test_design_reporting_package.py::test_c1_*).
+    assert lines[0] == "unit_id,group"
     assert len(lines) == 3  # header + 2 control rows
     assert "u1" in csv_resp.text and "u2" in csv_resp.text
     assert "u3" not in csv_resp.text  # treatment unit must not leak into control.csv

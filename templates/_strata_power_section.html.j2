@@ -13,13 +13,17 @@
   {% for dim in block.dimensions %}
   <h4>By {{ dim.label }}</h4>
   <table>
-    <tr><th>Stratum</th>{% if sp.multi_group %}<th>vs. group</th>{% endif %}<th>n (control)</th><th>n (test)</th><th>MDE (rel.)</th><th>MDE with CUPED</th><th>Status</th></tr>
+    {# Item C4: "MDE (abs.)" рядом с относительным — в процентных пунктах для
+       конверсий, в единицах метрики для непрерывных (format_stratum_mde_abs,
+       abkit/viz/report.py), то есть ровно так же, как в общей таблице MDE. #}
+    <tr><th>Stratum</th>{% if sp.multi_group %}<th>vs. group</th>{% endif %}<th>n (control)</th><th>n (test)</th><th>MDE (rel.)</th><th>MDE (abs.)</th><th>MDE with CUPED</th><th>Status</th></tr>
     {% for r in dim.rows %}
     <tr>
       <td>{{ r.stratum }}</td>
       {% if sp.multi_group %}<td>{{ r.treatment_group }}</td>{% endif %}
       <td>{{ r.n_control }}</td><td>{{ r.n_treatment }}</td>
       <td>{{ '%.1f%%' % (r.mde_rel * 100) if r.mde_rel is not none else '—' }}</td>
+      <td>{{ stratum_mde_abs(r) }}</td>
       <td>{{ '%.1f%%' % (r.mde_rel_cuped * 100) if r.mde_rel_cuped is not none else '—' }}</td>
       <td><span class="badge {{ 'ok' if r.status == 'ok' else 'fail' }}">{{ r.status }}</span></td>
     </tr>

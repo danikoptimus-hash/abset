@@ -65,7 +65,10 @@ class FileExperimentStore:
         path = storage.create_experiment_dir(self.experiments_dir, config.name)
         storage.save_config(path, config)
         storage.save_assignments(path, assignments)
-        storage.save_group_samples(path, assignments)
+        storage.save_group_samples(
+            path, assignments, unit_col=config.unit_col,
+            stratified=config.split_method == "stratified" and bool(config.strata),
+        )
         storage.register_experiment(self.experiments_dir, config.name, path, status="designed")
         return ExperimentHandle(name=config.name, path=path, config=config, assignments=assignments)
 

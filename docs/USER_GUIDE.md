@@ -32,7 +32,31 @@ Every experiment has two independent pieces of state:
   deliberate "this is ready for others to see" action, separate from whether
   the test itself has finished running.
 
-Both are toggled from clickable badges at the top of the experiment page. The
+**Dates.** Created / Started / Completed are recorded for you as the status
+moves, and shown in the header line under the experiment name (and in both
+report headers). Two of them you control directly, from **Edit Properties**:
+
+- **Start date** — set automatically the first time the test goes `running`,
+  and editable afterwards, because the button often gets pressed a day or two
+  after the test actually started. Editing it does not move the status and
+  does not touch the completion date; the change is recorded in the History
+  tab as old → new.
+- **Planned end date** (optional) — when you *intend* the test to finish. Set
+  it in the design wizard (Groups & Metrics step) or later from Edit
+  Properties. It appears in the header and in both reports.
+
+**Auto-completion.** Once the planned end date has passed and the test is
+still `running`, ABSet moves it to `completed` on its own. The transition
+happens on the day *after* the date you picked — a test planned to end on the
+20th runs through the whole of the 20th. It is checked periodically in the
+background (about every 10 minutes) and also whenever someone opens the
+experiment page, so the page never shows a stale `running`. The change is
+written to the History tab as a system action ("auto-completed: planned end
+date reached") with no user attached, and nothing else happens — there are no
+notifications. Clear the planned end date to turn auto-completion off; moving
+the test back to `running` manually re-arms it.
+
+Both statuses are toggled from clickable badges at the top of the experiment page. The
 status dropdown allows moving backward too (`completed` → `running`,
 `running` → `designed`, or un-archiving to any status) — each backward move
 asks you to confirm first, with a warning specific to what it means:
@@ -330,6 +354,16 @@ below for that flow instead). For ABSet split, pick the dataset from step 1
   - **Type**: `continuous`, `binary`, or `ratio` (ratio metrics take a
     numerator/denominator column pair instead of a single column — for
     metrics like revenue-per-session where both parts vary per user).
+  - **Metric name** (optional) — a readable display name, separate from the
+    data column you pick. Set it to "Revenue per user" and that is what you
+    see everywhere the metric is shown: Design tab, results table, forest
+    plot, segment blocks, both HTML reports, and the CSV exports. Leave it
+    blank and the column name is used, exactly as before. The column itself
+    never changes and is still shown, in small grey text next to the name
+    ("column: txn_sum"), wherever the technical identity matters. Renaming
+    the *column* is not what this does — the display name is a label only, so
+    it can be edited (via **Redesign**) without touching any data or breaking
+    an existing analysis.
   - **Role**: `primary` or `secondary`. The verdict and multiple-testing
     correction are computed from primary metrics; secondary metrics are
     exploratory context, not decision inputs.
@@ -387,13 +421,29 @@ edit flow for it.
   - Missing values in a stratifying column: choose to bucket them into their
     own "unknown" stratum (default), drop those users, or treat it as a
     design error and stop.
-- **Split method** — `stratified` (recommended when you have strata),
-  `simple` (uniform random), or `hash` (deterministic by user ID — same user
-  always lands in the same group even across re-splits).
+- **Split method** — `simple` (uniform random, the default), `stratified`
+  (recommended when you have strata), or `hash` (deterministic by user ID —
+  same user always lands in the same group even across re-splits).
+  Selecting your first stratum above **switches this to `stratified`
+  automatically**, and clearing the last stratum switches it back to
+  `simple` — the selector visibly updates and you can always override it
+  afterwards. `hash` is never overridden by that rule: it's an independent
+  choice, not a point on the simple/stratified axis. Whichever method was
+  actually used is stated explicitly in the design report and on the Design
+  tab, so a report never leaves you guessing.
 - **Isolation from other active experiments** — how to handle users who are
   also in another currently-running test:
   - `exclude` (recommended) — exclude participants of all active tests.
-  - `warn` — show the overlap and ask you to confirm before proceeding.
+  - `warn` — show the overlap and ask you to decide. You get **two** ways
+    forward: **Exclude overlapping & continue** removes those users from this
+    experiment's candidate pool and proceeds, and **Continue despite the
+    overlap** splits everyone as-is. If excluding leaves fewer users than
+    your target sample size, the design still runs — the MDE table honestly
+    reflects the smaller pool, which is exactly its job. Whichever you pick
+    is recorded with the experiment and stated in both reports and on the
+    Design tab ("Excluded N overlapping users" / "Proceeded despite N
+    overlapping users" / "No overlap with other active experiments"), so the
+    decision is still visible months later.
   - `off` — exclude no one; a deliberate overlap risk.
   - `exclude_selected` — exclude participants of only specific tests you pick.
 - **Sample size** — click **Calculate sample size** to see how many users the
@@ -432,8 +482,11 @@ edit flow for it.
   (e.g. gender alone, country alone) and then for combinations
   (gender × country, in a nested "Combined strata" collapse since there can
   be many), the MDE achievable *inside* each stratum at your current
-  proportions, alongside its group sizes and a status: **ok**, **weak**, or
-  **insufficient** (too few users to say anything meaningful). A summary
+  proportions — both relative and, next to it, an **MDE (abs.)** column in the
+  same units the overall MDE table uses (percentage points for conversion
+  metrics, the metric's own units for continuous ones) — alongside its group
+  sizes and a status: **ok**, **weak**, or **insufficient** (too few users to
+  say anything meaningful). A summary
   line at the top calls out specific underpowered combinations by name, e.g.
   "combined segments M×RU, F×KZ are underpowered". This is purely
   informational — it never blocks **Next** — but it's the place to notice
@@ -470,6 +523,17 @@ treatment.csv") so you can hand just the treatment file to whoever runs the
 rollout without control users mixed in, plus **Download Samples (ZIP)** for all
 groups together.
 
+**Downloads never rename or invent columns.** The ID column in every
+downloaded sample keeps the name it had in your dataset — if you designed on
+`client_id`, the CSV header says `client_id`. (ABSet calls it `unit_id`
+internally, and older builds leaked that name into the files; it no longer
+crosses the boundary.) The files carry your ID column plus `group`, and
+nothing else — with one exception: a **stratified** split also carries
+`stratum`, since there it is real information about the design rather than a
+technical leftover. A simple or hash split omits it. The same rule applies to
+the ZIP and to the experiment export archive; the export/import round trip
+preserves the ID column name and your metric names as well.
+
 ### 3. Sample sizes and split checks
 
 The design report always includes:
@@ -492,9 +556,13 @@ The design report always includes:
   **secondary** in the wizard gets its *own* honest MDE here, computed from
   its own baseline and variance at the actual final sample size — not a
   copy of whatever target MDE you typed for the primary metric — and is
-  flagged with a "†" footnote: "Secondary MDE is the minimal detectable
-  effect at the chosen sample size (sample size is driven by primary
-  metrics)." Each row also carries an explicit **primary**/**secondary** tag,
+  explained in a note under the table: for metrics whose role is secondary,
+  the MDE shown is the minimal detectable effect at the chosen sample size —
+  the sample size itself is driven by the primary metrics. (This used to be a
+  bare "†" next to the metric name; the **primary**/**secondary** tag on the
+  row already says the same thing, so the symbol was dropped and its
+  explanation moved onto that tag's tooltip.) Each row also carries an
+  explicit **primary**/**secondary** tag,
   and the table always lists primary metrics first (in the order you added
   them), secondary metrics after — regardless of the order you declared them
   in during design.
@@ -522,6 +590,15 @@ The design report always includes:
 - **Pre-period A/A check** — if you supplied pre-period metric values, ABSet
   runs a quick sanity check that the groups don't already differ before the
   test starts.
+
+**Both reports carry the full design context.** The analysis report used to
+describe only the results; it now opens with the same picture the Design tab
+shows — the **hypothesis** (previously missing entirely), the groups with
+their designed shares and analyzed sizes, every metric with its display name,
+column, type, role and description, the split method and strata, how the
+sample size was targeted, the planned end date, the isolation outcome, and the
+variant flow images if you attached any. So a report handed to someone with no
+access to the app still explains what was tested and how.
 
 ### 4. Analyze
 

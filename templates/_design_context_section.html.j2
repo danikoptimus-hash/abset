@@ -1,0 +1,15 @@
+{# Item C2 — гипотеза в design_report.html.
+
+   Якорные комментарии присутствуют ВСЕГДА, даже когда гипотезы нет: именно по
+   ним abkit/viz/report.py::render_design_context_section находит, что заменять,
+   когда гипотезу впервые заполнили (или изменили) уже после того, как отчет
+   был сохранен. Тот же прием, что у _flow_images_section.html.j2 — см.
+   комментарий у его include в design_report.html.j2. #}
+<!-- design-context-section:start -->
+{% if hypothesis %}
+<section id="section-hypothesis">
+  <h2>Hypothesis</h2>
+  <div class="hypothesis">{{ hypothesis }}</div>
+</section>
+{% endif %}
+<!-- design-context-section:end -->

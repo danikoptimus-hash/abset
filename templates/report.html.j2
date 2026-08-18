@@ -34,6 +34,17 @@
   .report-brand { display: flex; align-items: center; gap: 10px; }
   .report-brand img { height: 32px; width: auto; display: block; }
   .report-brand h1 { margin: 0; }
+  .role-tag { display: inline-block; padding: 1px 7px; border-radius: 8px; font-size: 11px; margin-right: 6px; }
+  .role-tag.primary { background: #e6f4ff; color: #1677ff; }
+  .role-tag.secondary { background: #f0f0f0; color: #595959; }
+  .metric-column { color: #8c8c8c; }
+  .metric-description { color: #595959; }
+  .disclosure { padding: 10px 14px; margin: 12px 0; border-radius: 6px; }
+  .disclosure.ok { background: #F1F8E9; border-left: 5px solid #558B2F; }
+  .disclosure.warn { background: #FFF3E0; border-left: 5px solid #EF6C00; }
+  .hypothesis { background: #f7f7f7; border-radius: 6px; padding: 10px 14px; white-space: pre-wrap; }
+  .flow-groups { display: flex; gap: 16px; flex-wrap: wrap; }
+  .flow-group img { max-width: 220px; height: auto; border-radius: 4px; display: block; margin-bottom: 6px; }
 </style>
 </head>
 <body>
@@ -62,6 +73,85 @@
   </div>
   {% endif %}
 </section>
+
+{# ============================================================================
+   Item C2 — ПОЛНЫЙ дизайн-контекст в отчете анализа: то же, что показывает
+   вкладка Design. До этого отчет анализа не нес ни гипотезы (прямой баг из
+   ТЗ), ни долей групп, ни типов/ролей/описаний метрик, ни списка страт, ни
+   плановой даты окончания — читатель отчета не мог понять, ЧТО именно
+   анализировали, не открывая приложение.
+   ============================================================================ #}
+{% if hypothesis %}
+<section id="section-hypothesis">
+  <h2>Hypothesis</h2>
+  <div class="hypothesis">{{ hypothesis }}</div>
+</section>
+{% endif %}
+
+<section id="section-design-context">
+  <h2>Design</h2>
+
+  <h3>Groups</h3>
+  <table>
+    <tr><th>Group</th><th>Designed share</th><th>Analyzed users</th>{% if config.group_descriptions %}<th>Description</th>{% endif %}</tr>
+    {% for name, prop in config.groups.items() %}
+    <tr>
+      <td>{{ name }}{% if name == control_name %} (control){% endif %}</td>
+      <td>{{ '%.0f%%' % (prop * 100) }}</td>
+      <td>{{ group_sizes.get(name, 0) }}</td>
+      {% if config.group_descriptions %}<td>{{ config.group_descriptions.get(name, '—') }}</td>{% endif %}
+    </tr>
+    {% endfor %}
+  </table>
+
+  <h3>Metrics</h3>
+  <table>
+    <tr><th>Metric</th><th>Type</th><th>Role</th><th>Description</th></tr>
+    {% for m in design_metrics %}
+    <tr>
+      <td>
+        {{ m.label }}
+        {% if m.label != m.name %}<div class="metric-column"><small>column: {{ m.name }}</small></div>{% endif %}
+        {% if m.type == 'ratio' %}<div class="metric-column"><small>{{ m.num }} / {{ m.den }}</small></div>{% endif %}
+        {% if m.pre_col %}<div class="metric-column"><small>pre-period: {{ m.pre_col }}</small></div>{% endif %}
+      </td>
+      <td>{{ m.type }}</td>
+      <td><span class="role-tag {{ m.role }}">{{ m.role }}</span></td>
+      <td>{{ m.description or '—' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  <h3>Split</h3>
+  <p>
+    Method: <strong>{{ config.split_method }}</strong>
+    {% if config.strata %} · stratified by: <strong>{{ config.strata|join(', ') }}</strong>{% else %} · no stratification{% endif %}
+    · significance level (α): <strong>{{ '%.3f' % config.alpha }}</strong>
+    · power: <strong>{{ '%.2f' % config.power }}</strong>
+  </p>
+  <p>{{ sample_size_summary }}</p>
+  {# Item C3: та же формулировка исхода изоляции, что в отчете дизайна и на
+     вкладке Design — решение, принятое ОДИН раз при дизайне, должно читаться
+     из любого отчета навсегда. #}
+  {% if isolation_disclosure %}
+  <div class="disclosure {{ isolation_disclosure.level }}">{{ isolation_disclosure.text }}</div>
+  {% endif %}
+</section>
+
+{% if flow_image_groups %}
+<section id="section-variant-flows">
+  <h2>Variant flows</h2>
+  <div class="flow-groups">
+    {% for group in flow_image_groups %}
+    <div class="flow-group">
+      {% if group.flow_title %}<div><strong>{{ group.flow_title }}</strong></div>{% endif %}
+      <div><small>{{ group.group_name }}</small></div>
+      {% for uri in group.data_uris %}<img src="{{ uri }}" alt="{{ group.group_name }}">{% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
 
 {% if strata_balance %}
 <section id="section-strata-balance">
@@ -138,7 +228,10 @@
 
 {% for section in metric_sections %}
 <div class="metric-block">
+  {# Item A1: заголовок — подпись метрики; техническое имя колонки рядом,
+     мелким серым, только когда оно отличается. #}
   <h2>{{ section.name }}</h2>
+  {% if section.column != section.name %}<p class="metric-column"><small>column: {{ section.column }}</small></p>{% endif %}
   {% if section.description %}<p class="metric-description"><small>{{ section.description }}</small></p>{% endif %}
 
   <section id="section-forest">

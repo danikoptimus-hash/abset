@@ -24,6 +24,12 @@
   .role-tag { display: inline-block; padding: 1px 7px; border-radius: 8px; font-size: 11px; margin-right: 6px; }
   .role-tag.primary { background: #e6f4ff; color: #1677ff; }
   .role-tag.secondary { background: #f0f0f0; color: #595959; }
+  .metric-column { color: #8c8c8c; }
+  .metric-description { color: #595959; }
+  .disclosure { padding: 10px 14px; margin: 12px 0; border-radius: 6px; }
+  .disclosure.ok { background: #F1F8E9; border-left: 5px solid #558B2F; }
+  .disclosure.warn { background: #FFF3E0; border-left: 5px solid #EF6C00; }
+  .hypothesis { background: #f7f7f7; border-radius: 6px; padding: 10px 14px; white-space: pre-wrap; }
 </style>
 </head>
 <body>
@@ -33,18 +39,38 @@
     {% if logo_data_uri %}<img src="{{ logo_data_uri }}" alt="{{ product_name }}">{% endif %}
     <h1>Design: {{ experiment_name }}</h1>
   </div>
-  {% if created_at %}<p>Created {{ created_at }}</p>{% endif %}
+  {% if lifecycle_dates %}
+  <p>{% for label, formatted in lifecycle_dates %}{{ label }} {{ formatted }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+  {% endif %}
   <p>Total candidates: {{ n_candidates_total }} · excluded by isolation: {{ n_excluded_by_isolation }} · available: {{ n_available }}</p>
+  {# Item C3: чем кончилась проверка изоляции — не только числа, но и принятое
+     решение, теми же словами, что и в отчете анализа и на Design tab. #}
+  {% if isolation_disclosure %}
+  <div class="disclosure {{ isolation_disclosure.level }}">{{ isolation_disclosure.text }}</div>
+  {% endif %}
   {% if excluded_by_experiment %}
   <table>
-    <tr><th>Experiment</th><th>Overlap</th></tr>
+    <tr><th>Experiment</th><th>Overlapping users</th></tr>
     {% for name, n in excluded_by_experiment.items() %}
     <tr><td>{{ name }}</td><td>{{ n }}</td></tr>
     {% endfor %}
   </table>
   {% endif %}
   <p>Groups: {% for name, size in group_sizes.items() %}{{ name }} ({{ size }}){% if not loop.last %}, {% endif %}{% endfor %}</p>
+  {# Item A2: метод сплита, который был ПРИМЕНЕН на самом деле, названный явно
+     — а не оставленный читателю на догадки по наличию таблицы страт. #}
+  <p>Split method: <strong>{{ config.split_method }}</strong>{% if config.strata %} · stratified by: <strong>{{ config.strata|join(', ') }}</strong>{% else %} · no stratification{% endif %}</p>
 </section>
+
+{# Item C2 (гипотеза) — отдельным партиалом с якорями ровно по той же причине,
+   что и флоу-картинки ниже: design_report.html пишется ОДИН РАЗ внутри
+   Experiment.design(), а гипотезу визард сохраняет ПОСЛЕ того, как дизайн уже
+   успешно завершился (Step4Review.tsx::saveHypothesis), и редактировать ее
+   можно потом сколько угодно с вкладки эксперимента. Поэтому секция
+   впечатывается в уже сохраненный файл (abkit/viz/report.py::
+   render_design_context_section), а не рендерится тут по значению, которого в
+   момент рендера еще не существует. #}
+{% include "_design_context_section.html.j2" %}
 
 <section id="section-groups">
   <h2>Groups</h2>
@@ -104,9 +130,14 @@
     {% set abs_unit = 'pp' if row.metric_type == 'binary' else '' %}
     {% set abs_scale = 100 if row.metric_type == 'binary' else 1 %}
     <tr>
+      {# Item A1: подпись метрики — display_name, если задано; техническое имя
+         колонки остается рядом, мелким серым, чтобы связь с данными не
+         терялась. Item A5: † убран — роль и так написана словом в role-tag
+         слева, а сноска ниже теперь адресуется к ней, а не к значку. #}
       <td>
         <span class="role-tag {{ row.metric_role }}">{{ row.metric_role }}</span>
-        {{ row.metric }}{% if row.metric_role == 'secondary' %} <sup title="secondary metric — see footnote below">†</sup>{% endif %}
+        {{ row.metric_label }}
+        {% if row.metric_label != row.metric %}<div class="metric-column"><small>column: {{ row.metric }}</small></div>{% endif %}
         {% if row.metric_description %}<div class="metric-description"><small>{{ row.metric_description }}</small></div>{% endif %}
       </td>
       <td>{{ '%.3f%%' % (row.mde_rel*100) if row.mde_rel is not none else '-' }}</td>
@@ -127,14 +158,18 @@
     {% if row.warnings %}
     <tr>
       <td colspan="7">
-        <div class="warnings"><ul>{% for w in row.warnings %}<li>{{ row.metric }}: {{ w }}</li>{% endfor %}</ul></div>
+        <div class="warnings"><ul>{% for w in row.warnings %}<li>{{ row.metric_label }}: {{ w }}</li>{% endfor %}</ul></div>
       </td>
     </tr>
     {% endif %}
     {% endfor %}
   </table>
   {% if power_rows|selectattr('metric_role', 'equalto', 'secondary')|list %}
-  <p><small>† Secondary MDE is the minimal detectable effect at the chosen sample size (sample size is driven by primary metrics).</small></p>
+  {# Item A5: сноска адресуется к бейджу роли, который и так стоит в каждой
+     строке, — но НЕ повторяет его разметку (иначе счетчик бейджей в таблице
+     перестал бы быть счетчиком строк, см.
+     tests/test_viz_report.py::..._primary_metrics_before_secondary). #}
+  <p><small>For metrics whose role is <strong>secondary</strong>, the MDE shown is the minimal detectable effect at the chosen sample size — the sample size itself is driven by the primary metrics.</small></p>
   {% endif %}
   {% if group_sizes %}
   <p><small>Actual group sizes: {% for name, size in group_sizes.items() %}{{ name }} {{ size }}{% if not loop.last %} · {% endif %}{% endfor %}</small></p>

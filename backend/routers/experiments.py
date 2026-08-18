@@ -374,7 +374,16 @@ def get_experiment(name: str, user: CurrentUser = Depends(get_current_user)) -> 
     from abkit.access import is_owner_or_granted
     from abkit.db.repositories import ExperimentTagRepo, FolderRepo
 
+    from abkit.lifecycle import auto_complete_if_due
+
     exp = _visible_or_404(_get_experiment_or_404(name), user)
+    # Item B3 (lazy check): the periodic sweep runs every 10 minutes, so
+    # without this the page could show "running" on a test whose planned end
+    # date has already passed — the one place a stale status is most visible.
+    # Re-read after the transition so THIS response already carries the new
+    # status/completed_at instead of needing a refresh to catch up.
+    if auto_complete_if_due(exp):
+        exp = _visible_or_404(_get_experiment_or_404(name), user)
     owner = UserRepo().get_by_id(exp.owner_id)
     folder = FolderRepo().get_by_id(exp.folder_id) if exp.folder_id else None
     path = _artifact_dir(name)
@@ -405,6 +414,7 @@ def get_experiment(name: str, user: CurrentUser = Depends(get_current_user)) -> 
         config=exp.config, design_summary=exp.design_summary,
         created_at=exp.created_at, started_at=exp.started_at,
         completed_at=exp.completed_at, archived_at=exp.archived_at,
+        planned_end_date=exp.planned_end_date,
         available_reports=available_reports, files=files,
         tags=[_to_tag_out(t) for t in ExperimentTagRepo().list_for_experiment(exp.id)],
         folder_id=str(exp.folder_id) if exp.folder_id else None,
@@ -541,8 +551,70 @@ def _load_group_assignments(exp) -> pd.DataFrame:
     return AssignmentRepo().load(exp.id)
 
 
-def _group_csv_bytes(group_df: pd.DataFrame) -> bytes:
-    return group_df[["unit_id", "group", "stratum"]].to_csv(index=False).encode("utf-8")
+def _hypothesis_text(experiment_id) -> str | None:
+    """Item C2 — текст блока Hypothesis для отчета анализа. Пустой блок (он
+    заводится автоматически при создании эксперимента и чаще всего так и
+    остается пустым) — это None, а не пустая секция в отчете."""
+    block = next(
+        (b for b in BlockRepo().list_for_experiment(experiment_id) if b.kind == "hypothesis"), None
+    )
+    content = (block.content_md or "").strip() if block else ""
+    return content or None
+
+
+def _flow_images_for_report(experiment_id) -> dict[str, list[dict[str, Any]]]:
+    """Item C2 — картинки вариантов для отчета анализа, в той же форме
+    {group_name: [{flow_title, file_path}]}, что уже принимает
+    render_design_report/_build_flow_image_groups (порядок — position,
+    гарантируется репозиторием)."""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for img in FlowImageRepo().list_for_experiment(experiment_id):
+        grouped.setdefault(img.group_name, []).append(
+            {"flow_title": img.flow_title, "file_path": img.file_path}
+        )
+    return grouped
+
+
+def _sample_frame(group_df: pd.DataFrame, exp) -> pd.DataFrame:
+    """Item C1 — граница сериализации: внутреннее каноническое имя колонки
+    (`unit_id`) отображается ОБРАТНО в настоящее имя ID-колонки датасета
+    (`client_id`, `user_id`, ...), взятое из config.unit_col.
+
+    Баг, который это чинит: скачанные control.csv/treatment.csv приезжали с
+    заголовком `unit_id`, которого в исходных данных не было НИКОГДА — то есть
+    выгрузка молча переименовывала пользовательскую колонку. Движок вправе
+    звать ее unit_id у себя внутри (таблица assignments, join'ы), но наружу
+    обязан отдавать то имя, которое пользователь дал сам.
+
+    `stratum` (служебная колонка, склейка значений стратификационных колонок)
+    остается ТОЛЬКО у стратифицированного сплита, где это реальная информация о
+    дизайне; для simple/hash она вырождена ("all") и была бы ровно тем
+    "техническим столбцом, который не должен утекать", про который говорит C1.
+    Порядок колонок фиксирован (id, group[, stratum]) — заголовок выгрузки
+    часть контракта, а не то, что вправе меняться от прихоти groupby.
+
+    unit_col пустой (external-сплит) — единственный случай, когда отдаем
+    `unit_id` как есть: там нет исходного датасета, чье имя можно было бы
+    восстановить, и выдумывать его хуже, чем показать внутреннее.
+    """
+    unit_col = (exp.config or {}).get("unit_col") or "unit_id"
+    columns = ["unit_id", "group"]
+    if _split_is_stratified(exp):
+        columns.append("stratum")
+    return group_df[columns].rename(columns={"unit_id": unit_col})
+
+
+def _split_is_stratified(exp) -> bool:
+    """Была ли стратификация на самом деле — по ФАКТУ (непустые strata), а не
+    только по объявленному split_method: конфиг с method='stratified' и пустым
+    списком страт дает вырожденный stratum, показывать который так же
+    бессмысленно, как при simple-сплите."""
+    config = exp.config or {}
+    return config.get("split_method") == "stratified" and bool(config.get("strata"))
+
+
+def _group_csv_bytes(group_df: pd.DataFrame, exp) -> bytes:
+    return _sample_frame(group_df, exp).to_csv(index=False).encode("utf-8")
 
 
 @router.get("/{name}/samples", response_model=list[SampleInfo])
@@ -552,7 +624,7 @@ def list_samples(name: str, user: CurrentUser = Depends(get_current_user)) -> li
     return [
         SampleInfo(
             filename=f"{group_name}.csv", n_rows=len(group_df),
-            size_kb=round(len(_group_csv_bytes(group_df)) / 1024, 1),
+            size_kb=round(len(_group_csv_bytes(group_df, exp)) / 1024, 1),
         )
         for group_name, group_df in assignments.groupby("group", observed=True)
     ]
@@ -570,7 +642,7 @@ def download_sample(name: str, filename: str, user: CurrentUser = Depends(get_cu
         raise APIError(404, "not_found", f"File '{filename}' not found")
     download_name = build_experiment_download_name(name, _download_dataset_segment(exp), filename)
     return Response(
-        content=_group_csv_bytes(group_df), media_type="text/csv",
+        content=_group_csv_bytes(group_df, exp), media_type="text/csv",
         headers={"Content-Disposition": content_disposition(download_name)},
     )
 
@@ -584,7 +656,7 @@ def download_samples_zip(name: str, user: CurrentUser = Depends(get_current_user
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for group_name, group_df in assignments.groupby("group", observed=True):
-            zf.writestr(f"{group_name}.csv", _group_csv_bytes(group_df))
+            zf.writestr(f"{group_name}.csv", _group_csv_bytes(group_df, exp))
     buffer.seek(0)
     download_name = build_experiment_download_name(name, _download_dataset_segment(exp), "samples.zip")
     return StreamingResponse(
@@ -773,6 +845,7 @@ def get_properties(name: str, user: CurrentUser = Depends(get_current_user)) -> 
         name=exp.name, owner=_to_user_brief(owner) if owner else None,
         owners=owners, editors=editors, visible_roles=exp.visible_roles,
         tags=[_to_tag_out(t) for t in ExperimentTagRepo().list_for_experiment(exp.id)],
+        started_at=exp.started_at, planned_end_date=exp.planned_end_date,
     )
 
 
@@ -787,6 +860,8 @@ def put_properties(
         run_update_experiment_properties(
             user, name, new_name=body.name, owner_ids=body.owner_ids,
             editor_ids=body.editor_ids, visible_roles=body.visible_roles,
+            started_at=body.started_at, planned_end_date=body.planned_end_date,
+            set_lifecycle_dates=body.set_lifecycle_dates,
         )
     except RepoError as e:
         raise APIError(409, "already_exists", str(e)) from e
@@ -1117,6 +1192,7 @@ def start_redesign(
 
     config = body.config
     confirmed = body.confirmed
+    overlap_action = body.overlap_action
     data = read_dataset_file(dataset.storage_path, dtype={config.unit_col: str})
     # Part 2 (removable columns): drop excluded columns (same as design).
     from abkit.dataset_exclusions import apply_column_exclusions
@@ -1131,10 +1207,11 @@ def start_redesign(
         from abkit.jobs import run_redesign
         from backend.routers.design import _check_isolation_overlap
 
-        _check_isolation_overlap(config, data, confirmed)
+        _check_isolation_overlap(config, data, confirmed, overlap_action)
         experiment = run_redesign(
             user, config, data, progress_callback=reporter.stage,
             categorical_columns=categorical_columns,
+            overlap_action=overlap_action,
         )
         exp_row = ExperimentRepo().get_by_name(experiment.name)
         ExperimentDatasetRepo().link(exp_row.id, dataset.id, kind="pre_design")
@@ -1194,6 +1271,13 @@ def start_analyze(
             # above before the job runs) has these; the in-memory
             # `experiment` being analyzed does not.
             created_at=exp.created_at, started_at=exp.started_at, completed_at=exp.completed_at,
+            # Item C2 (full design context in the analysis report): likewise
+            # not reachable from the in-memory Experiment — the hypothesis is
+            # a markdown block, the planned end date a column, the variant
+            # flows their own table. Read here, where the DB is in scope.
+            planned_end_date=exp.planned_end_date,
+            hypothesis=_hypothesis_text(exp.id),
+            flow_images=_flow_images_for_report(exp.id),
         )
         _save_analysis(
             name, results,

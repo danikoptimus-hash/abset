@@ -220,22 +220,43 @@ def load_assignments(path: Path) -> pd.DataFrame:
     return pd.read_parquet(assignments_path)
 
 
-def save_group_samples(path: Path, assignments: pd.DataFrame) -> dict[str, Path]:
+def save_group_samples(
+    path: Path,
+    assignments: pd.DataFrame,
+    unit_col: str | None = None,
+    stratified: bool = False,
+) -> dict[str, Path]:
     """Пишет CSV-выборку по каждой группе в samples/<group>.csv для передачи в
-    продуктовые системы: колонки unit_id, stratum, assigned_at. Разделитель —
-    запятая, кодировка UTF-8 без BOM.
+    продуктовые системы. Разделитель — запятая, кодировка UTF-8 без BOM.
 
     assignments.parquet остается основным рабочим форматом (используется при
     джойне на этапе analyze); CSV в samples/ — дополнительная выгрузка.
+
+    Item C1 (никаких переименований и лишних колонок в пользовательских
+    данных) — файловый двойник backend/routers/experiments.py::_sample_frame,
+    и правила у них ОДНИ И ТЕ ЖЕ, иначе один и тот же эксперимент выгружался бы
+    по-разному в file- и db-режиме:
+    - `unit_id` -> настоящее имя ID-колонки датасета (unit_col); без него
+      (старый вызов/external) остается внутреннее имя, выдумывать нечего;
+    - `group` теперь ЕСТЬ (раньше не было вовсе — файл назывался по группе, но
+      внутри не было ни строчки о том, какая это группа, и склеенные вместе
+      выгрузки становились неразличимы);
+    - `stratum` — только для реально стратифицированного сплита;
+    - `assigned_at` БОЛЬШЕ НЕ ПИШЕТСЯ: служебная отметка времени вставки
+      строки, к передаче в продуктовую систему отношения не имеющая — ровно
+      тот "helper/technical column", который не должен утекать.
     """
     samples_dir = path / "samples"
     samples_dir.mkdir(parents=True, exist_ok=True)
-    columns = ["unit_id", "stratum", "assigned_at"]
+    columns = ["unit_id", "group"] + (["stratum"] if stratified else [])
 
     paths: dict[str, Path] = {}
     for group_name, group_df in assignments.groupby("group", observed=True):
         csv_path = samples_dir / f"{group_name}.csv"
-        group_df[columns].to_csv(csv_path, index=False, encoding="utf-8", lineterminator="\n")
+        frame = group_df[columns]
+        if unit_col:
+            frame = frame.rename(columns={"unit_id": unit_col})
+        frame.to_csv(csv_path, index=False, encoding="utf-8", lineterminator="\n")
         paths[str(group_name)] = csv_path
     return paths
 

@@ -16,6 +16,7 @@ from markupsafe import Markup
 from PIL import Image
 
 from abkit import PRODUCT_NAME, __version__ as abkit_version, checks
+from abkit.config import metric_labels_by_name
 from abkit.viz.help_texts import get_warning, render_help_html
 from abkit.viz.plots import (
     cumulative_lift_plot,
@@ -126,6 +127,34 @@ def render_flow_images_section(design_report_html: str, flow_images: dict[str, l
     return new_html
 
 
+_DESIGN_CONTEXT_SECTION_RE = re.compile(
+    r"<!-- design-context-section:start -->.*?<!-- design-context-section:end -->", re.DOTALL
+)
+
+
+def render_design_context_section(design_report_html: str, hypothesis: str | None) -> str:
+    """Item C2 — впечатывает секцию Hypothesis в УЖЕ СОХРАНЕННЫЙ
+    design_report.html, между якорями templates/_design_context_section.html.j2.
+
+    Зачем сплайс, а не обычный рендер: design_report.html пишется один раз,
+    внутри Experiment.design(), а гипотеза к этому моменту еще не существует —
+    визард сохраняет ее отдельным вызовом ПОСЛЕ успешного дизайна
+    (Step4Review.tsx::saveHypothesis), и потом ее можно править с вкладки
+    эксперимента сколько угодно. Полный ре-рендер тут невозможен по той же
+    причине, что и у флоу-картинок: для него нужен объект DesignReport, живущий
+    только внутри Experiment.design() и не восстановимый через
+    Experiment.load(). Точная копия механики render_flow_images_section().
+
+    Отчет без якорей (сделан до этой фичи) остается нетронутым — вставлять
+    вслепую некуда, и молча дописать секцию в произвольное место хуже, чем не
+    трогать файл.
+    """
+    template = _env.get_template("_design_context_section.html.j2")
+    rendered = template.render(hypothesis=hypothesis)
+    new_html, n = _DESIGN_CONTEXT_SECTION_RE.subn(rendered.strip(), design_report_html)
+    return design_report_html if n == 0 else new_html
+
+
 def _lifecycle_dates(context: dict[str, Any]) -> list[tuple[str, str]]:
     labels = (("created_at", "Created"), ("started_at", "Started"), ("completed_at", "Completed"))
     out = []
@@ -133,8 +162,81 @@ def _lifecycle_dates(context: dict[str, Any]) -> list[tuple[str, str]]:
         formatted = _format_report_date(context.get(key))
         if formatted is not None:
             out.append((label, formatted))
+    # Item B2: плановая дата окончания в шапке ОБОИХ отчетов, рядом с
+    # фактическими датами. Отдельной веткой, а не в labels выше: это date, а не
+    # datetime, и _format_report_date ждет datetime.strftime — у date он тоже
+    # есть, но смысл поля другой (план, а не факт), поэтому и подпись явная.
+    planned_end = context.get("planned_end_date")
+    if planned_end is not None:
+        out.append(("Planned end", _format_report_date(planned_end)))
     return out
+
+
+# Item C3 — одна формулировка исхода изоляции на оба отчета и на Design tab
+# (TS-двойник: frontend/src/pages/experiment/isolationDisclosure.ts). Текст
+# ровно тот, что перечисляет ТЗ: "excluded N overlapping users" / "proceeded
+# despite N overlapping users" / "no overlap".
+def isolation_disclosure(computed: dict[str, Any] | None) -> dict[str, Any] | None:
+    """{"text": str, "level": "ok"|"warn", "by_experiment": {...}} или None,
+    если эксперимент вообще не хранит сведений об изоляции (дизайны до этой
+    фичи, external-сплит) — тогда секции просто нет, вместо того чтобы
+    утверждать "пересечения не было", чего мы не знаем."""
+    if not computed:
+        return None
+    decision_raw = computed.get("isolation_decision")
+    if not decision_raw:
+        # Дизайн до item C3: решения не записывали, но САМИ ЧИСЛА (сколько
+        # исключено, по каким экспериментам) в computed были всегда — из них
+        # исход восстанавливается однозначно, и старые отчеты тоже получают
+        # честную строку вместо пустоты.
+        by_experiment = computed.get("excluded_by_experiment") or {}
+        n_excluded = computed.get("n_excluded_by_isolation") or 0
+        if not by_experiment:
+            return None
+        decision_raw = {
+            "decision": "excluded" if n_excluded else "proceeded",
+            "n_overlap": int(n_excluded or sum(by_experiment.values())),
+            "by_experiment": by_experiment,
+        }
+    decision = decision_raw.get("decision")
+    n = int(decision_raw.get("n_overlap") or 0)
+    by_experiment = decision_raw.get("by_experiment") or {}
+    if decision == "excluded":
+        text = f"Excluded {n} overlapping users from other active experiments."
+        level = "ok"
+    elif decision == "proceeded":
+        text = (
+            f"Proceeded despite {n} overlapping users also enrolled in other active "
+            "experiments — their exposure to more than one test may confound the results."
+        )
+        level = "warn"
+    else:
+        text = "No overlap with other active experiments."
+        level = "ok"
+    return {"text": text, "level": level, "by_experiment": by_experiment, "decision": decision}
 _env.globals["chart_warning"] = get_warning
+
+
+def format_stratum_mde_abs(row: dict[str, Any]) -> str:
+    """Item C4 — абсолютный MDE одной строки strata power в тех же единицах и с
+    той же точностью, что и общая таблица MDE (Design tab's formatAbs /
+    design_report's power table): binary — в процентных пунктах ("1.234 pp",
+    потому что baseline сам по себе доля и сырые единицы дали бы 0.0123),
+    continuous — в единицах метрики.
+
+    Прочерк, а не пустота, когда: строка сохранена до item C4 (ключа нет),
+    страта слишком мала (mde_abs не считался) или тип метрики неизвестен —
+    "—" честно читается как "нечего показать", в отличие от "0.000".
+    """
+    value = row.get("mde_abs")
+    if value is None:
+        return "—"
+    if row.get("metric_type") == "binary":
+        return f"{value * 100:.3f} pp"
+    return f"{value:.3f}"
+
+
+_env.globals["stratum_mde_abs"] = format_stratum_mde_abs
 
 
 @functools.lru_cache(maxsize=1)
@@ -172,6 +274,28 @@ DETAILED_COLUMN_TOOLTIPS: dict[str, str] = {
 }
 
 
+def _sample_size_summary(config: Any) -> str:
+    """Item C2 — как задавался размер выборки, одной фразой (тот же смысл, что
+    formatSizeMode на Design tab), плюс сколько кандидатов реально осталось.
+    Отдельная функция, а не логика в шаблоне: три взаимоисключающих режима с
+    условиями — ровно то, что в jinja читается хуже всего."""
+    computed = getattr(config, "computed", None) or {}
+    if config.mde_abs_input is not None:
+        target = f"Target absolute MDE {config.mde_abs_input:g}"
+        if config.mde_source_metric:
+            target += f" (on {config.mde_source_metric})"
+    elif config.mde is not None:
+        target = f"Target relative MDE {config.mde * 100:.1f}%"
+    elif config.sample_size is not None:
+        target = f"Target sample size {config.sample_size}"
+    else:
+        target = "All available data"
+    available = computed.get("n_available")
+    if available is not None:
+        return f"{target} · candidates available after isolation: {available}"
+    return target
+
+
 def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
     """Строит report.html: 8 секций из DESIGN.md (раздел 8)."""
     config = context["config"]
@@ -185,6 +309,15 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
     daily_results: dict = context.get("daily_results", {})
 
     metrics_by_name = {m.name: m for m in config.metrics}
+    # Item A1 — подпись метрики для ВСЕГО, что видит читатель отчета:
+    # заголовки секций, подписи графиков (forest/distribution/segment/daily),
+    # таблица результатов. Ключ (metric_name) при этом везде остается
+    # техническим именем — по нему ходят results[...] и metrics_by_name.
+    labels = metric_labels_by_name(config.metrics)
+
+    def label_of(metric_name: str) -> str:
+        return labels.get(metric_name, metric_name)
+
     first_fig = True
     metric_sections = []
 
@@ -192,9 +325,11 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
         metric_results = results[metric_name]
         metric_config = metrics_by_name.get(metric_name)
         role = metric_config.role if metric_config else "primary"
+        metric_label_text = label_of(metric_name)
 
         forest_html = fig_to_html_div(
-            forest_plot(metric_results, title=f"{metric_name}: forest plot"), include_js=first_fig
+            forest_plot(metric_results, title=f"{metric_label_text}: forest plot"),
+            include_js=first_fig,
         )
         first_fig = False
 
@@ -210,7 +345,7 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
             fig = distribution_plot(
                 control_series,
                 treat_series,
-                metric_name=metric_name,
+                metric_name=metric_label_text,
                 metric_type=metric_type,
                 control_name=control_name,
                 treat_name=treat_name,
@@ -250,7 +385,8 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
                 # collapse threshold — same rule as the balance/power tables.
                 n_segments = max(n_segments, len(seg_list))
                 fig = segment_forest_plot(
-                    seg_list, title=f"{metric_name} by {dim_label}: {control_name} vs {treat_name}"
+                    seg_list,
+                    title=f"{metric_label_text} by {dim_label}: {control_name} vs {treat_name}",
                 )
                 dim_htmls.append((treat_name, fig_to_html_div(fig)))
             if dim_htmls:
@@ -263,7 +399,8 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
             if daily_df is None or daily_df.empty:
                 continue
             fig = cumulative_lift_plot(
-                daily_df, title=f"{metric_name}: cumulative lift {control_name} vs {treat_name}"
+                daily_df,
+                title=f"{metric_label_text}: cumulative lift {control_name} vs {treat_name}",
             )
             daily_htmls.append((treat_name, fig_to_html_div(fig)))
 
@@ -275,7 +412,12 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
 
         metric_sections.append(
             dict(
-                name=metric_name,
+                name=metric_label_text,
+                # Техническое имя колонки — рядом, мелким серым (item A1:
+                # "column name stays visible secondarily where it matters
+                # technically"); шаблон показывает его, только если оно
+                # отличается от подписи.
+                column=metric_name,
                 role=role,
                 type=metric_config.type if metric_config else "continuous",
                 description=metric_config.description if metric_config else None,
@@ -289,7 +431,9 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
             )
         )
 
-    detailed_rows = results.detailed_display_rows(control_name, alpha=config.alpha)
+    detailed_rows = results.detailed_display_rows(
+        control_name, alpha=config.alpha, metric_labels=labels
+    )
     detailed_columns = list(detailed_rows[0].keys()) if detailed_rows else []
     # detailed_display_rows() no longer carries a "Designed" column (UX
     # package, 5.1) — the designed-method row is still bolded, using the
@@ -302,6 +446,20 @@ def render_analysis_report(results: Any, context: dict[str, Any]) -> str:
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         lifecycle_dates=_lifecycle_dates(context),
         config=config,
+        # Item C2 — полный дизайн-контекст (см. секцию section-design-context
+        # в templates/report.html.j2).
+        hypothesis=context.get("hypothesis"),
+        design_metrics=[
+            {
+                "name": m.name, "label": labels.get(m.name, m.name), "type": m.type,
+                "role": m.role, "description": m.description,
+                "pre_col": m.pre_col, "num": m.num, "den": m.den,
+            }
+            for m in config.metrics
+        ],
+        sample_size_summary=_sample_size_summary(config),
+        isolation_disclosure=isolation_disclosure(getattr(config, "computed", None)),
+        flow_image_groups=_build_flow_image_groups(context.get("flow_images")),
         control_name=control_name,
         group_sizes=context["group_sizes"],
         srm=context["srm"],
@@ -381,6 +539,8 @@ def render_design_report(
     experiment: Any,
     created_at: datetime | None = None,
     flow_images: dict[str, list[dict[str, Any]]] | None = None,
+    planned_end_date: Any = None,
+    hypothesis: str | None = None,
 ) -> str:
     """Строит design_report.html: упрощенный вариант (доступность, MDE, баланс, SRM, pre-A/A).
 
@@ -401,9 +561,13 @@ def render_design_report(
     report = experiment.report
 
     metric_descriptions = {m.name: m.description for m in experiment.config.metrics}
+    # Item A1 — подпись метрики (display_name, иначе имя колонки); колонка
+    # остается видна отдельным полем `metric`.
+    metric_display = metric_labels_by_name(experiment.config.metrics)
     power_rows = [
         dict(
             metric=name,
+            metric_label=metric_display.get(name, name),
             mde_rel=pr.mde_rel,
             mde_rel_cuped=pr.mde_rel_cuped,
             mde_abs=pr.mde_abs,
@@ -433,6 +597,21 @@ def render_design_report(
     return template.render(
         experiment_name=config.name,
         created_at=_format_report_date(created_at),
+        # Items B2/C2 — та же строка дат, что и в отчете анализа (одна функция
+        # на оба, чтобы форматы не разъехались): здесь из фактических дат есть
+        # только Created (дизайн всегда в статусе designed), плюс плановая дата
+        # окончания, если объявлена.
+        lifecycle_dates=_lifecycle_dates(
+            {"created_at": created_at, "planned_end_date": planned_end_date}
+        ),
+        hypothesis=hypothesis,
+        isolation_disclosure=isolation_disclosure(
+            {
+                "isolation_decision": report.isolation_decision,
+                "excluded_by_experiment": report.excluded_by_experiment,
+                "n_excluded_by_isolation": report.n_excluded_by_isolation,
+            }
+        ),
         flow_image_groups=_build_flow_image_groups(flow_images),
         config=config,
         n_candidates_total=report.n_candidates_total,

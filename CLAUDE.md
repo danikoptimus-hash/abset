@@ -503,6 +503,135 @@ Drag&drop строки на папку (п.5.3.в опционально) — Н
 
 Тесты: `backend/tests/test_folders.py` (create/list-with-counts/rename/delete permissions/move single+bulk/filter composition), `tests/test_audit_log.py`-стиль для audit-деталей покрыт внутри `test_folders.py` через прямые ассерты `AuditRepo`. E2E: `frontend/e2e/folders.spec.ts` (создание папки → move по одной строке → фильтр по клику → bulk-move второго теста → delete папки → оба теста пережили удаление, вернулись в Uncategorized; отдельный тест — viewer не видит "New folder", All tests/Uncategorized видны всем).
 
+## Пакет design & reporting fixes (A1-A5 / B1-B3 / C1-C4)
+
+**A1. Подпись метрики отдельно от колонки.** `MetricConfig.display_name`
+(аддитивно, nullable) — ЧИСТО отображаемое имя; `MetricConfig.name` остается и
+именем колонки данных, и КЛЮЧОМ везде (`results._by_metric`,
+`config.computed["power"]`, строки strata_power, `detailed_rows`). Единое
+правило выбора — `abkit/config.py::metric_label()` (пустая строка = «не
+задано», трактуется как None: форма визарда отдает именно `""`), TS-двойник —
+`frontend/src/lib/metricLabel.ts` (синхронизируется вручную, как
+`branding.ts`). Уникальность display_name НЕ требуется (в отличие от name).
+Техническое имя остается видно вторично («column: txn_sum») там, где важна
+связь с данными: Design tab, обе таблицы MDE, заголовок секции метрики в
+report.html, тултип пикера методов на Analyze.
+
+**A2. Дефолт сплита — `simple` + авто-переключение.** Изменен ТОЛЬКО дефолт
+визарда (`DesignWizard.tsx::INITIAL_STATE`); pydantic-дефолт
+`DesignConfig.split_method` осознанно оставлен `stratified` — он управляет
+API/CLI-вызовами, опускающими поле, а визард всегда шлет его явно (решение
+пользователя, не забытый пункт). Само переключение — чистая
+`splitMethodForStrataChange(currentMethod, previousStrata, nextStrata)` в
+`design-wizard/types.ts`: первая страта → `stratified`, снятие последней →
+`simple`, `hash` не трогается никогда (ортогональный выбор), ручной override
+при неизменившихся стратах сохраняется (иначе это был бы не «переключатель», а
+блокировка).
+
+**A3/C3. Второе действие на пересечении + фиксация решения.**
+`Experiment.design(overlap_action=...)`: `"exclude"` подменяет РЕЖИМ вызова
+`apply_isolation` (`warn` → `exclude`), а НЕ правит `config.isolation` —
+сохраненный конфиг обязан честно показывать, что пользователь настроил `warn`.
+Принятое по факту решение живет отдельно, в
+`computed["isolation_decision"]` = `{decision: none|excluded|proceeded,
+n_overlap, by_experiment, checked, mode}` (`_build_isolation_decision`).
+Тонкость: у `proceeded` исключено НОЛЬ, но отчету нужен размер пересечения —
+поэтому `n_overlap` считается по-разному для двух веток. Формулировка одна на
+оба отчета и Design tab: `abkit/viz/report.py::isolation_disclosure` +
+TS-двойник `pages/experiment/isolationDisclosure.ts`; обе умеют восстанавливать
+исход для дизайнов ДО этой фичи (решения не писали, но числа хранили всегда).
+Осознанно НЕ блокируем дизайн, если после исключения пул меньше требуемого
+размера выборки (ТЗ: «MDE table will honestly reflect the smaller pool»); пул
+РОВНО НОЛЬ по-прежнему падает с «No candidates left after isolation» — это
+другой, вырожденный случай, и существующая проверка верна.
+
+**A4. Один масштаб вертикального ритма.**
+`design-wizard/spacing.ts` — четыре шага, выбираемых ПО РОЛИ, не по величине:
+`HINT`(4, подпись под своим контролом) / `FIELD`(8, два контрола одного блока)
+/ `BLOCK`(16, блок к блоку) / `SECTION`(24, секция к секции), плюс хелперы
+`mb()`/`mt()`. Заменил накопленные magic numbers (4/8/10/12/16/24, выбранные
+независимо в каждом блоке) в: `DesignWizard.tsx`, `Step1Data`,
+`Step2GroupsMetrics`, `Step3Parameters`, `Step4Review`, `SampleSizeSection`,
+`FlowImagesSection`, `experiment/AnalyzeSection.tsx`. `marginBottom: 0`
+(«намеренно без отступа», последний абзац блока) оставлен как есть.
+
+**A5. Кинжал (†) убран.** Разбор: это был НЕ артефакт кодировки, а маркер
+сноски для secondary-метрик (`DesignSection.tsx` + `design_report.html.j2`).
+Убран, смысл перенесен на уже существующий бейдж роли (тултип на самом бейдже
++ текстовая сноска под таблицей). Ловушка при правке: сноска НЕ должна
+повторять разметку `<span class="role-tag secondary">` — иначе счетчик бейджей
+в `tests/test_viz_report.py` перестает быть счетчиком строк таблицы.
+
+**B1/B2/B3. Даты жизненного цикла.** `experiments.planned_end_date` (миграция
+0023) — КОЛОНКА, а не ключ в `config` JSONB: она редактируема после дизайна
+(копия внутри конфига устарела бы на первой же правке) и по ней ходит sweep
+(JSONB-проба была бы и медленнее, и неиндексируемой). Тип `DATE`, не
+timestamptz: пользователь называет день, а не момент. Трактовка — «по этот
+день ВКЛЮЧИТЕЛЬНО»: `abkit/lifecycle.py::auto_completion_cutoff` = вчерашняя
+дата UTC, иначе авто-завершение в 00:00 отрезало бы целый день сбора данных.
+В визард приезжает НЕ через `DesignConfig`, а сиблингом (`DesignRequest.
+planned_end_date`, как `dataset_id`). Гарантия «ровно один раз» — сам гейт
+`status == 'running'` в `list_due_for_auto_completion`, отдельного флага «уже
+авто-завершен» НЕТ намеренно: ручной возврат в running должен снова включать
+авто-завершение. Два входа с общей логикой: тик в существующем
+`MonitoringCollector` (раз в 10 мин; `_last_auto_complete_at` стартует с 0.0,
+чтобы первый тик догнал пропущенное за простой — в отличие от
+retention/bloat) и ленивая проверка в `GET /experiments/{name}`. Запись в
+`audit_log` — `experiment.auto_completed` БЕЗ user_id/user_email (это система;
+служебного юзера ради этого не заводим), History рисует такие строки как
+"system". `run_update_experiment_properties(set_lifecycle_dates=...)` — флаг, а
+не «None значит не трогать»: None здесь ЗНАЧАЩЕЕ («плановой даты нет», и
+авто-завершение выключено), очистить дату иначе было бы нечем.
+
+**C1. Никаких переименований/лишних колонок в пользовательских данных.**
+Корень бага: `_group_csv_bytes` отдавал `["unit_id","group","stratum"]`
+дословно. Граница сериализации — `backend/routers/experiments.py::
+_sample_frame` (db-режим) и `abkit/storage.py::save_group_samples` (файловый
+режим), правила у них ОДНИ И ТЕ ЖЕ: `unit_id` → `config.unit_col`, `group`
+есть всегда, `stratum` — только при реально стратифицированном сплите
+(`split_method == "stratified"` И непустые `strata`), `assigned_at` не
+пишется вовсе (в файловом режиме утекал). `unit_col` пустой (external) —
+единственный случай, когда остается внутреннее имя: восстанавливать нечего.
+`assignments.parquet` внутри экспортного архива СОЗНАТЕЛЬНО остается на
+`unit_id` — это сериализация ТАБЛИЦЫ `assignments` (её колонка действительно
+так называется), а не датасета, и импорт кладет её обратно в ту же таблицу;
+переименования там нет по построению.
+
+**C2. Полный дизайн-контекст в обоих отчетах.** В `report.html` не было
+гипотезы вовсе (прямой баг). Всё, что уже лежит в `config` (группы с долями,
+метрики, метод, страты, размер выборки, изоляция), отчет берет оттуда сам;
+три вещи в config'е отсутствуют по построению и приезжают параметрами
+`analyze()`: `hypothesis` (markdown-блок), `planned_end_date` (колонка),
+`flow_images` (своя таблица) — ядро в БД не ходит, читает их роутер.
+`design_report.html` пишется ОДИН РАЗ внутри `Experiment.design()`, ДО того как
+визард сохранит гипотезу — поэтому секция гипотезы ВПЕЧАТЫВАЕТСЯ в уже
+сохраненный файл (`templates/_design_context_section.html.j2` + якоря +
+`render_design_context_section`, вызывается из
+`run_update_experiment_blocks` при изменении блока `hypothesis`). Точная копия
+механики флоу-картинок и по той же причине: полный ре-рендер требует объекта
+`DesignReport`, не восстановимого после факта.
+
+**C4. Абсолютный MDE по стратам.** `StratumPowerRow` получил
+`metric_type`/`baseline_mean`/`mde_abs`/`mde_abs_cuped` — все с дефолтами,
+т.к. строки, сохраненные в `config.computed` ДО этого пункта, их не несут
+(в таблице тогда прочерк, не поломка). Считать заново ничего не пришлось:
+`power.mde_binary`/`mde_continuous` и так возвращают абсолютную величину, из
+неё же получался относительный делением на baseline — раньше её просто
+выбрасывали. Форматирование — то же, что у общей таблицы MDE (binary → п.п.,
+continuous → единицы метрики): `format_stratum_mde_abs` (jinja-глобал
+`stratum_mde_abs`) и его TS-двойники в `StrataPowerTable.tsx` /
+`StrataPowerSection.tsx` (превью визарда и Design tab читаются одним
+компонентом — расхождение полей дало бы пустую колонку в одном из мест).
+
+Тесты: `tests/test_design_reporting_core.py` (чистая логика — подписи,
+формулировки изоляции, форматирование abs MDE, границы авто-завершения),
+`backend/tests/test_design_reporting_package.py` (против реальной БД —
+выгрузки, права, авто-завершение, Edit Properties, полнота отчетов),
+`frontend/src/lib/metricLabel.test.ts`,
+`frontend/src/pages/design-wizard/splitMethod.test.ts`,
+`frontend/src/pages/experiment/isolationDisclosure.test.ts`. E2E —
+`frontend/e2e/design-reporting.spec.ts`.
+
 ## Варианты флоу-картинки (Stage 4)
 
 Опциональные скриншоты «что видит/делает вариант» по группам — чисто для отображения (Design tab, `design_report.html`), на сплит/анализ не влияют. Редактируются ТОЛЬКО через Redesign (тот же визард, что и Groups/Metrics) — отдельного edit-флоу нет.

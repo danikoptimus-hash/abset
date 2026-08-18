@@ -89,6 +89,14 @@ def test_design_without_progress_callback_still_works(tmp_path):
 
 
 def test_design_writes_per_group_csv_samples(tmp_path):
+    """Item C1 — выгрузка не переименовывает колонки и не тащит служебные.
+
+    Раньше здесь ожидалось ["unit_id", "stratum", "assigned_at"], то есть
+    ровно тот баг, который C1 чинит: `unit_id` — внутреннее имя движка,
+    которого в исходных данных не было (там `user_id`), а `assigned_at` —
+    служебная отметка времени вставки строки. Теперь: настоящее имя
+    ID-колонки + group, плюс stratum (этот конфиг стратифицированный).
+    """
     data = make_synthetic_data(n=5_000)
     config = make_config()
     experiment = Experiment.design(config, data, experiments_dir=tmp_path)
@@ -102,22 +110,36 @@ def test_design_writes_per_group_csv_samples(tmp_path):
     control_df = pd.read_csv(control_csv)
     treatment_df = pd.read_csv(treatment_csv)
 
-    assert list(control_df.columns) == ["unit_id", "stratum", "assigned_at"]
-    assert list(treatment_df.columns) == ["unit_id", "stratum", "assigned_at"]
+    assert list(control_df.columns) == ["user_id", "group", "stratum"]
+    assert list(treatment_df.columns) == ["user_id", "group", "stratum"]
+    assert "unit_id" not in control_df.columns
+    assert "assigned_at" not in control_df.columns
 
     group_sizes = experiment.assignments["group"].value_counts()
     assert len(control_df) == group_sizes["control"]
     assert len(treatment_df) == group_sizes["treatment"]
+    assert set(control_df["group"]) == {"control"}
 
     # CSV без BOM, разделитель - запятая
     raw = control_csv.read_bytes()
     assert not raw.startswith(b"\xef\xbb\xbf")
-    assert raw.split(b"\n", 1)[0] == b"unit_id,stratum,assigned_at"
+    assert raw.split(b"\n", 1)[0] == b"user_id,group,stratum"
 
-    # объединение всех CSV по unit_id совпадает с assignments.parquet
-    combined_ids = set(control_df["unit_id"]) | set(treatment_df["unit_id"])
-    assert combined_ids == set(experiment.assignments["unit_id"])
+    # объединение всех CSV по ID совпадает с assignments.parquet
+    combined_ids = set(control_df["user_id"].astype(str)) | set(treatment_df["user_id"].astype(str))
+    assert combined_ids == set(experiment.assignments["unit_id"].astype(str))
     assert len(control_df) + len(treatment_df) == len(experiment.assignments)
+
+
+def test_design_samples_omit_stratum_for_simple_split(tmp_path):
+    """Item C1 — у нестратифицированного сплита stratum вырожден ("all") и
+    считается техническим столбцом: в выгрузке его быть не должно."""
+    data = make_synthetic_data(n=1_000)
+    config = make_config(split_method="simple", strata=[])
+    experiment = Experiment.design(config, data, experiments_dir=tmp_path)
+
+    control_df = pd.read_csv(experiment.path / "samples" / "control.csv")
+    assert list(control_df.columns) == ["user_id", "group"]
 
 
 def test_design_group_sizes_close_to_expected(tmp_path):
