@@ -1,3 +1,5 @@
+import { metricLabel } from '../../lib/metricLabel'
+
 // Форма Experiment.config["computed"] (abkit/experiment.py::Experiment.design)
 // — структурированная сводка дизайна, сохраненная в JSONB config вместе с
 // остальным DesignConfig. Не пересчитывается на фронте, только рендерится.
@@ -57,6 +59,14 @@ export interface StrataPowerRow {
   mde_rel: number | null
   mde_rel_cuped: number | null
   status: 'ok' | 'weak' | 'insufficient'
+  // Item C4 — absolute MDE alongside the relative one, plus what's needed to
+  // label it (percentage points vs metric units). All optional: rows persisted
+  // in config.computed before item C4 simply don't carry them, and an older
+  // design must keep rendering (with "—" in the new column) rather than break.
+  metric_type?: string | null
+  baseline_mean?: number | null
+  mde_abs?: number | null
+  mde_abs_cuped?: number | null
 }
 
 export interface ComputedDesignSummary {
@@ -108,6 +118,9 @@ export function hypothesisFamily(config: Record<string, unknown>): HypothesisFam
 // whether a pre-period column is set, per metric.
 export interface AnalyzeMetric {
   name: string
+  // Item A1 — what to show. `name` remains the key every analysis result is
+  // stored under, so lookups keep using it; only rendering uses this.
+  label: string
   type: 'continuous' | 'binary' | 'ratio'
   hasPreCol: boolean
   // Optional free-text description — shown in an info popover next to the
@@ -119,9 +132,23 @@ export function analyzeMetricsFromConfig(config: Record<string, unknown>): Analy
   const metrics =
     (config.metrics as {
       name: string
+      display_name?: string | null
       type: 'continuous' | 'binary' | 'ratio'
       pre_col?: string | null
       description?: string | null
     }[] | undefined) ?? []
-  return metrics.map((m) => ({ name: m.name, type: m.type, hasPreCol: !!m.pre_col, description: m.description }))
+  return metrics.map((m) => ({
+    name: m.name,
+    label: metricLabel(m),
+    type: m.type,
+    hasPreCol: !!m.pre_col,
+    description: m.description,
+  }))
+}
+
+/** Item A1 — {technical name -> label} for result rows keyed by metric name. */
+export function analyzeMetricLabels(metrics: AnalyzeMetric[]): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const m of metrics) out[m.name] = m.label
+  return out
 }

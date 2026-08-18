@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Steps, Button, Space, Input, Select, Alert, Spin, Tooltip, Typography } from 'antd'
+import { Steps, Button, Space, Input, Select, Alert, Spin, Tooltip, Typography, DatePicker } from 'antd'
+import dayjs from 'dayjs'
 import { apiClient, errorMessage } from '../api/client'
 import { useUnsavedGuard } from '../hooks/useUnsavedGuard'
 import { Step1Data } from './design-wizard/Step1Data'
 import { Step2GroupsMetrics } from './design-wizard/Step2GroupsMetrics'
 import { Step3Parameters } from './design-wizard/Step3Parameters'
 import { Step4Review } from './design-wizard/Step4Review'
+import { mb, mt } from './design-wizard/spacing'
 import {
   nextId, groupsSum, wizardStateFromConfig,
   blockingStale, aggregateShortfall, anyGroupBelowRequired,
@@ -30,7 +32,7 @@ const INITIAL_STATE: WizardState = {
   ],
   flowColumns: [],
   originalFlowGroupNames: [],
-  metrics: [{ id: nextId('metric'), name: '', type: 'continuous', role: 'primary', description: '', preCol: null, num: null, den: null }],
+  metrics: [{ id: nextId('metric'), name: '', displayName: '', type: 'continuous', role: 'primary', description: '', preCol: null, num: null, den: null }],
   strata: [],
   nanStrategy: 'separate_stratum',
   sizeMode: 'all',
@@ -40,9 +42,20 @@ const INITIAL_STATE: WizardState = {
   mdeAbsMetricId: null,
   mdeAbsValue: 0,
   sampleSize: 1000,
-  splitMethod: 'stratified',
+  // Item A2: "simple" is the default — the wizard starts with no strata
+  // selected, and "stratified" with an empty strata list is just a simple
+  // split under a misleading name. Selecting strata auto-switches this to
+  // "stratified" (splitMethodForStrataChange in design-wizard/types.ts);
+  // clearing them switches it back. The backend's own DesignConfig default
+  // is deliberately left at "stratified" — it governs API/CLI callers that
+  // omit the field, and the wizard always sends it explicitly.
+  splitMethod: 'simple',
   isolation: 'exclude',
   isolationSelected: [],
+  // Item B2: optional planned end date (a calendar day, ISO yyyy-mm-dd, or
+  // null for "none"). Not part of DesignConfig — it is submitted alongside
+  // it and stored on the experiment row, see backend/schemas/design.py.
+  plannedEndDate: null,
   sampleSizeResult: null,
   acceptedGroupShortfall: false,
 }
@@ -257,8 +270,8 @@ export function DesignWizardPage() {
       )}
 
       {current === 1 && (
-        <div style={{ marginBottom: 24, maxWidth: 600 }}>
-          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>
+        <div style={{ ...mb('SECTION'), maxWidth: 600 }}>
+          <Typography.Text type="secondary" style={{ display: 'block', ...mb('HINT'), fontSize: 13 }}>
             Hypothesis (optional)
           </Typography.Text>
           <Input.TextArea
@@ -267,10 +280,33 @@ export function DesignWizardPage() {
             rows={3}
             aria-label="Hypothesis"
           />
-          <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+          <Typography.Text type="secondary" style={{ display: 'block', ...mt('HINT'), fontSize: 12 }}>
             A well-formed hypothesis: If we change X, it will affect Y, which we will observe as a change in
             metric Z.
           </Typography.Text>
+
+          {/* Item B2: planned end date, declared here at design time and
+              editable afterwards from Edit Properties. Not offered for a
+              redesign — that flow replaces the split of an existing
+              experiment, whose dates are already set and edited elsewhere. */}
+          {!redesignName && (
+            <div style={mt('BLOCK')}>
+              <Typography.Text type="secondary" style={{ display: 'block', ...mb('HINT'), fontSize: 13 }}>
+                Planned end date (optional)
+              </Typography.Text>
+              <DatePicker
+                aria-label="Planned end date"
+                style={{ width: 260 }}
+                value={state.plannedEndDate ? dayjs(state.plannedEndDate) : null}
+                onChange={(d) =>
+                  setState((prev) => ({ ...prev, plannedEndDate: d ? d.format('YYYY-MM-DD') : null }))
+                }
+              />
+              <Typography.Text type="secondary" style={{ display: 'block', ...mt('HINT'), fontSize: 12 }}>
+                A running test is completed automatically once this day has passed. Editable later.
+              </Typography.Text>
+            </div>
+          )}
         </div>
       )}
 

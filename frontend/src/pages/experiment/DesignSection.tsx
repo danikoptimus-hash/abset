@@ -7,6 +7,8 @@ import { RelativeTime } from '../../components/RelativeTime'
 import { StrataBalanceTable } from '../../components/analysis/StrataBalanceTable'
 import { StrataPowerTable } from '../../components/analysis/StrataPowerTable'
 import { getComputed } from './types'
+import { labelForMetricName, metricLabel, metricLabelsByName, showsColumnSeparately } from '../../lib/metricLabel'
+import { isolationDisclosure } from './isolationDisclosure'
 import type { ComputedDesignSummary } from './types'
 
 interface Props {
@@ -17,6 +19,8 @@ interface Props {
 
 interface RawMetric {
   name: string
+  // Item A1 — optional display name; `name` stays the data column / key.
+  display_name?: string | null
   type: string
   role: string
   description?: string | null
@@ -64,11 +68,18 @@ function GroupsDisplay({ config }: { config: Record<string, unknown> }) {
   )
 }
 
+// Item A1: the metric reads by its display name; the technical column is
+// still shown, but demoted to the small grey line below (metricColumnHint).
 function formatMetric(m: RawMetric): string {
+  const label = metricLabel(m)
   if (m.type === 'ratio') {
-    return `${m.name} — ${m.type}, ${m.role}, ${m.num ?? '?'}/${m.den ?? '?'}`
+    return `${label} — ${m.type}, ${m.role}, ${m.num ?? '?'}/${m.den ?? '?'}`
   }
-  return `${m.name} — ${m.type}, ${m.role}${m.pre_col ? `, pre-period: ${m.pre_col}` : ''}`
+  return `${label} — ${m.type}, ${m.role}${m.pre_col ? `, pre-period: ${m.pre_col}` : ''}`
+}
+
+function metricColumnHint(m: RawMetric): string | null {
+  return showsColumnSeparately(m) ? `column: ${m.name}` : null
 }
 
 function formatSizeMode(config: Record<string, unknown>): string {
@@ -129,6 +140,13 @@ function ConfigSummary({ config, computed }: { config: Record<string, unknown>; 
               ? metrics.map((m, i) => (
                   <div key={i}>
                     <div>{formatMetric(m)}</div>
+                    {metricColumnHint(m) && (
+                      <div>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          {metricColumnHint(m)}
+                        </Typography.Text>
+                      </div>
+                    )}
                     {m.description && (
                       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                         {m.description}
@@ -271,11 +289,15 @@ function formatRequiredN(value: number | null): string {
   return value == null ? '—' : Math.ceil(value).toLocaleString('en-US')
 }
 
-function mdeTable(computed: ComputedDesignSummary) {
+function mdeTable(computed: ComputedDesignSummary, metricLabels: Record<string, string>) {
   const rows = Object.entries(computed.power)
     .map(([metricName, p]) => ({
       key: metricName,
-      metric: metricName,
+      // Item A1: `metric` is what's SHOWN (display name, else the column);
+      // `metricColumn` is the technical name, rendered small underneath when
+      // the two differ. The object key stays the technical name either way.
+      metric: labelForMetricName(metricName, metricLabels),
+      metricColumn: metricName,
       metricType: p.metric_type,
       metricRole: p.metric_role,
       baseline: p.baseline_mean,
@@ -300,23 +322,37 @@ function mdeTable(computed: ComputedDesignSummary) {
     {
       title: 'Metric',
       dataIndex: 'metric',
+      // Item A5: the "†" is gone. It was a footnote marker for secondary
+      // metrics — but the role badge sitting immediately to its left already
+      // says "secondary", so the symbol added a second, more cryptic encoding
+      // of the same fact (and rendered as a bare dagger with no visible
+      // footnote in some contexts). The explanation now hangs off that badge's
+      // tooltip instead. Item A1: the row reads by display name, with the
+      // column underneath when they differ.
       render: (v: string, record: (typeof rows)[number]) => (
-        <Space size={4}>
-          <Tag
-            color={record.metricRole === 'primary' ? 'blue' : 'default'}
-            style={{ fontSize: 11, lineHeight: '16px', marginInlineEnd: 0 }}
+        <Space size={4} align="start">
+          <Tooltip
+            title={
+              record.metricRole === 'secondary'
+                ? 'Secondary metric: the MDE shown is the minimal detectable effect at the chosen sample size (sample size is driven by primary metrics)'
+                : 'Primary metric: drives the required sample size and the verdict'
+            }
           >
-            {record.metricRole}
-          </Tag>
-          {record.metricRole === 'secondary' ? (
-            <Tooltip title="Secondary MDE is the minimal detectable effect at the chosen sample size (sample size is driven by primary metrics)">
-              <span>
-                {v} <sup>†</sup>
-              </span>
-            </Tooltip>
-          ) : (
-            v
-          )}
+            <Tag
+              color={record.metricRole === 'primary' ? 'blue' : 'default'}
+              style={{ fontSize: 11, lineHeight: '16px', marginInlineEnd: 0 }}
+            >
+              {record.metricRole}
+            </Tag>
+          </Tooltip>
+          <span>
+            {v}
+            {record.metricColumn !== v && (
+              <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
+                column: {record.metricColumn}
+              </Typography.Text>
+            )}
+          </span>
         </Space>
       ),
     },
@@ -388,8 +424,8 @@ function mdeTable(computed: ComputedDesignSummary) {
       <Table size="small" dataSource={rows} columns={columns} pagination={false} />
       {hasSecondary && (
         <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-          † Secondary MDE is the minimal detectable effect at the chosen sample size (sample size is driven by
-          primary metrics).
+          For metrics whose role is secondary, the MDE shown is the minimal detectable effect at the chosen
+          sample size — the sample size itself is driven by the primary metrics.
         </Typography.Text>
       )}
       {actualEntries.length > 0 && (
@@ -407,14 +443,19 @@ function mdeTable(computed: ComputedDesignSummary) {
 // actually rendered on the Design tab itself, the page most people look at
 // first. Grouped by metric so a reader can tell which row a warning is
 // about without re-reading the MDE table above.
-function powerWarnings(computed: ComputedDesignSummary) {
+function powerWarnings(computed: ComputedDesignSummary, metricLabels: Record<string, string>) {
   const withWarnings = Object.entries(computed.power).filter(([, p]) => p.warnings.length > 0)
   if (withWarnings.length === 0) return null
   return (
     <Space direction="vertical" style={{ width: '100%', marginTop: 12, marginBottom: 16 }}>
       {withWarnings.flatMap(([metricName, p]) =>
         p.warnings.map((w, i) => (
-          <Alert key={`${metricName}-${i}`} type="warning" showIcon message={`${metricName}: ${w}`} />
+          <Alert
+            key={`${metricName}-${i}`}
+            type="warning"
+            showIcon
+            message={`${labelForMetricName(metricName, metricLabels)}: ${w}`}
+          />
         )),
       )}
     </Space>
@@ -494,6 +535,12 @@ function DesignDataSection({ name }: { name: string }) {
 export function DesignSection({ name, config, availableReports }: Props) {
   const computed = getComputed(config)
   const isExternal = config.split_source === 'external'
+  // Item A1: {technical name -> label} for every place on this tab holding a
+  // metric key rather than the metric object (MDE table, power warnings).
+  const metricLabels = metricLabelsByName((config.metrics as RawMetric[] | undefined) ?? [])
+  // Item C3: what the isolation check concluded, in the same words the two
+  // reports use.
+  const disclosure = isolationDisclosure(computed as unknown as Parameters<typeof isolationDisclosure>[0])
 
   // Item 6: real per-group download buttons (using actual group names, e.g.
   // "control.csv"/"treatment.csv") alongside the combined ZIP — the
@@ -520,6 +567,29 @@ export function DesignSection({ name, config, availableReports }: Props) {
       <Typography.Title level={5}>Configuration</Typography.Title>
       <ConfigSummary config={config} computed={computed} />
 
+      {/* Item C3: the isolation outcome — how many users overlapped with
+          other active experiments and which decision was taken — stated
+          rather than left to be inferred from a candidate count. */}
+      {disclosure && (
+        <Alert
+          type={disclosure.level === 'warn' ? 'warning' : 'success'}
+          showIcon
+          style={{ marginBottom: 24, maxWidth: 720 }}
+          message={disclosure.text}
+          description={
+            Object.keys(disclosure.byExperiment).length > 0 ? (
+              <Space wrap size={4}>
+                {Object.entries(disclosure.byExperiment).map(([expName, n]) => (
+                  <Tag key={expName}>
+                    {expName}: {n}
+                  </Tag>
+                ))}
+              </Space>
+            ) : undefined
+          }
+        />
+      )}
+
       <VariantFlowsSection name={name} config={config} />
 
       <DesignDataSection name={name} />
@@ -527,8 +597,8 @@ export function DesignSection({ name, config, availableReports }: Props) {
       {computed ? (
         <>
           <Typography.Title level={5}>MDE Table</Typography.Title>
-          {mdeTable(computed)}
-          {powerWarnings(computed)}
+          {mdeTable(computed, metricLabels)}
+          {powerWarnings(computed, metricLabels)}
 
           <Typography.Title level={5} style={{ marginTop: 24 }}>
             Split Sanity Checks
@@ -564,7 +634,7 @@ export function DesignSection({ name, config, availableReports }: Props) {
           {/* Visibility package: strata power check on the Design tab, same
               data + collapse as the design report. */}
           {computed.strata_power && Object.keys(computed.strata_power).length > 0 && (
-            <StrataPowerTable strataPower={computed.strata_power} />
+            <StrataPowerTable strataPower={computed.strata_power} metricLabels={metricLabels} />
           )}
           {computed.pre_period_aa.length > 0 && (
             <div style={{ marginBottom: 16 }}>

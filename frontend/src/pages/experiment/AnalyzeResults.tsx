@@ -11,6 +11,8 @@ import { SegmentBreakdown } from '../../components/analysis/SegmentBreakdown'
 import { colors } from '../../theme/tokens'
 import type { AnalysisResultsOut, TestResultOut } from './analyzeTypes'
 import { resultsByMetric, verdict } from './analyzeTypes'
+import { analyzeMetricLabels } from './types'
+import { labelForMetricName } from '../../lib/metricLabel'
 import type { AnalyzeMetric } from './types'
 
 export const VERDICT_LABELS: Record<string, string> = {
@@ -53,6 +55,9 @@ export function VerdictCards({
   metrics?: AnalyzeMetric[]
 }) {
   const descriptionByMetric = new Map((metrics ?? []).map((m) => [m.name, m.description]))
+  // Item A1: cards read by display name; `metric` (the key) still drives
+  // selection/grouping, so only the rendered text changes.
+  const metricLabels = analyzeMetricLabels(metrics ?? [])
   const designed = results.filter((r) => r.is_designed_method)
   const byMetric = resultsByMetric(designed)
   const interactive = !!onSelectMetric
@@ -99,7 +104,7 @@ export function VerdictCards({
                 }}
               >
                 <Space align="center" size={6}>
-                  <Typography.Text strong>{metric}</Typography.Text>
+                  <Typography.Text strong>{labelForMetricName(metric, metricLabels)}</Typography.Text>
                   {descriptionByMetric.get(metric) && (
                     <Popover
                       content={

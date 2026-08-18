@@ -151,7 +151,15 @@ class AnalysisResults:
 
         control_name = self._context.get("control_name", "") if self._context else ""
         alpha = self._context["config"].alpha if self._context else 0.05
-        rows = self.detailed_display_rows(control_name, alpha=alpha)
+        # Item A1: выгружаемый CSV — тоже пользовательский артефакт, и подпись
+        # метрики в нем должна совпадать с той, что в HTML-отчете и в таблице
+        # результатов, а не быть третьим вариантом.
+        from abkit.config import metric_labels_by_name
+
+        metric_labels = (
+            metric_labels_by_name(self._context["config"].metrics) if self._context else {}
+        )
+        rows = self.detailed_display_rows(control_name, alpha=alpha, metric_labels=metric_labels)
         if not rows:
             return
         with open(path, "w", newline="", encoding="utf-8") as f:
@@ -263,7 +271,12 @@ class AnalysisResults:
             )
         return rows
 
-    def detailed_display_rows(self, control_name: str, alpha: float = 0.05) -> list[dict[str, Any]]:
+    def detailed_display_rows(
+        self,
+        control_name: str,
+        alpha: float = 0.05,
+        metric_labels: dict[str, str] | None = None,
+    ) -> list[dict[str, Any]]:
         """Как detailed_rows(), но с готовыми к показу заголовками колонок и
         отформатированными значениями — единый источник для HTML-отчета
         (report.py) и CSV-выгрузки (report()). React-UI использует свою копию
@@ -274,11 +287,17 @@ class AnalysisResults:
         нескольких методах (compare_methods) выделяется жирной строкой
         (report.py передает designed-флаг в шаблон отдельно от этого dict,
         через detailed_rows(); React-таблица — через rowClassName), отдельная
-        колонка с галкой избыточна."""
+        колонка с галкой избыточна.
+
+        metric_labels (item A1) — {техническое имя -> подпись}; колонка "Metric"
+        показывает подпись. Это ДИСПЛЕЙНЫЙ слой (в отличие от detailed_rows(),
+        где metric остается ключом), поэтому подмена здесь и уместна — но
+        только здесь. None/отсутствующий ключ = показать техническое имя."""
         rows = self.detailed_rows(control_name, alpha=alpha)
+        labels = metric_labels or {}
         return [
             {
-                "Metric": row["metric"],
+                "Metric": labels.get(row["metric"], row["metric"]),
                 "Comparison group": row["group"],
                 "Method": row["method"],
                 # Item 4.1 (consolidated package): 3 decimal places across

@@ -16,6 +16,7 @@ import {
 import type { WizardState, DesignConfig } from './types'
 import { groupsFromApi, metricsFromApi } from './types'
 import { PRODUCT_NAME } from '../../branding'
+import { mb, mt } from './spacing'
 
 interface Props {
   state: WizardState
@@ -162,7 +163,7 @@ export function Step1Data({ state, setState, lockSplitMode }: Props) {
         value={state.splitMode}
         disabled={lockSplitMode}
         onChange={(e) => setState((prev) => ({ ...prev, splitMode: e.target.value }))}
-        style={{ marginBottom: 24 }}
+        style={{ ...mb('SECTION') }}
       >
         <Radio.Button value="abkit">{PRODUCT_NAME} split</Radio.Button>
         <Radio.Button value="external">External split (e.g. Firebase)</Radio.Button>
@@ -175,7 +176,7 @@ export function Step1Data({ state, setState, lockSplitMode }: Props) {
             showIcon
             message="No dataset required for an external split"
             description={`The split already happens in an outside system (Firebase A/B Testing and similar) — ${PRODUCT_NAME} is only used to analyze the results. Declare your groups, metrics, and hypothesis on the next steps; you'll map the actual split to real data when you run the analysis.`}
-            style={{ maxWidth: 680, marginBottom: 16 }}
+            style={{ maxWidth: 680, ...mb('BLOCK') }}
           />
 
           <Typography.Title level={5}>Reference dataset (optional)</Typography.Title>
@@ -185,7 +186,7 @@ export function Step1Data({ state, setState, lockSplitMode }: Props) {
             It stays reference-only — it doesn't drive the split.
           </Typography.Paragraph>
 
-          {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} closable onClose={() => setError(null)} />}
+          {error && <Alert type="error" message={error} showIcon style={{ ...mb('BLOCK') }} closable onClose={() => setError(null)} />}
 
           <DatasetSelect
             value={state.referenceDatasetId ?? undefined}
@@ -195,23 +196,23 @@ export function Step1Data({ state, setState, lockSplitMode }: Props) {
             placeholder="Select a reference dataset (optional)"
             ariaLabel="reference-dataset-select"
           />
-          <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 8, maxWidth: 680 }}>
+          <Typography.Paragraph type="secondary" style={{ fontSize: 12, ...mt('FIELD'), maxWidth: 680 }}>
             Don't see your data? <Link to="/datasets" target="_blank">Create a new dataset on the Datasets page</Link>, then come back and select it here.
           </Typography.Paragraph>
 
           {loading && (
-            <div style={{ marginTop: 16 }}>
+            <div style={{ ...mt('BLOCK') }}>
               <Spin /> Processing data...
             </div>
           )}
 
           {state.referenceDatasetId && state.previewRows.length > 0 && (
-            <div style={{ marginTop: 24 }}>
+            <div style={{ ...mt('SECTION') }}>
               <Alert
                 type="success"
                 showIcon
                 message={`Reference loaded: ${state.nRows} rows, ${Object.keys(state.previewRows[0]).length} columns`}
-                style={{ marginBottom: 12 }}
+                style={{ ...mb('BLOCK') }}
               />
               <Table
                 size="small"
@@ -230,7 +231,7 @@ export function Step1Data({ state, setState, lockSplitMode }: Props) {
 
           <Collapse
         ghost
-        style={{ marginBottom: 16 }}
+        style={{ ...mb('BLOCK') }}
         items={[
           {
             key: 'what',
@@ -252,7 +253,7 @@ export function Step1Data({ state, setState, lockSplitMode }: Props) {
                   rowKey="user_id"
                   pagination={false}
                   columns={Object.keys(DESIGN_EXAMPLE_ROWS[0]).map((k) => ({ title: k, dataIndex: k }))}
-                  style={{ marginBottom: 12 }}
+                  style={{ ...mb('BLOCK') }}
                 />
                 <ReactMarkdown>{EXAMPLE_EXPLANATION}</ReactMarkdown>
               </>
@@ -281,7 +282,7 @@ export function Step1Data({ state, setState, lockSplitMode }: Props) {
         ]}
       />
 
-      {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} closable onClose={() => setError(null)} />}
+      {error && <Alert type="error" message={error} showIcon style={{ ...mb('BLOCK') }} closable onClose={() => setError(null)} />}
 
       <Space align="start" size={16} style={{ width: '100%' }}>
         <DatasetSelect
@@ -295,24 +296,24 @@ export function Step1Data({ state, setState, lockSplitMode }: Props) {
           Demo Data
         </Button>
       </Space>
-      <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 8 }}>
+      <Typography.Paragraph type="secondary" style={{ fontSize: 12, ...mt('FIELD') }}>
         Don't see your data? <Link to="/datasets" target="_blank">Create a new dataset on the Datasets page</Link> (upload a
         file or pull it from a database connection), then come back and select it here.
       </Typography.Paragraph>
 
       {loading && (
-        <div style={{ marginTop: 16 }}>
+        <div style={{ ...mt('BLOCK') }}>
           <Spin /> Processing data...
         </div>
       )}
 
       {state.datasetId && state.previewRows.length > 0 && (
-        <div style={{ marginTop: 24 }}>
+        <div style={{ ...mt('SECTION') }}>
           <Alert
             type="success"
             showIcon
             message={`Data loaded: ${state.nRows} rows, ${Object.keys(state.previewRows[0]).length} columns`}
-            style={{ marginBottom: 12 }}
+            style={{ ...mb('BLOCK') }}
           />
           <Table
             size="small"

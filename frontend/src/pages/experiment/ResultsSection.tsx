@@ -18,6 +18,8 @@ import { apiClient, errorMessage } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { useJobPolling } from '../../api/useJobPolling'
 import type { AnalysisResultsOut } from './analyzeTypes'
+import { analyzeMetricLabels } from './types'
+import { labelForMetricName } from '../../lib/metricLabel'
 import type { AnalyzeMetric } from './types'
 
 interface Props {
@@ -97,7 +99,11 @@ export function ResultsSection({
             </Button>
           </Space>
 
-          <ResultsSegmentsPanel results={results} experimentName={experimentName} />
+          <ResultsSegmentsPanel
+            results={results}
+            experimentName={experimentName}
+            metricLabels={analyzeMetricLabels(metrics)}
+          />
         </>
       ) : (
         <Alert
@@ -132,9 +138,13 @@ export function ResultsSection({
 function ResultsSegmentsPanel({
   results,
   experimentName,
+  metricLabels,
 }: {
   results: AnalysisResultsOut
   experimentName: string
+  // Item A1 — {metric key -> display name}; the panel groups by key but
+  // labels by display name.
+  metricLabels: Record<string, string>
 }) {
   const queryClient = useQueryClient()
   const chart = results.chart_data
@@ -228,7 +238,8 @@ function ResultsSegmentsPanel({
             size="small"
             value={activeMetric}
             onChange={setMetric}
-            options={metricNames.map((m) => ({ value: m, label: m }))}
+            // Item A1: pick by display name; the value stays the metric key.
+            options={metricNames.map((m) => ({ value: m, label: labelForMetricName(m, metricLabels) }))}
             style={{ minWidth: 160 }}
           />
         </Space>

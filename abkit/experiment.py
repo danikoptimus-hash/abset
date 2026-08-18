@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import secrets
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Literal
 
@@ -238,7 +238,60 @@ class DesignReport:
     превью визарда и выбрасывался, теперь считается на этапе дизайна и
     сохраняется (см. config.computed['strata_power']), чтобы Design tab и
     отчет анализа могли его показать без пересчета. Пусто, если страт нет."""
+    isolation_decision: dict[str, Any] = field(default_factory=dict)
+    """Item C3 (overlap disclosure): ЧЕМ КОНЧИЛАСЬ проверка изоляции — не только
+    сколько юзеров пересеклось, но и какое решение по этому поводу приняли.
+    {"decision": "none"|"excluded"|"proceeded", "n_overlap": int,
+     "by_experiment": {name: n}}. Считается на этапе дизайна и сохраняется в
+     config.computed, чтобы оба отчета и Design tab могли показать это
+     НАВСЕГДА — иначе решение "продолжили несмотря на пересечение" живет только
+     в голове того, кто нажал кнопку, а отчет выглядит так, будто пересечения
+     не было вовсе."""
     warnings: list[str] = field(default_factory=list)
+
+
+def _build_isolation_decision(
+    isolation_result: "isolation.IsolationResult", effective_mode: str
+) -> dict[str, Any]:
+    """Item C3 — превращает результат изоляции в запись "что произошло с
+    пересечением", пригодную для показа в отчете НАВСЕГДА.
+
+    Три исхода, и это ровно те три формулировки, которых требует C3:
+    - "none": пересечения не нашлось (или изоляция была выключена вовсе —
+      mode="off" не считает пересечение, поэтому честнее сказать "не
+      проверяли", чем "не было"; отсюда отдельный флаг checked).
+    - "excluded": пересекшиеся убраны из пула (mode exclude/exclude_selected,
+      в том числе через кнопку "Exclude overlapping & continue", item A3).
+    - "proceeded": пересечение посчитано, но НЕ отфильтровано (mode="warn" +
+      "Continue despite the overlap").
+
+    n_overlap — размер пересечения (сколько юзеров заняты другими активными
+    экспериментами), а НЕ n_excluded: для решения "proceeded" исключено ноль,
+    но пересеклось столько же, сколько и было бы исключено, и отчету нужно
+    именно это число.
+    """
+    by_experiment = dict(isolation_result.excluded_by_experiment)
+    # Один и тот же юзер может быть занят в нескольких экспериментах сразу, и
+    # тогда sum(by_experiment) его посчитает дважды. Для mode=exclude точное
+    # число уникальных — это n_excluded; для warn его никто не считал, так что
+    # сумма по экспериментам остается лучшей доступной оценкой (и это ровно то
+    # число, которое уже показывает диалог подтверждения, — расхождения между
+    # диалогом и отчетом быть не должно).
+    checked = effective_mode != "off"
+    if not by_experiment:
+        return {
+            "decision": "none", "n_overlap": 0, "by_experiment": {},
+            "checked": checked, "mode": effective_mode,
+        }
+    if effective_mode in ("exclude", "exclude_selected"):
+        return {
+            "decision": "excluded", "n_overlap": int(isolation_result.n_excluded),
+            "by_experiment": by_experiment, "checked": True, "mode": effective_mode,
+        }
+    return {
+        "decision": "proceeded", "n_overlap": int(sum(by_experiment.values())),
+        "by_experiment": by_experiment, "checked": True, "mode": effective_mode,
+    }
 
 
 def infer_control_name(groups: dict[str, float]) -> str:
@@ -651,6 +704,9 @@ def _strata_power_to_dict(
                 "stratum": r.stratum, "treatment_group": r.treatment_group, "metric": r.metric,
                 "n_control": r.n_control, "n_treatment": r.n_treatment,
                 "mde_rel": _num(r.mde_rel), "mde_rel_cuped": _num(r.mde_rel_cuped), "status": r.status,
+                # Item C4 — абсолютный MDE и то, что нужно для его подписи.
+                "metric_type": r.metric_type, "baseline_mean": _num(r.baseline_mean),
+                "mde_abs": _num(r.mde_abs), "mde_abs_cuped": _num(r.mde_abs_cuped),
             }
             for r in rows
         ]
@@ -673,6 +729,18 @@ class StratumPowerRow:
     mde_rel: float | None
     mde_rel_cuped: float | None
     status: Literal["ok", "weak", "insufficient"]
+    # Item C4 — абсолютный MDE рядом с относительным, в тех же единицах и по
+    # тому же правилу форматирования, что и общая таблица MDE (binary — в
+    # процентных пунктах, continuous — в единицах метрики). Хранится ПОСЧИТАННЫМ,
+    # а не выводится потом из mde_rel × baseline на стороне рендера: baseline
+    # тут — среднее ВНУТРИ страты, и восстановить его снаружи неоткуда.
+    # metric_type нужен рендеру, чтобы выбрать "pp" или единицы метрики.
+    # Все три — с дефолтами: строки, сохраненные до item C4, их не содержат, и
+    # старый дизайн должен продолжать читаться (в таблице тогда прочерк).
+    metric_type: str | None = None
+    baseline_mean: float | None = None
+    mde_abs: float | None = None
+    mde_abs_cuped: float | None = None
 
 
 # Below this per-stratum-per-group n, an achievable-MDE number is more noise
@@ -759,6 +827,12 @@ def compute_strata_power_rows(
 
                     mde_rel = None
                     mde_rel_cuped = None
+                    # Item C4: абсолютный MDE — это ровно то, что возвращают
+                    # power.mde_binary/mde_continuous (относительный из него
+                    # получают делением на baseline ниже), так что считать
+                    # заново ничего не надо, достаточно не выбрасывать.
+                    mde_abs = None
+                    mde_abs_cuped = None
                     if n_control >= 2 and n_treatment >= 2 and mean != 0 and not pd.isna(mean):
                         if metric.type == "binary":
                             if 0 < mean < 1:
@@ -766,6 +840,7 @@ def compute_strata_power_rows(
                                     mean, n_control, alpha=alpha, power=power_target, ratio=ratio
                                 )
                                 mde_rel = mde_delta / mean
+                                mde_abs = mde_delta
                         elif std is not None and not pd.isna(std) and std > 0:
                             mde_abs = power.mde_continuous(
                                 std, n_control, alpha=alpha, power=power_target, ratio=ratio
@@ -784,6 +859,7 @@ def compute_strata_power_rows(
                                         mean, rho, n_control, alpha=alpha, power=power_target, ratio=ratio
                                     )
                                     mde_rel_cuped = mde_delta_cuped / mean
+                                    mde_abs_cuped = mde_delta_cuped
                                 elif std is not None and std > 0:
                                     std_cuped = std * power.cuped_variance_multiplier(rho) ** 0.5
                                     mde_abs_cuped = power.mde_continuous(
@@ -797,6 +873,9 @@ def compute_strata_power_rows(
                             stratum=str(stratum_value), treatment_group=treat_name, metric=metric.name,
                             n_control=n_control, n_treatment=n_treatment,
                             mde_rel=mde_rel, mde_rel_cuped=mde_rel_cuped, status=status,
+                            metric_type=metric.type,
+                            baseline_mean=None if pd.isna(mean) else mean,
+                            mde_abs=mde_abs, mde_abs_cuped=mde_abs_cuped,
                         )
                     )
         out[label] = rows
@@ -839,6 +918,7 @@ class Experiment:
         owner_id: str | None = None,
         is_redesign: bool = False,
         categorical_columns: list[str] | None = None,
+        overlap_action: str | None = None,
     ) -> "Experiment":
         """Полный цикл дизайна: валидация -> изоляция -> мощность -> страты -> сплит ->
         проверки -> сохранение. Возвращает Experiment с заполненным .report и .assignments.
@@ -858,6 +938,19 @@ class Experiment:
         удалены на момент apply_isolation(), поэтому исключение работает как
         обычно; store.replace_experiment удаляет их только ПОСЛЕ того, как
         новый сплит уже посчитан.
+        overlap_action: item A3 — что пользователь выбрал в диалоге "Overlap
+        detected" (isolation="warn" нашла пересечение). None/"proceed" —
+        прежнее поведение: продолжить, НЕ исключая пересекшихся (изоляция
+        отработает в режиме "warn", то есть только посчитает). "exclude" —
+        новая вторая кнопка: исключить пересекшихся из пула кандидатов ЭТОГО
+        эксперимента и продолжить. Реализовано подменой РЕЖИМА вызова
+        apply_isolation, а не правкой config.isolation: сохраненный конфиг
+        должен честно показывать, что пользователь настроил "warn", а
+        принятое по факту решение живет отдельно, в
+        computed["isolation_decision"] (item C3). Осознанно НЕ блокирует
+        дизайн, если после исключения кандидатов стало меньше требуемого
+        размера выборки — таблица MDE и так честно покажет, что достижимо на
+        уменьшившемся пуле, это ее работа.
         """
         from abkit.experiment_store import get_experiment_store
 
@@ -873,11 +966,18 @@ class Experiment:
         # store.occupied_units — только у db-режима (ABKIT_MODE=db); файловый
         # режим (дефолт) продолжает читать assignments.parquet как раньше
         isolation_store = store if hasattr(store, "occupied_units") else None
+        effective_isolation_mode = config.isolation
+        if overlap_action == "exclude" and config.isolation == "warn":
+            # "warn" считает пересечение, но не фильтрует; "exclude" — считает
+            # ПО ТОМУ ЖЕ набору активных экспериментов (exclude_experiments не
+            # меняется) и вдобавок убирает пересекшихся. Ровно то, что обещает
+            # кнопка, без отдельной ветки фильтрации здесь.
+            effective_isolation_mode = "exclude"
         isolation_result = isolation.apply_isolation(
             data=data,
             unit_col=config.unit_col,
             experiments_dir=experiments_dir,
-            mode=config.isolation,
+            mode=effective_isolation_mode,
             exclude_experiments=config.exclude_experiments,
             current_experiment_name=config.name,
             store=isolation_store,
@@ -1006,6 +1106,8 @@ class Experiment:
                     f"({control_name} vs {aa.treatment_group}): p-value={aa.p_value:.4f}"
                 )
 
+        isolation_decision = _build_isolation_decision(isolation_result, effective_isolation_mode)
+
         report = DesignReport(
             n_candidates_total=isolation_result.n_before,
             n_excluded_by_isolation=isolation_result.n_excluded,
@@ -1019,6 +1121,7 @@ class Experiment:
             strata_nan_counts=strata_nan_counts,
             n_dropped_for_nan_strata=n_dropped_for_nan_strata,
             strata_power=strata_power,
+            isolation_decision=isolation_decision,
             warnings=report_warnings,
         )
 
@@ -1031,6 +1134,10 @@ class Experiment:
                     "n_excluded_by_isolation": report.n_excluded_by_isolation,
                     "n_available": report.n_available,
                     "excluded_by_experiment": report.excluded_by_experiment,
+                    # Item C3: не только числа выше, но и ПРИНЯТОЕ РЕШЕНИЕ —
+                    # чтобы оба отчета и Design tab могли отличить "пересечения
+                    # не было" от "было, и мы осознанно пошли дальше".
+                    "isolation_decision": report.isolation_decision,
                     "group_sizes": report.group_sizes,
                     "strata_nan_counts": report.strata_nan_counts,
                     "n_dropped_for_nan_strata": report.n_dropped_for_nan_strata,
@@ -1242,6 +1349,9 @@ class Experiment:
         created_at: datetime | None = None,
         started_at: datetime | None = None,
         completed_at: datetime | None = None,
+        planned_end_date: "date | None" = None,
+        hypothesis: str | None = None,
+        flow_images: dict[str, list[dict[str, Any]]] | None = None,
     ) -> AnalysisResults:
         """Анализ по фактическим данным: join -> проверки честности -> пайплайн по
         метрикам -> поправка на множественность.
@@ -1293,6 +1403,17 @@ class Experiment:
         timestamps live on the ExperimentRepo row), so the caller
         (backend/routers/experiments.py::start_analyze, which already has
         that row in scope) passes them through here into attach_context().
+
+        planned_end_date/hypothesis/flow_images: item C2 — «report_view must
+        carry the FULL design context». Всё, что уже лежит в self.config
+        (группы с долями, метрики с типами/ролями/описаниями/подписями, метод
+        сплита, страты, размеры выборки, изоляция), отчет анализа берет
+        оттуда сам; эти три — единственное, чего в config НЕТ по построению:
+        гипотеза живет отдельным markdown-блоком, плановая дата окончания —
+        колонкой строки эксперимента (item B2), картинки флоу — своей таблицей.
+        Все три опциональны и приходят от того же вызывающего, что и даты
+        выше: ядру неоткуда их взять самому (оно не ходит в БД), а молча
+        рендерить отчет БЕЗ гипотезы — ровно тот баг, который C2 и чинит.
 
         segment_columns: External split rework (§3) — the columns to break the
         effect down by, from the ANALYSIS dataset's ACTUAL columns, chosen at
@@ -1748,5 +1869,9 @@ class Experiment:
             created_at=created_at,
             started_at=started_at,
             completed_at=completed_at,
+            # Item C2 — полный дизайн-контекст в отчете анализа.
+            planned_end_date=planned_end_date,
+            hypothesis=hypothesis,
+            flow_images=flow_images,
         )
         return results

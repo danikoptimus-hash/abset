@@ -5,6 +5,8 @@ import { Typography, Button, Descriptions, Alert, Progress, Space, Tag, message 
 import { apiClient, errorMessage, toFormData } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { getColumns } from './FlowImagesSection'
+import { mb, mt } from './spacing'
+import { metricLabel } from '../../lib/metricLabel'
 import { buildDesignConfig, buildExternalDesignConfig, groupsToApi, metricsToApi } from './types'
 import type { WizardState } from './types'
 import { PRODUCT_NAME } from '../../branding'
@@ -116,6 +118,14 @@ interface Props {
 
 type Phase = 'idle' | 'running' | 'requires_confirmation' | 'failed'
 
+// Item A3 — what the user answered in the "Overlap detected" dialog.
+// 'proceed' is the pre-existing button (split anyway, overlapping users stay
+// in the pool); 'exclude' is the new one (drop them from THIS experiment's
+// candidates first). Both are sent to the backend as overlap_action so the
+// decision can be recorded and disclosed in the reports forever (item C3) —
+// unlike the old bare confirmed=true, which left no trace of what was chosen.
+type OverlapAction = 'proceed' | 'exclude'
+
 export function Step4Review({ state, redesignName, onSubmitted }: Props) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -199,7 +209,7 @@ export function Step4Review({ state, redesignName, onSubmitted }: Props) {
 
   const isExternal = state.splitMode === 'external'
 
-  const submit = async (confirmed: boolean) => {
+  const submit = async (confirmed: boolean, overlapAction?: OverlapAction) => {
     if (!isExternal && !state.datasetId) return
     setPhase('running')
     setError(null)
@@ -246,10 +256,16 @@ export function Step4Review({ state, redesignName, onSubmitted }: Props) {
       const { data, error } = redesignName
         ? await apiClient.POST('/api/v1/experiments/{name}/redesign', {
             params: { path: { name: redesignName } },
-            body: { config, dataset_id: state.datasetId, confirmed },
+            body: { config, dataset_id: state.datasetId, confirmed, overlap_action: overlapAction },
           })
         : await apiClient.POST('/api/v1/design', {
-            body: { config, dataset_id: state.datasetId, confirmed },
+            body: {
+              config, dataset_id: state.datasetId, confirmed,
+              overlap_action: overlapAction,
+              // Item B2: sibling of the config, not part of it — see
+              // backend/schemas/design.py::DesignRequest.
+              planned_end_date: state.plannedEndDate,
+            },
           })
       if (error) throw new Error(errorMessage(error))
       await pollJob(data.job_id)
@@ -262,7 +278,7 @@ export function Step4Review({ state, redesignName, onSubmitted }: Props) {
   return (
     <div>
       <Typography.Title level={5}>Summary</Typography.Title>
-      <Descriptions bordered column={1} size="small" style={{ marginBottom: 24 }}>
+      <Descriptions bordered column={1} size="small" style={mb('SECTION')}>
         <Descriptions.Item label="Split mode">
           {isExternal ? 'External split (e.g. Firebase)' : `${PRODUCT_NAME} split`}
         </Descriptions.Item>
@@ -274,9 +290,17 @@ export function Step4Review({ state, redesignName, onSubmitted }: Props) {
             .map(([name, prop]) => `${name}: ${(prop * 100).toFixed(0)}%`)
             .join(', ')}
         </Descriptions.Item>
+        {/* Item A1: review the metrics by the name they'll be shown under,
+            with the column in parentheses when the two differ — the review
+            step exists to confirm what was entered, so hiding either half
+            would defeat it. */}
         <Descriptions.Item label="Metrics">
           {metricsToApi(state)
-            .map((m) => `${m.name} (${m.type})`)
+            .map((m) => {
+              const label = metricLabel(m)
+              const suffix = label === m.name ? '' : ` [${m.name}]`
+              return `${label}${suffix} (${m.type})`
+            })
             .join(', ')}
         </Descriptions.Item>
         {isExternal ? (
@@ -292,6 +316,9 @@ export function Step4Review({ state, redesignName, onSubmitted }: Props) {
             <Descriptions.Item label="Strata">{state.strata.join(', ') || '—'}</Descriptions.Item>
             <Descriptions.Item label="Split Method">{state.splitMethod}</Descriptions.Item>
             <Descriptions.Item label="Isolation">{state.isolation}</Descriptions.Item>
+            {!redesignName && (
+              <Descriptions.Item label="Planned end date">{state.plannedEndDate || '—'}</Descriptions.Item>
+            )}
           </>
         )}
       </Descriptions>
@@ -324,7 +351,7 @@ export function Step4Review({ state, redesignName, onSubmitted }: Props) {
               <Typography.Paragraph>
                 Total overlapping units: <b>{confirmation.overlap}</b>
               </Typography.Paragraph>
-              <Space direction="vertical" style={{ marginBottom: 12 }}>
+              <Space direction="vertical" style={mb('BLOCK')}>
                 {Object.entries(confirmation.by_experiment).map(([name, n]) => (
                   <Tag key={name}>
                     {name}: {n}
@@ -332,9 +359,22 @@ export function Step4Review({ state, redesignName, onSubmitted }: Props) {
                 ))}
               </Space>
               <br />
-              <Button type="primary" onClick={() => submit(true)}>
-                Continue despite the overlap
-              </Button>
+              {/* Item A3: two ways forward, not one. "Exclude" is primary —
+                  it's the choice that protects the result, and the one most
+                  people want once they see the number. Whichever is picked
+                  gets recorded and shown in both reports (item C3), so the
+                  decision doesn't evaporate the moment this dialog closes. */}
+              <Space wrap>
+                <Button type="primary" onClick={() => submit(true, 'exclude')}>
+                  Exclude overlapping &amp; continue
+                </Button>
+                <Button onClick={() => submit(true, 'proceed')}>Continue despite the overlap</Button>
+              </Space>
+              <Typography.Paragraph type="secondary" style={{ fontSize: 12, ...mt('FIELD'), marginBottom: 0 }}>
+                Excluding removes those users from this experiment's candidate pool. If that leaves fewer
+                users than the target sample size, the design still runs — the MDE table will reflect the
+                smaller pool.
+              </Typography.Paragraph>
             </div>
           }
         />
@@ -342,7 +382,7 @@ export function Step4Review({ state, redesignName, onSubmitted }: Props) {
 
       {phase === 'failed' && error && (
         <div>
-          <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} />
+          <Alert type="error" showIcon message={error} style={mb('BLOCK')} />
           <Button onClick={() => submit(false)}>Retry</Button>
         </div>
       )}

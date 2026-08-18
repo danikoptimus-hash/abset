@@ -12,6 +12,7 @@ import { segmentSelectionDiffersFromRun } from './segmentRunIdentity'
 import { AnalyzeResults } from './AnalyzeResults'
 import { experimentResultsQueryKey, fetchExperimentResults } from './resultsQuery'
 import { methodOptions, recommendedMethodId } from './methodOptions'
+import { mb, mt } from '../design-wizard/spacing'
 import type { HypothesisFamily, AnalyzeMetric } from './types'
 import { PRODUCT_NAME } from '../../branding'
 import { formatMb } from '../../monitoringFormat'
@@ -347,7 +348,7 @@ export function AnalyzeSection({
 
   return (
     <div>
-      {uploadError && <Alert type="error" showIcon message={uploadError} style={{ marginBottom: 16, maxWidth: 480 }} closable onClose={() => setUploadError(null)} />}
+      {uploadError && <Alert type="error" showIcon message={uploadError} style={{ ...mb('BLOCK'), maxWidth: 480 }} closable onClose={() => setUploadError(null)} />}
 
       {panelOpen && (
         <div style={{ maxWidth: 480 }}>
@@ -355,10 +356,10 @@ export function AnalyzeSection({
               clicked, so they need to be set BEFORE data is uploaded/run,
               not after (UX package, item A). */}
           <Typography.Text strong>Analysis options</Typography.Text>
-          <div style={{ marginTop: 8, marginBottom: 24 }}>
+          <div style={{ ...mt('FIELD'), ...mb('SECTION') }}>
             {namedMetrics.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>
+              <div style={{ ...mb('BLOCK') }}>
+                <Typography.Text type="secondary" style={{ display: 'block', ...mb('HINT'), fontSize: 13 }}>
                   Analysis methods
                 </Typography.Text>
                 {namedMetrics.map((m) => {
@@ -366,10 +367,16 @@ export function AnalyzeSection({
                   const selected = selectedMethodIds(m)
                   const primary = primaryMethodId(m)
                   return (
-                    <div key={m.name} style={{ marginBottom: 10 }}>
+                    <div key={m.name} style={{ ...mb('FIELD') }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Typography.Text style={{ width: 140, flexShrink: 0 }} ellipsis={{ tooltip: m.name }}>
-                          {m.name}
+                        {/* Item A1: display name; the tooltip carries the
+                            technical column so it stays reachable where it
+                            matters (this picker maps onto real data). */}
+                        <Typography.Text
+                          style={{ width: 140, flexShrink: 0 }}
+                          ellipsis={{ tooltip: m.label === m.name ? m.name : `${m.label} (column: ${m.name})` }}
+                        >
+                          {m.label}
                         </Typography.Text>
                         {/* Item 3.1: multi-select replaces both the single
                             method dropdown and the "Compare alternative
@@ -390,7 +397,7 @@ export function AnalyzeSection({
                         />
                       </div>
                       {selected.length > 1 && (
-                        <div style={{ marginLeft: 148, marginTop: 4 }}>
+                        <div style={{ marginLeft: 148, ...mt('HINT') }}>
                           <Typography.Text type="secondary" style={{ fontSize: 12, marginRight: 8 }}>
                             Primary (drives verdict):
                           </Typography.Text>
@@ -416,14 +423,14 @@ export function AnalyzeSection({
                   <Alert
                     type="info"
                     showIcon
-                    style={{ marginTop: 4 }}
+                    style={{ ...mt('HINT') }}
                     message={
                       <>
                         {namedMetrics
                           .filter((m) => primaryMethodId(m) !== recommendedMethodId(m.type, m.hasPreCol))
                           .map((m) => (
                             <div key={m.name}>
-                              <strong>{m.name}</strong>: differs from the designed method — power was calculated
+                              <strong>{m.label}</strong>: differs from the designed method — power was calculated
                               for {methodOptions(m.type, m.hasPreCol).find((o) => o.recommended)?.label}.
                             </div>
                           ))}
@@ -437,8 +444,8 @@ export function AnalyzeSection({
                 already had its own "only when family > 1" gate — no longer
                 tucked inside a removed "Advanced options" collapse). */}
             {showCorrection && (
-              <div style={{ marginBottom: 12 }}>
-                <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>
+              <div style={{ ...mb('BLOCK') }}>
+                <Typography.Text type="secondary" style={{ display: 'block', ...mb('HINT'), fontSize: 13 }}>
                   Multiple testing correction
                 </Typography.Text>
                 <Select
@@ -448,7 +455,7 @@ export function AnalyzeSection({
                   options={CORRECTION_OPTIONS}
                   disabled={running}
                 />
-                <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 4, marginBottom: 0 }}>
+                <Typography.Paragraph type="secondary" style={{ fontSize: 12, ...mt('HINT'), marginBottom: 0 }}>
                   Your design tests {family.familySize} hypotheses ({family.primaryCount} primary metric
                   {family.primaryCount === 1 ? '' : 's'} × {family.treatmentGroupCount} treatment group
                   {family.treatmentGroupCount === 1 ? '' : 's'}) — correction controls the family-wise
@@ -457,8 +464,8 @@ export function AnalyzeSection({
               </div>
             )}
             {prepared && prepared.columns.length > 0 && (
-              <div style={{ marginTop: 12 }}>
-                <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>
+              <div style={{ ...mt('BLOCK') }}>
+                <Typography.Text type="secondary" style={{ display: 'block', ...mb('HINT'), fontSize: 13 }}>
                   {dateColRequired ? <><span style={{ color: '#ff4d4f' }}>*</span> Date column</> : 'Date column (optional)'}
                 </Typography.Text>
                 <Select
@@ -473,7 +480,7 @@ export function AnalyzeSection({
                   aria-label="date-column-select"
                 />
                 {dateColRequired && (
-                  <Typography.Paragraph type={dateCol ? 'secondary' : 'danger'} style={{ fontSize: 12, marginTop: 4, marginBottom: 0 }}>
+                  <Typography.Paragraph type={dateCol ? 'secondary' : 'danger'} style={{ fontSize: 12, ...mt('HINT'), marginBottom: 0 }}>
                     Dataset contains {duplicateCheck?.n_duplicated_units} duplicated unit ids (daily/multi-row
                     data). Select the date column so rows can be aggregated per user.
                   </Typography.Paragraph>
@@ -485,8 +492,8 @@ export function AnalyzeSection({
                 strata. Non-declared singles are "ad-hoc"; a combination's
                 live cell count is guarded (warn > 30, refuse > 200). */}
             {prepared && prepared.columns.length > 0 && (
-              <div style={{ marginTop: 12 }}>
-                <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>
+              <div style={{ ...mt('BLOCK') }}>
+                <Typography.Text type="secondary" style={{ display: 'block', ...mb('HINT'), fontSize: 13 }}>
                   Segments (optional)
                 </Typography.Text>
                 <SegmentCutPicker
@@ -496,7 +503,7 @@ export function AnalyzeSection({
                   onChange={setSegmentCuts}
                   disabled={running}
                 />
-                <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 4, marginBottom: 0 }}>
+                <Typography.Paragraph type="secondary" style={{ fontSize: 12, ...mt('HINT'), marginBottom: 0 }}>
                   Exploratory only (no multiple-testing correction). Columns not declared at design are marked
                   "ad-hoc" in the results.
                 </Typography.Paragraph>
@@ -504,7 +511,7 @@ export function AnalyzeSection({
                   <Alert
                     type="warning"
                     showIcon
-                    style={{ marginTop: 8 }}
+                    style={{ ...mt('FIELD') }}
                     message="This segment selection hasn't been run yet"
                     description={`The results and report on screen are from run #${displayedRun?.run_number} and use a different segment set. Run analysis to apply your current selection.`}
                   />
@@ -514,7 +521,7 @@ export function AnalyzeSection({
           </div>
 
           <Typography.Text strong>Data</Typography.Text>
-          <div style={{ marginTop: 8, marginBottom: 16 }}>
+          <div style={{ ...mt('FIELD'), ...mb('BLOCK') }}>
             <DatasetSelect
               value={prepared && !prepared.isDemo ? prepared.id : undefined}
               onChange={handleSelectDataset}
@@ -522,7 +529,7 @@ export function AnalyzeSection({
               placeholder="Select post-period dataset"
               ariaLabel="post-period-dataset-select"
             />
-            <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 4, marginBottom: 12 }}>
+            <Typography.Paragraph type="secondary" style={{ fontSize: 12, ...mt('HINT'), ...mb('BLOCK') }}>
               Don't see your data? <Link to="/datasets" target="_blank">Create a new dataset on the Datasets page</Link>.
             </Typography.Paragraph>
             {!isExternal && (
@@ -544,7 +551,7 @@ export function AnalyzeSection({
                 type="success"
                 showIcon
                 icon={<CheckCircleOutlined />}
-                style={{ marginTop: 12 }}
+                style={{ ...mt('BLOCK') }}
                 message={
                   prepared.isDemo
                     ? `Demo data generated: ${prepared.nRows} users, +3% injected effect`
@@ -556,7 +563,7 @@ export function AnalyzeSection({
               <Alert
                 type="error"
                 showIcon
-                style={{ marginTop: 12 }}
+                style={{ ...mt('BLOCK') }}
                 message={`This dataset has reserved column${reservedCollisions.length > 1 ? 's' : ''} ${reservedCollisions.map((c) => `"${c}"`).join(', ')} that collide with ${PRODUCT_NAME}'s own group/stratum columns.`}
                 description={
                   <>
@@ -570,14 +577,14 @@ export function AnalyzeSection({
           </div>
 
           {isExternal && prepared && (
-            <div style={{ marginBottom: 16 }}>
+            <div style={{ ...mb('BLOCK') }}>
               <Typography.Text strong>Group assignment</Typography.Text>
-              <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 4, marginBottom: 8 }}>
+              <Typography.Paragraph type="secondary" style={{ fontSize: 12, ...mt('HINT'), ...mb('FIELD') }}>
                 The split happened outside {PRODUCT_NAME} — pick the column that carries it, then map each value to a
                 declared group (or exclude it).
               </Typography.Paragraph>
               <Select
-                style={{ width: '100%', marginBottom: 12 }}
+                style={{ width: '100%', ...mb('BLOCK') }}
                 placeholder="Group column"
                 value={groupColumn}
                 onChange={setGroupColumn}
@@ -627,7 +634,7 @@ export function AnalyzeSection({
                 <Alert
                   type="warning"
                   showIcon
-                  style={{ marginTop: 8 }}
+                  style={{ ...mt('FIELD') }}
                   message={`Map at least one value to each declared group: ${declaredGroups.join(', ')}`}
                 />
               )}
@@ -656,7 +663,7 @@ export function AnalyzeSection({
                 (dateColRequired && !dateCol)
               }
               loading={running}
-              style={{ marginBottom: 24 }}
+              style={{ ...mb('SECTION') }}
             >
               {running ? 'Running analysis...' : 'Run analysis'}
             </Button>
@@ -665,7 +672,7 @@ export function AnalyzeSection({
       )}
 
       {phase === 'running' && (
-        <div style={{ marginBottom: 24, maxWidth: 480 }}>
+        <div style={{ ...mb('SECTION'), maxWidth: 480 }}>
           <Progress percent={undefined} status="active" showInfo={false} />
           <Typography.Text>{stage ?? 'Starting analysis...'}</Typography.Text>
           {/* Admin monitoring panel (per-job peak memory): live during the
@@ -684,11 +691,11 @@ export function AnalyzeSection({
           — the user can read it, close it, switch datasets or retry. It is no
           longer the only thing on the tab. */}
       {phase === 'failed' && error && (
-        <Alert type="error" showIcon closable onClose={reset} message={error} style={{ marginBottom: 24, maxWidth: 480 }} />
+        <Alert type="error" showIcon closable onClose={reset} message={error} style={{ ...mb('SECTION'), maxWidth: 480 }} />
       )}
 
       {results && !panelOpen && (
-        <Button icon={<ReloadOutlined />} onClick={openRerunPanel} style={{ marginBottom: 16 }}>
+        <Button icon={<ReloadOutlined />} onClick={openRerunPanel} style={{ ...mb('BLOCK') }}>
           Re-run analysis
         </Button>
       )}

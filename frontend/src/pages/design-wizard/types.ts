@@ -6,6 +6,10 @@ export type DesignConfig = components['schemas']['DesignConfig']
 export interface MetricFormRow {
   id: string
   name: string
+  // Item A1: optional display name. `name` remains the DATA COLUMN (and the
+  // key everything else is stored under); this is purely what the reader
+  // sees. Empty string = "not set" -> fall back to `name` (lib/metricLabel.ts).
+  displayName: string
   type: 'continuous' | 'binary' | 'ratio'
   role: 'primary' | 'secondary'
   // Optional free-text "what does this metric measure and how is it computed?"
@@ -123,6 +127,12 @@ export interface WizardState {
   splitMethod: 'simple' | 'stratified' | 'hash'
   isolation: 'exclude' | 'warn' | 'off' | 'exclude_selected'
   isolationSelected: string[]
+  // Item B2: optional planned end date as an ISO date string (yyyy-mm-dd), or
+  // null. Sent as a sibling of the config (DesignRequest.planned_end_date) and
+  // stored on the experiment row, NOT inside DesignConfig — it stays editable
+  // afterwards (Edit Properties) and drives auto-completion, so a copy frozen
+  // into the design config would go stale on the first edit.
+  plannedEndDate: string | null
   // Item 3: null until "Calculate sample size" has run at least once (or,
   // for Redesign, prefilled from the experiment's already-saved
   // proportions — see wizardStateFromConfig below) — gates whether the
@@ -153,6 +163,9 @@ export function metricsToApi(state: WizardState): MetricConfig[] {
     .filter((m) => m.name.trim())
     .map((m) => ({
       name: m.name.trim(),
+      // Only a non-empty display name is sent — "" means "no display name",
+      // identical to the key being absent (every pre-A1 experiment).
+      display_name: m.displayName.trim() || undefined,
       type: m.type,
       role: m.role,
       description: m.description.trim() || undefined,
@@ -273,6 +286,37 @@ export function anyGroupBelowRequired(state: WizardState): boolean {
   return state.groups.some((g) => groupBelowRequired(state, g))
 }
 
+// Item A2 — the split method the STRATA SELECTION implies, given what it is
+// now and what it was a moment ago.
+//
+// Rules, in the order they're checked:
+//   - picking the first stratum while on "simple" auto-switches to
+//     "stratified" (stratifying is the only reason to name strata at all);
+//   - removing the last stratum reverts that auto-switch back to "simple"
+//     (a "stratified" split with no strata is just a simple split wearing the
+//     wrong label);
+//   - "hash" is never touched — it's a deliberate, orthogonal choice (a
+//     deterministic split by id hash), not a point on the simple/stratified
+//     axis, and silently overriding it would destroy real intent;
+//   - a user who manually sets "simple" WITH strata already selected keeps
+//     "simple" (nothing changed about the strata, so no auto-switch fires) —
+//     this is what makes the switch overridable rather than a lock.
+//
+// Pure and exported so it can be unit-tested in both directions without a
+// DOM (vitest here runs environment "node" over src/**/*.test.ts).
+export function splitMethodForStrataChange(
+  currentMethod: WizardState['splitMethod'],
+  previousStrata: string[],
+  nextStrata: string[],
+): WizardState['splitMethod'] {
+  if (currentMethod === 'hash') return 'hash'
+  const had = previousStrata.length > 0
+  const has = nextStrata.length > 0
+  if (!had && has) return 'stratified'
+  if (had && !has) return 'simple'
+  return currentMethod
+}
+
 export function buildDesignConfig(state: WizardState): DesignConfig {
   const config: DesignConfig = {
     name: state.name.trim(),
@@ -357,6 +401,7 @@ export function metricsFromApi(metrics: MetricConfig[]): MetricFormRow[] {
   return metrics.map((m) => ({
     id: nextId('metric'),
     name: m.name,
+    displayName: m.display_name ?? '',
     type: m.type as MetricFormRow['type'],
     role: m.role as MetricFormRow['role'],
     description: m.description ?? '',

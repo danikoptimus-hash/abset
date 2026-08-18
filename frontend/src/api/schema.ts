@@ -2396,6 +2396,10 @@ export interface components {
              * @default false
              */
             confirmed: boolean;
+            /** Overlap Action */
+            overlap_action?: ("proceed" | "exclude") | null;
+            /** Planned End Date */
+            planned_end_date?: string | null;
         };
         /**
          * DuplicateCheckResponse
@@ -2460,6 +2464,8 @@ export interface components {
             completed_at: string | null;
             /** Archived At */
             archived_at: string | null;
+            /** Planned End Date */
+            planned_end_date?: string | null;
             /** Available Reports */
             available_reports: string[];
             /** Files */
@@ -2487,6 +2493,10 @@ export interface components {
             editors: components["schemas"]["UserBrief"][];
             /** Visible Roles */
             visible_roles: string[] | null;
+            /** Started At */
+            started_at?: string | null;
+            /** Planned End Date */
+            planned_end_date?: string | null;
             /**
              * Tags
              * @default []
@@ -2698,6 +2708,8 @@ export interface components {
         MetricConfig: {
             /** Name */
             name: string;
+            /** Display Name */
+            display_name?: string | null;
             /**
              * Type
              * @enum {string}
@@ -3240,6 +3252,15 @@ export interface components {
             editor_ids: string[];
             /** Visible Roles */
             visible_roles?: string[] | null;
+            /** Started At */
+            started_at?: string | null;
+            /** Planned End Date */
+            planned_end_date?: string | null;
+            /**
+             * Set Lifecycle Dates
+             * @default false
+             */
+            set_lifecycle_dates: boolean;
         };
         /**
          * UpdatePreferencesRequest

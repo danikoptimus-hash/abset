@@ -2,6 +2,7 @@ import { Typography, Input, InputNumber, Button, Select, Space, Alert, Card, Tag
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import { GROUP_PRESETS } from './helpTexts'
 import { FlowImagesSection } from './FlowImagesSection'
+import { mb, mt } from './spacing'
 import { numericColumns, nextId, groupsSum, equalSplitGroups } from './types'
 import type { WizardState, MetricFormRow } from './types'
 
@@ -67,7 +68,7 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
     <div>
       <Typography.Title level={5}>Groups</Typography.Title>
       {isExternal && (
-        <Space style={{ marginBottom: 12 }}>
+        <Space style={mb('BLOCK')}>
           {Object.keys(GROUP_PRESETS).map((preset) => (
             <Button key={preset} size="small" onClick={() => applyPreset(preset)}>
               {preset}
@@ -80,8 +81,8 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
       )}
 
       {state.groups.map((g) => (
-        <div key={g.id} style={{ marginBottom: 12 }}>
-          <Space style={{ display: 'flex', marginBottom: 4 }}>
+        <div key={g.id} style={mb('BLOCK')}>
+          <Space style={{ display: 'flex', ...mb('FIELD') }}>
             <Input
               placeholder="Group name"
               value={g.name}
@@ -123,7 +124,7 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
           />
         </div>
       ))}
-      <Button icon={<PlusOutlined />} onClick={addGroup} style={{ marginBottom: 12 }}>
+      <Button icon={<PlusOutlined />} onClick={addGroup} style={mb('BLOCK')}>
         Add Group
       </Button>
       {isExternal ? (
@@ -131,10 +132,10 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
           type={sumOk ? 'success' : 'warning'}
           showIcon
           message={`Sum of proportions: ${sum.toFixed(3)}${sumOk ? '' : ' — must equal 1'}`}
-          style={{ marginBottom: 24 }}
+          style={mb('SECTION')}
         />
       ) : (
-        <Typography.Paragraph type="secondary" style={{ fontSize: 12, maxWidth: 500, marginBottom: 24 }}>
+        <Typography.Paragraph type="secondary" style={{ fontSize: 12, maxWidth: 500, ...mb('SECTION') }}>
           Group sizes (proportions) are set on the next step, after calculating the required sample size.
         </Typography.Paragraph>
       )}
@@ -143,8 +144,8 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
 
       <Typography.Title level={5}>Metrics (at least one)</Typography.Title>
       {state.metrics.map((m) => (
-        <Card key={m.id} size="small" style={{ marginBottom: 12 }}>
-          <Space wrap style={{ marginBottom: 8 }}>
+        <Card key={m.id} size="small" style={mb('BLOCK')}>
+          <Space wrap style={mb('FIELD')}>
             <Select
               style={{ width: 140 }}
               value={m.type}
@@ -256,11 +257,27 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
               )}
             </div>
           )}
+          {/* Item A1: display name, separate from the data-column picker
+              above. Left blank = the column name IS the display name, which
+              is what every experiment designed before this looks like — so
+              the placeholder shows the current column rather than generic
+              filler, making the fallback obvious without reading a hint. */}
+          <div style={mt('FIELD')}>
+            <Input
+              placeholder={m.name ? `Metric name (defaults to "${m.name}")` : 'Metric name (optional)'}
+              value={m.displayName}
+              style={{ width: 460 }}
+              onChange={(e) => updateMetric(setState, m.id, { displayName: e.target.value })}
+            />
+            <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', ...mt('HINT') }}>
+              Shown instead of the column name in results, reports and exports.
+            </Typography.Text>
+          </div>
           <Input.TextArea
             placeholder="What does this metric measure and how is it computed? (optional)"
             value={m.description ?? ''}
             rows={2}
-            style={{ width: 460, marginTop: 8 }}
+            style={{ width: 460, ...mt('FIELD') }}
             onChange={(e) => updateMetric(setState, m.id, { description: e.target.value })}
           />
         </Card>
@@ -272,7 +289,7 @@ export function Step2GroupsMetrics({ state, setState }: Props) {
             ...prev,
             metrics: [
               ...prev.metrics,
-              { id: nextId('metric'), name: '', type: 'continuous', role: 'primary', description: '', preCol: null, num: null, den: null },
+              { id: nextId('metric'), name: '', displayName: '', type: 'continuous', role: 'primary', description: '', preCol: null, num: null, den: null },
             ],
           }))
         }

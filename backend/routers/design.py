@@ -27,12 +27,22 @@ from backend.schemas.design import DesignRequest, JobAccepted
 router = APIRouter(prefix="/design", tags=["design"])
 
 
-def _check_isolation_overlap(config: DesignConfig, data: pd.DataFrame, confirmed: bool) -> None:
+def _check_isolation_overlap(
+    config: DesignConfig,
+    data: pd.DataFrame,
+    confirmed: bool,
+    overlap_action: str | None = None,
+) -> None:
     """Бросает RequiresConfirmation, если isolation="warn" нашел непустое
     пересечение с другими активными экспериментами, а пользователь еще не
     подтвердил продолжение. Для остальных режимов изоляции — no-op, решение
-    принимает сам Experiment.design() как обычно."""
-    if config.isolation != "warn" or confirmed:
+    принимает сам Experiment.design() как обычно.
+
+    overlap_action (item A3): любой из двух ответов диалога — и "proceed", и
+    "exclude" — означает "пользователь уже видел пересечение и решил, что
+    делать", поэтому второй раз спрашивать нечего. Что именно делать, решает
+    Experiment.design(overlap_action=...), не эта функция."""
+    if config.isolation != "warn" or confirmed or overlap_action is not None:
         return
 
     from abkit.db.store import DbExperimentStore
@@ -106,6 +116,8 @@ def start_design(
         raise APIError(404, "not_found", f"Dataset '{body.dataset_id}' not found")
 
     confirmed = body.confirmed
+    overlap_action = body.overlap_action
+    planned_end_date = body.planned_end_date
     # unit_col как str: иначе числовой ID с ведущими нулями ("007123")
     # необратимо теряет их при авто-парсинге pandas в int64.
     data = read_dataset_file(dataset.storage_path, dtype={config.unit_col: str})
@@ -127,10 +139,12 @@ def start_design(
         from abkit.db.repositories import ExperimentDatasetRepo, ExperimentRepo
         from abkit.jobs import run_design
 
-        _check_isolation_overlap(config, data, confirmed)
+        _check_isolation_overlap(config, data, confirmed, overlap_action)
         experiment = run_design(
             user, config, data, progress_callback=reporter.stage,
             categorical_columns=categorical_columns,
+            overlap_action=overlap_action,
+            planned_end_date=planned_end_date,
         )
         exp_row = ExperimentRepo().get_by_name(experiment.name)
         if dataset.experiment_id is None:

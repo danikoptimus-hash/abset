@@ -6,6 +6,9 @@ import { queryKeys } from '../../api/queryKeys'
 import { SIZE_MODE_LABELS, SPLIT_METHOD_LABELS, ISOLATION_LABELS, NAN_STRATEGY_LABELS } from './helpTexts'
 import { SampleSizeSection } from './SampleSizeSection'
 import { StrataPowerSection } from './StrataPowerSection'
+import { mb, mt } from './spacing'
+import { metricLabel } from '../../lib/metricLabel'
+import { splitMethodForStrataChange } from './types'
 import type { WizardState } from './types'
 import { PRODUCT_NAME } from '../../branding'
 
@@ -98,7 +101,7 @@ export function Step3Parameters({ state, setState, isRedesign }: Props) {
           style={{ width: 320 }}
         />
 
-        <Typography.Title level={5} style={{ marginTop: 24 }}>
+        <Typography.Title level={5} style={mt('SECTION')}>
           Strata / segment columns (optional)
         </Typography.Title>
         <Typography.Paragraph type="secondary" style={{ maxWidth: 560 }}>
@@ -127,7 +130,7 @@ export function Step3Parameters({ state, setState, isRedesign }: Props) {
       <Radio.Group
         value={state.sizeMode}
         onChange={(e) => setState((prev) => ({ ...prev, sizeMode: e.target.value }))}
-        style={{ marginBottom: 16 }}
+        style={mb('BLOCK')}
       >
         <Space direction="vertical">
           {Object.entries(SIZE_MODE_LABELS).map(([value, label]) => (
@@ -145,18 +148,21 @@ export function Step3Parameters({ state, setState, isRedesign }: Props) {
           step={0.01}
           value={state.mdeRel}
           onChange={(v) => setState((prev) => ({ ...prev, mdeRel: v ?? 0.05 }))}
-          style={{ marginBottom: 24, width: 320 }}
+          style={{ width: 320, ...mb('SECTION') }}
         />
       )}
 
       {state.sizeMode === 'mde_abs' && (
-        <div style={{ marginBottom: 24 }}>
+        <div style={mb('SECTION')}>
           <Select
             placeholder="Metric to set the absolute MDE for"
-            style={{ width: 320, marginBottom: 8 }}
+            style={{ width: 320, ...mb('FIELD') }}
             value={state.mdeAbsMetricId ?? undefined}
             onChange={(mdeAbsMetricId) => setState((prev) => ({ ...prev, mdeAbsMetricId }))}
-            options={state.metrics.filter((m) => m.name).map((m) => ({ value: m.id, label: m.name }))}
+            // Item A1: pick by what the user calls the metric, not by column.
+            options={state.metrics
+              .filter((m) => m.name)
+              .map((m) => ({ value: m.id, label: metricLabel({ name: m.name, display_name: m.displayName }) }))}
           />
           <br />
           {/* Item 1 bug fix: binary metrics store mde_abs everywhere else as
@@ -180,7 +186,7 @@ export function Step3Parameters({ state, setState, isRedesign }: Props) {
           />
           {baselineMean === 'loading' && <Typography.Text type="secondary"> computing baseline...</Typography.Text>}
           {typeof baselineMean === 'number' && relFromAbs !== null && (
-            <Typography.Paragraph type="secondary" style={{ marginTop: 4, marginBottom: 0 }}>
+            <Typography.Paragraph type="secondary" style={{ ...mt('HINT'), marginBottom: 0 }}>
               ≈ {(relFromAbs * 100).toFixed(1)}% relative MDE at the current mean{' '}
               {isBinaryAbsMde ? `${(baselineMean * 100).toFixed(1)}%` : baselineMean.toFixed(4)}
             </Typography.Paragraph>
@@ -194,7 +200,7 @@ export function Step3Parameters({ state, setState, isRedesign }: Props) {
             <Alert
               type="error"
               showIcon
-              style={{ marginTop: 8 }}
+              style={mt('FIELD')}
               message="Could not determine the baseline for this metric — a pre-period column with real values is needed"
             />
           )}
@@ -208,12 +214,12 @@ export function Step3Parameters({ state, setState, isRedesign }: Props) {
           step={100}
           value={state.sampleSize}
           onChange={(v) => setState((prev) => ({ ...prev, sampleSize: v ?? 1000 }))}
-          style={{ marginBottom: 24, width: 320 }}
+          style={{ width: 320, ...mb('SECTION') }}
         />
       )}
 
       <Typography.Title level={5}>Statistical Parameters</Typography.Title>
-      <Space style={{ marginBottom: 24 }}>
+      <Space style={mb('SECTION')}>
         <Tooltip title="Significance level (α) — the risk of a false positive: declaring an effect when there isn't one. Lower α = stricter evidence required, but needs more data.">
           <InputNumber
             addonBefore="Significance level (α)"
@@ -242,15 +248,24 @@ export function Step3Parameters({ state, setState, isRedesign }: Props) {
       <Select
         mode="multiple"
         placeholder="Strata (optional)"
-        style={{ width: '100%', marginBottom: 8 }}
+        style={{ width: '100%', ...mb('FIELD') }}
         value={state.strata}
-        onChange={(strata) => setState((prev) => ({ ...prev, strata }))}
+        onChange={(strata) =>
+          // Item A2: choosing strata auto-switches the split method to
+          // "stratified"; clearing them all reverts it. Applied here, in the
+          // one place strata change, so the two selectors can't disagree.
+          setState((prev) => ({
+            ...prev,
+            strata,
+            splitMethod: splitMethodForStrataChange(prev.splitMethod, prev.strata, strata),
+          }))
+        }
         options={state.columns.map((c) => ({ value: c, label: c }))}
       />
       {state.strata.length > 0 && (
         <>
           <Select
-            style={{ width: '100%', marginBottom: 8 }}
+            style={{ width: '100%', ...mb('FIELD') }}
             value={state.nanStrategy}
             onChange={(nanStrategy) => setState((prev) => ({ ...prev, nanStrategy }))}
             options={Object.entries(NAN_STRATEGY_LABELS).map(([value, label]) => ({ value, label }))}
@@ -263,7 +278,7 @@ export function Step3Parameters({ state, setState, isRedesign }: Props) {
                 key={col}
                 type="warning"
                 showIcon
-                style={{ marginBottom: 4 }}
+                style={mb('HINT')}
                 message={`"${col}": ~${pct.toFixed(1)}% missing (estimated from preview)`}
               />
             )
@@ -271,19 +286,29 @@ export function Step3Parameters({ state, setState, isRedesign }: Props) {
         </>
       )}
 
-      <Typography.Title level={5} style={{ marginTop: 24 }}>
+      <Typography.Title level={5} style={mt('SECTION')}>
         Split Method
       </Typography.Title>
       <Select
-        style={{ width: '100%', marginBottom: 24 }}
+        style={{ width: '100%', ...mb('HINT') }}
         value={state.splitMethod}
         onChange={(splitMethod) => setState((prev) => ({ ...prev, splitMethod }))}
         options={Object.entries(SPLIT_METHOD_LABELS).map(([value, label]) => ({ value, label }))}
       />
+      {/* Item A2: the auto-switch has to be visible, or it reads as the app
+          quietly ignoring the selector. Only shown while the two actually
+          correspond, so it never contradicts a manual override. */}
+      <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', ...mb('SECTION') }}>
+        {state.splitMethod === 'stratified' && state.strata.length > 0
+          ? `Set to stratified because you selected ${state.strata.length === 1 ? 'a stratum' : 'strata'}. You can change it back.`
+          : state.splitMethod === 'stratified' && state.strata.length === 0
+            ? 'Stratified split with no strata selected behaves the same as a simple split.'
+            : 'Selecting strata above switches this to stratified automatically.'}
+      </Typography.Text>
 
       <Typography.Title level={5}>Isolation From Other Active Experiments</Typography.Title>
       <Select
-        style={{ width: '100%', marginBottom: 8 }}
+        style={{ width: '100%', ...mb('FIELD') }}
         value={state.isolation}
         onChange={(isolation) => setState((prev) => ({ ...prev, isolation }))}
         options={Object.entries(ISOLATION_LABELS).map(([value, label]) => ({ value, label }))}

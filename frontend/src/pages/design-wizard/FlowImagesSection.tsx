@@ -9,6 +9,7 @@ import { SortableContext, useSortable, arrayMove, rectSortingStrategy } from '@d
 import { CSS } from '@dnd-kit/utilities'
 import { nextId } from './types'
 import type { WizardState, FlowColumnState, FlowImageState } from './types'
+import { mb, mt } from './spacing'
 
 // Stage 4 (CLAUDE.md, variant flow images) limits — mirrors
 // abkit/flow_images.py's MAX_FILE_BYTES/MAX_IMAGES_PER_GROUP; enforced here
@@ -129,9 +130,9 @@ function FlowColumn({
         placeholder="Flow title, e.g. Checkout — new design (optional)"
         value={column.flowTitle}
         onChange={(e) => onChange({ flowTitle: e.target.value })}
-        style={{ marginBottom: 8 }}
+        style={{ ...mb('FIELD') }}
       />
-      <Upload.Dragger {...uploadProps} style={{ padding: '8px 0', marginBottom: 12 }}>
+      <Upload.Dragger {...uploadProps} style={{ padding: '8px 0', ...mb('BLOCK') }}>
         <p className="ant-upload-drag-icon" style={{ margin: '4px 0' }}>
           <InboxOutlined />
         </p>
@@ -180,7 +181,7 @@ export function FlowImagesSection({ state, setState }: Props) {
   const usedGroupNames = new Set(columns.map((c) => c.groupName))
 
   return (
-    <div style={{ marginTop: 24, marginBottom: 24 }}>
+    <div style={{ ...mt('SECTION'), ...mb('SECTION') }}>
       <Typography.Title level={5}>Variant flows (optional)</Typography.Title>
       <Typography.Paragraph type="secondary" style={{ marginTop: -8, fontSize: 13 }}>
         Optional screenshots showing what each variant looks like — shown on the Design tab and in the design
@@ -202,7 +203,7 @@ export function FlowImagesSection({ state, setState }: Props) {
           >
             <Select
               value={column.groupName}
-              style={{ width: '100%', marginBottom: 8 }}
+              style={{ width: '100%', ...mb('FIELD') }}
               onChange={(groupName) => updateColumn(i, { groupName })}
               options={state.groups
                 .filter((g) => g.name.trim())

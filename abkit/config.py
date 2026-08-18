@@ -11,6 +11,21 @@ class MetricConfig(BaseModel):
     """Описание одной метрики эксперимента."""
 
     name: str
+    """ТЕХНИЧЕСКОЕ имя метрики = имя колонки данных (для continuous/binary —
+    буквально колонка в датасете, см. abkit/experiment.py::_validate_input_data;
+    для ratio — метка, а колонки задают num/den). Одновременно КЛЮЧ метрики
+    везде: results._by_metric, config.computed["power"], strata_power-строки,
+    detailed_rows. Отображаемое имя — display_name ниже; переименовывать `name`
+    ради красивой подписи НЕЛЬЗЯ, это разъедет ключи со всем уже сохраненным."""
+    display_name: str | None = None
+    """Опциональное отображаемое имя метрики (item A1): то, что видит
+    пользователь везде — Design tab, таблица результатов, forest plot,
+    сегментные блоки, оба HTML-отчета, экспорты. Пусто/None (старые
+    эксперименты, метрика без display_name) — показывается `name`, см.
+    metric_label() ниже. НЕ участвует ни в одном расчете и ни в одном join'е:
+    это чистая подпись, а `name` остается и колонкой данных, и ключом.
+    Уникальность НЕ требуется (в отличие от name) — две метрики вправе
+    называться одинаково для читателя, они все равно различаются колонкой."""
     type: Literal["continuous", "binary", "ratio"]
     role: Literal["primary", "secondary"] = "primary"
     description: str | None = None
@@ -30,6 +45,26 @@ class MetricConfig(BaseModel):
                 f"Metric '{self.name}' of type 'ratio' must set num and den"
             )
         return self
+
+
+def metric_label(metric: "MetricConfig") -> str:
+    """Что показать пользователю вместо метрики (item A1) — display_name, если
+    задано и непусто, иначе техническое `name` (= имя колонки). ЕДИНЫЙ источник
+    этого правила на стороне Python; TS-двойник — frontend/src/lib/metricLabel.ts
+    (синхронизируется вручную, как branding.ts/PRODUCT_NAME).
+
+    Пустая строка трактуется как "не задано" наравне с None: форма визарда
+    отдает именно "" за неотредактированное поле, и подпись "" была бы хуже
+    любого имени колонки."""
+    display = (metric.display_name or "").strip()
+    return display or metric.name
+
+
+def metric_labels_by_name(metrics: "list[MetricConfig]") -> dict[str, str]:
+    """{техническое имя -> подпись} — для мест, где на руках только ключ метрики
+    (результаты анализа, config.computed["power"], strata_power), а сам
+    MetricConfig надо еще найти."""
+    return {m.name: metric_label(m) for m in metrics}
 
 
 class DesignConfig(BaseModel):

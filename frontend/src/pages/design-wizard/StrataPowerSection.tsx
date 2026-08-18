@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Collapse, Table, Typography, Tag, Button, Alert, Space, Spin } from 'antd'
 import { apiClient, errorMessage } from '../../api/client'
 import { groupsToApi, groupsSum, metricsToApi } from './types'
+import { labelForMetricName, metricLabelsByName } from '../../lib/metricLabel'
 import type { WizardState } from './types'
 
 interface StrataPowerRow {
@@ -13,6 +14,11 @@ interface StrataPowerRow {
   mde_rel: number | null
   mde_rel_cuped: number | null
   status: 'ok' | 'weak' | 'insufficient'
+  // Item C4 — same optional shape as the persisted rows
+  // (src/pages/experiment/types.ts::StrataPowerRow): this preview and the
+  // Design tab render the same table, so the fields have to match.
+  metric_type?: string | null
+  mde_abs?: number | null
 }
 
 const STATUS_COLOR: Record<StrataPowerRow['status'], string> = { ok: 'success', weak: 'warning', insufficient: 'error' }
@@ -21,7 +27,22 @@ function fmtMde(v: number | null): string {
   return v === null ? '—' : `${(v * 100).toFixed(1)}%`
 }
 
-function DimensionTable({ rows, multiGroup, multiMetric }: { rows: StrataPowerRow[]; multiGroup: boolean; multiMetric: boolean }) {
+// Item C4 — mirrors StrataPowerTable.tsx::fmtMdeAbs (percentage points for
+// conversions, metric units otherwise), so the wizard preview and the saved
+// Design tab format the same number identically.
+function fmtMdeAbs(v: number | null | undefined, metricType: string | null | undefined): string {
+  if (v === null || v === undefined) return '—'
+  return metricType === 'binary' ? `${(v * 100).toFixed(3)} pp` : v.toFixed(3)
+}
+
+function DimensionTable({
+  rows, multiGroup, multiMetric, metricLabels,
+}: {
+  rows: StrataPowerRow[]
+  multiGroup: boolean
+  multiMetric: boolean
+  metricLabels: Record<string, string>
+}) {
   return (
     <Table
       size="small"
@@ -32,10 +53,24 @@ function DimensionTable({ rows, multiGroup, multiMetric }: { rows: StrataPowerRo
       columns={[
         { title: 'Stratum', dataIndex: 'stratum' },
         ...(multiGroup ? [{ title: 'vs. group', dataIndex: 'treatment_group' }] : []),
-        ...(multiMetric ? [{ title: 'Metric', dataIndex: 'metric' }] : []),
+        ...(multiMetric
+          ? [
+              {
+                title: 'Metric',
+                dataIndex: 'metric',
+                // Item A1: show what the user named the metric, not the column.
+                render: (v: string) => labelForMetricName(v, metricLabels),
+              },
+            ]
+          : []),
         { title: 'n (control)', dataIndex: 'n_control' },
         { title: 'n (test)', dataIndex: 'n_treatment' },
         { title: 'MDE (rel.)', dataIndex: 'mde_rel', render: (v: number | null) => fmtMde(v) },
+        {
+          title: 'MDE (abs.)',
+          dataIndex: 'mde_abs',
+          render: (v: number | null | undefined, record: StrataPowerRow) => fmtMdeAbs(v, record.metric_type),
+        },
         { title: 'MDE with CUPED', dataIndex: 'mde_rel_cuped', render: (v: number | null) => fmtMde(v) },
         {
           title: 'Status', dataIndex: 'status',
@@ -132,6 +167,7 @@ export function StrataPowerSection({ state }: { state: WizardState }) {
   const multiGroup = new Set(Object.values(dimensions ?? {}).flat().map((r) => r.treatment_group)).size > 1
   const multiMetric = new Set(Object.values(dimensions ?? {}).flat().map((r) => r.metric)).size > 1
   const status = dimensions ? overallStatus(dimensions) : null
+  const metricLabels = metricLabelsByName(metricsToApi(state))
 
   return (
     <Collapse
@@ -168,7 +204,12 @@ export function StrataPowerSection({ state }: { state: WizardState }) {
                   {perDimensionLabels.map((label) => (
                     <div key={label}>
                       <Typography.Text strong>{label}</Typography.Text>
-                      <DimensionTable rows={dimensions[label]} multiGroup={multiGroup} multiMetric={multiMetric} />
+                      <DimensionTable
+                        rows={dimensions[label]}
+                        multiGroup={multiGroup}
+                        multiMetric={multiMetric}
+                        metricLabels={metricLabels}
+                      />
                     </div>
                   ))}
                   {combinedLabel && (
@@ -183,6 +224,7 @@ export function StrataPowerSection({ state }: { state: WizardState }) {
                               rows={dimensions[combinedLabel]}
                               multiGroup={multiGroup}
                               multiMetric={multiMetric}
+                              metricLabels={metricLabels}
                             />
                           ),
                         },

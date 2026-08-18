@@ -123,7 +123,11 @@ function toRows(
         r.is_designed_method && !!metricInfo && isManuallySelected(r.method, metricInfo.type, metricInfo.hasPreCol)
       return {
         key: `${r.metric}_${r.method}_${r.treatment_group}`,
-        metric: r.metric,
+        // Item A1: `metric` is the DISPLAYED name (also what lands in the CSV
+        // export below, matching the HTML report's own CSV) — the technical
+        // name is only needed above, for the metricsByName lookup and the
+        // dedupe key, and both already used r.metric directly.
+        metric: metricInfo?.label ?? r.metric,
         comparison: `${r.treatment_group} vs ${controlName}`,
         method: r.method,
         designed: r.is_designed_method,

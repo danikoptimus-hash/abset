@@ -1,5 +1,6 @@
 import { Typography, Tag, Table, Collapse } from 'antd'
 import { useAuth } from '../../auth/AuthContext'
+import { labelForMetricName } from '../../lib/metricLabel'
 import type { StrataPowerRow } from '../../pages/experiment/types'
 
 // Visibility package: the strata power check (per-stratum achievable MDE at the
@@ -15,6 +16,18 @@ const STATUS_COLOR: Record<StrataPowerRow['status'], string> = {
 }
 
 const fmtMde = (v: number | null): string => (v === null ? '—' : `${(v * 100).toFixed(1)}%`)
+
+// Item C4 — absolute MDE per stratum, formatted the same way the overall MDE
+// table formats its absolute column (DesignSection.tsx::formatAbs): percentage
+// points for conversions (the baseline is itself a proportion, so raw units
+// would read as 0.0123), metric units for continuous. "—" covers three real
+// cases at once — a row stored before item C4 (field absent), a stratum too
+// small for an MDE to be computed, and an unknown metric type — all of which
+// mean "nothing to show here", unlike a misleading 0.000.
+const fmtMdeAbs = (v: number | null | undefined, metricType: string | null | undefined): string => {
+  if (v === null || v === undefined) return '—'
+  return metricType === 'binary' ? `${(v * 100).toFixed(3)} pp` : v.toFixed(3)
+}
 
 // Mirror of abkit/viz/report.py::strata_power_view — group the stored
 // {dimension: [row]} into per-metric blocks + collapse metadata.
@@ -48,6 +61,12 @@ function DimensionTable({ rows, multiGroup }: { rows: StrataPowerRow[]; multiGro
         { title: 'n (control)', dataIndex: 'n_control' },
         { title: 'n (test)', dataIndex: 'n_treatment' },
         { title: 'MDE (rel.)', dataIndex: 'mde_rel', render: (v: number | null) => fmtMde(v) },
+        {
+          title: 'MDE (abs.)',
+          dataIndex: 'mde_abs',
+          render: (v: number | null | undefined, record: StrataPowerRow) =>
+            fmtMdeAbs(v, record.metric_type),
+        },
         { title: 'MDE with CUPED', dataIndex: 'mde_rel_cuped', render: (v: number | null) => fmtMde(v) },
         {
           title: 'Status', dataIndex: 'status',
@@ -58,7 +77,15 @@ function DimensionTable({ rows, multiGroup }: { rows: StrataPowerRow[]; multiGro
   )
 }
 
-export function StrataPowerTable({ strataPower }: { strataPower: Record<string, StrataPowerRow[]> }) {
+export function StrataPowerTable({
+  strataPower,
+  metricLabels,
+}: {
+  strataPower: Record<string, StrataPowerRow[]>
+  // Item A1 — {technical name -> display name}; optional so callers that
+  // genuinely have no config in scope keep showing the technical name.
+  metricLabels?: Record<string, string>
+}) {
   const { user, updatePreferences } = useAuth()
   const view = toView(strataPower)
   if (view.nRows === 0) return null
@@ -78,7 +105,7 @@ export function StrataPowerTable({ strataPower }: { strataPower: Record<string, 
       </Typography.Paragraph>
       {view.blocks.map((block) => (
         <div key={block.metric}>
-          <Typography.Text strong>{block.metric}</Typography.Text>
+          <Typography.Text strong>{labelForMetricName(block.metric, metricLabels)}</Typography.Text>
           {block.dimensions.map((dim) => (
             <div key={dim.label}>
               <Typography.Text type="secondary" style={{ display: 'block', margin: '4px 0' }}>

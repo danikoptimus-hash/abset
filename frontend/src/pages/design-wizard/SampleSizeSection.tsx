@@ -6,6 +6,7 @@ import {
   aggregateShortfall, groupBelowRequired, anyGroupBelowRequired,
 } from './types'
 import type { WizardState, SizeMode } from './types'
+import { mb, mt } from './spacing'
 
 interface Props {
   state: WizardState
@@ -173,17 +174,17 @@ export function SampleSizeSection({ state, setState, isRedesign }: Props) {
   }
 
   return (
-    <div style={{ marginTop: 24 }}>
+    <div style={{ ...mt('SECTION') }}>
       <Typography.Title level={5}>Sample Size</Typography.Title>
       <Tooltip title={!canCalculate ? 'Name at least 2 groups and 1 metric, and select the unit column, first' : ''}>
         <Button onClick={runCalculate} loading={calculating} disabled={!canCalculate}>
           Calculate sample size
         </Button>
       </Tooltip>
-      {calcError && <Alert type="error" showIcon message={calcError} style={{ marginTop: 8, maxWidth: 560 }} />}
+      {calcError && <Alert type="error" showIcon message={calcError} style={{ ...mt('FIELD'), maxWidth: 560 }} />}
 
       {result && (
-        <div style={{ marginTop: 12 }}>
+        <div style={{ ...mt('BLOCK') }}>
           {result.requiredNPerGroup != null ? (
             <Typography.Paragraph>
               Required per group: <strong>{result.requiredNPerGroup}</strong>.{' '}
@@ -204,7 +205,7 @@ export function SampleSizeSection({ state, setState, isRedesign }: Props) {
             <Alert
               type="warning"
               showIcon
-              style={{ marginBottom: 12, maxWidth: 560 }}
+              style={{ ...mb('BLOCK'), maxWidth: 560 }}
               message="Not enough data for this target"
               description={
                 <>
@@ -212,7 +213,7 @@ export function SampleSizeSection({ state, setState, isRedesign }: Props) {
                     You need ~{totalRequired} users total ({result.requiredNPerGroup} per group × {nGroups} groups),
                     but only {result.eligibleN} are eligible. Pick one:
                   </div>
-                  <ul style={{ marginBottom: 4, paddingLeft: 20 }}>
+                  <ul style={{ ...mb('HINT'), paddingLeft: 20 }}>
                     <li>Increase the MDE above (a bigger effect needs fewer users)</li>
                     <li>Lower the power target above</li>
                     <li>
@@ -235,7 +236,7 @@ export function SampleSizeSection({ state, setState, isRedesign }: Props) {
             <Alert
               type="info"
               showIcon
-              style={{ marginBottom: 12, maxWidth: 560 }}
+              style={{ ...mb('BLOCK'), maxWidth: 560 }}
               message="Inputs changed since this was calculated — press Calculate again to refresh"
             />
           )}
@@ -243,10 +244,10 @@ export function SampleSizeSection({ state, setState, isRedesign }: Props) {
       )}
 
       {showProportions && (
-        <div style={{ marginTop: 16 }}>
+        <div style={{ ...mt('BLOCK') }}>
           <Typography.Title level={5}>Group Proportions</Typography.Title>
           <Tooltip title={!result?.requiredNPerGroup ? 'Calculate a required sample size first' : ''}>
-            <Button size="small" disabled={!result?.requiredNPerGroup} onClick={minimizeControl} style={{ marginBottom: 12 }}>
+            <Button size="small" disabled={!result?.requiredNPerGroup} onClick={minimizeControl} style={{ ...mb('BLOCK') }}>
               Minimize control group
             </Button>
           </Tooltip>
@@ -267,7 +268,7 @@ export function SampleSizeSection({ state, setState, isRedesign }: Props) {
             const groupN = eligibleForCount != null ? Math.round(g.prop * eligibleForCount) : null
             const belowRequired = groupBelowRequired(state, g)
             return (
-              <div key={g.id} style={{ marginBottom: 8 }}>
+              <div key={g.id} style={{ ...mb('FIELD') }}>
                 <Space>
                   <Typography.Text style={{ width: 160, display: 'inline-block' }}>
                     {g.name.trim() || '(unnamed)'}
@@ -299,7 +300,7 @@ export function SampleSizeSection({ state, setState, isRedesign }: Props) {
                   <Alert
                     type="warning"
                     showIcon
-                    style={{ marginTop: 4, maxWidth: 480 }}
+                    style={{ ...mt('HINT'), maxWidth: 480 }}
                     message={`Group '${g.name.trim()}' would get ${groupN} < required ${result!.requiredNPerGroup} users — power will be below target`}
                   />
                 )}
@@ -310,7 +311,7 @@ export function SampleSizeSection({ state, setState, isRedesign }: Props) {
             type={sumOk ? 'success' : 'warning'}
             showIcon
             message={`Sum of proportions: ${sum.toFixed(3)} (~${Math.round(sum * (result?.eligibleN ?? 0))} of ${result?.eligibleN ?? 0} users)${sumOk ? '' : ' — must equal 1'}`}
-            style={{ marginTop: 8, maxWidth: 480 }}
+            style={{ ...mt('FIELD'), maxWidth: 480 }}
           />
           {/* Item 2.3: the per-group shortfall gate has an explicit bypass
               (unlike the aggregate one above) — a lopsided split is a
@@ -320,7 +321,7 @@ export function SampleSizeSection({ state, setState, isRedesign }: Props) {
             <Checkbox
               checked={state.acceptedGroupShortfall}
               onChange={(e) => setState((prev) => ({ ...prev, acceptedGroupShortfall: e.target.checked }))}
-              style={{ marginTop: 8 }}
+              style={{ ...mt('FIELD') }}
             >
               I understand the group(s) above will get less than the required minimum — proceed anyway
             </Checkbox>
