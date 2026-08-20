@@ -24,6 +24,10 @@ class CurrentUser:
     name: str
     role: str
     must_change_password: bool = False
+    # 'password' | 'oidc' (Keycloak SSO). Как и must_change_password — не
+    # право, а факт об аккаунте: фронт по нему прячет смену пароля, у
+    # SSO-пользователя ее нет вовсе. Гварды/jobs его игнорируют.
+    auth_provider: str = "password"
     # UI-настройка, а не право (как и must_change_password выше) — едет здесь
     # потому, что CurrentUser и так проекция строки users на запрос, и
     # current_user_from_token эту строку уже читает: иначе /me и /login

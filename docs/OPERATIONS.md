@@ -222,6 +222,197 @@ docker compose exec backend abkit-admin list-users
 docker/README.md §«Роли» и CLAUDE.md §«Permissions model» (там же —
 per-experiment права владения/доступа поверх базовой ролевой матрицы).
 
+## 6.1 SSO (Keycloak OIDC)
+
+Вход через корпоративный Keycloak: сотрудник, уже авторизованный в SSO,
+жмет **Sign in with SSO** и попадает в ABSet без второго логина. Роль
+берется из его групп. Уволенный/заблокированный в AD теряет доступ **без
+единого действия с нашей стороны** — Keycloak просто перестает его пускать.
+
+**Выключено по умолчанию.** Без `ABKIT_OIDC_ENABLED=true` ничего не
+меняется: вход по паролю работает ровно как раньше, кнопки SSO на странице
+логина нет. Парольный вход НЕ отключается и при включенном SSO — иначе
+поломка Keycloak отрезала бы от системы всех, включая администраторов
+(break-glass admin, заведенный `abkit-admin create-admin`, входит паролем
+всегда).
+
+### Переменные окружения
+
+| Переменная | Обязательна | Значение для прода |
+|---|---|---|
+| `ABKIT_OIDC_ENABLED` | — | `true` |
+| `ABKIT_OIDC_ISSUER` | да, если enabled | `https://keycloak.intra.click.uz/realms/<realm>` |
+| `ABKIT_OIDC_CLIENT_ID` | да, если enabled | `abset` |
+| `ABKIT_OIDC_CLIENT_SECRET` | да, если enabled | выдает админ Keycloak |
+| `ABKIT_PUBLIC_URL` | да, если enabled | `https://abset.intra.click.uz` |
+| `ABKIT_OIDC_ROLE_CLAIM` | нет | `groups` (по умолчанию) |
+| `ABKIT_OIDC_ROLE_MAP` | нет | `{"abset-admins":"admin","abset-editors":"editor","abset-viewers":"viewer"}` |
+| `ABKIT_OIDC_DEFAULT_ROLE` | нет | `viewer` — или **пусто**, чтобы отклонять всех, кто не в группах |
+| `ABKIT_OIDC_LOGOUT_UPSTREAM` | нет | `false` (по умолчанию) |
+| `ABKIT_OIDC_INTERNAL_BASE_URL` | нет | **пусто в проде** (нужна только dev-окружению) |
+
+Тонкости, которые стоит знать до включения:
+
+- **`ABKIT_PUBLIC_URL` обязателен и используется буквально.** Из него
+  строится `redirect_uri`; из заголовков запроса (`Host`,
+  `X-Forwarded-Host`) он не строится НИКОГДА — заголовок подконтролен
+  клиенту, и на нем redirect_uri был бы вектором увода кода авторизации на
+  чужой домен. Значение должно побайтово совпадать с тем, что
+  зарегистрировано у Keycloak.
+- **Пустой `ABKIT_OIDC_DEFAULT_ROLE` — значащее значение**, а не «не
+  задано»: «у кого нет ни одной сопоставленной группы — не пускать вовсе».
+  Это осмысленный выбор для закрытого инструмента; `viewer` — для
+  «пусть все сотрудники хотя бы смотрят».
+- **Побеждает самая высокая роль.** Пользователь и в `abset-editors`, и в
+  `abset-admins` получит `admin`. Ключ `"*"` в карте — общий fallback для
+  аутентифицированных, участвует в том же выборе максимума.
+- **Роль перечитывается из групп на КАЖДОМ входе.** Перевели человека из
+  editors в admins — новая роль применится при следующем входе, руками у нас
+  делать нечего. Обратное тоже верно: роль, выставленную вручную в Admin →
+  Users, следующий SSO-вход перезапишет группами.
+- **Смена `ABKIT_SECRET_KEY` рвет незавершенные входы** (им подписана
+  короткоживущая cookie транзакции) — пользователю достаточно нажать «Try
+  again». На уже выданные сессии это действует так же, как и раньше.
+
+### Запрос администратору Keycloak (отправлять как есть)
+
+> Просим завести в Keycloak (`https://keycloak.intra.click.uz`) клиент для
+> внутреннего сервиса **ABSet** (A/B-тестирование, `https://abset.intra.click.uz`).
+>
+> **Realm:** существующий корпоративный (нужно его точное имя — оно войдет
+> в issuer-URL вида `https://keycloak.intra.click.uz/realms/<realm>`).
+>
+> **Клиент:**
+> - Client ID: `abset`
+> - Client type: **OpenID Connect**, **confidential** (Client authentication:
+>   **On**) — нужен client secret, его просим передать нам защищенным каналом
+> - Standard flow (Authorization Code): **включен**
+> - Direct access grants (password grant): **выключен**
+> - Implicit flow: **выключен**
+> - Service accounts: **не нужны**
+> - PKCE: `S256` (Advanced → Proof Key for Code Exchange Code Challenge
+>   Method) — мы отправляем PKCE всегда
+> - **Valid redirect URI:** `https://abset.intra.click.uz/api/v1/auth/oidc/callback`
+>   (ровно один, без вайлдкардов)
+> - **Valid post logout redirect URI:** `https://abset.intra.click.uz/login`
+> - Web origins: `https://abset.intra.click.uz`
+>
+> **Claims в ID-токене.** Нам нужен claim со списком групп пользователя
+> **именно в ID-токене** (не только в access-токене и не только в userinfo):
+> - добавить клиенту protocol mapper типа **Group Membership**
+> - Token Claim Name: `groups`
+> - Full group path: **Off** (или On — мы понимаем оба формата)
+> - Add to ID token: **On**
+>
+> Также нужны стандартные claims `email`, `email_verified`, `given_name`,
+> `family_name` (scope `email` + `profile`). **`email_verified` должен быть
+> `true`** у сотрудников: ABSet сопоставляет учетные записи по
+> подтвержденному email и отклоняет вход с неподтвержденным адресом.
+>
+> **Группы доступа** (создать, если их нет) — по ним ABSet выдает роль:
+> - `abset-admins` → роль Admin в ABSet
+> - `abset-editors` → роль Editor
+> - `abset-viewers` → роль Viewer
+>
+> Пользователи добавляются в эти группы обычным порядком (в т.ч. через
+> синхронизацию с AD). Отдельной заявки на каждого сотрудника не нужно:
+> учетная запись в ABSet создается автоматически при первом входе, роль
+> берется из групп и обновляется при каждом следующем входе.
+>
+> **Что нам вернуть:** имя realm, client secret.
+
+### Чек-лист развертывания
+
+1. **ДО объявления SSO сотрудникам — добавить администраторов платформы в
+   `abset-admins`.** Роль присваивается по группам при ПЕРВОМ SSO-входе:
+   если админ войдет через SSO, не будучи в группе, он получит роль из
+   `ABKIT_OIDC_DEFAULT_ROLE` (viewer) либо отказ — и чинить это придется
+   break-glass админом через Admin → Users. Порядок «сначала группы, потом
+   анонс» снимает вопрос целиком.
+2. Прописать переменные из таблицы выше в `.env`, **сохранив** парольного
+   break-glass админа (`abkit-admin create-admin`) — он единственный путь
+   внутрь, если Keycloak недоступен.
+3. `bash scripts/update.sh vX.Y.Z` (обычное обновление, миграция `0024`
+   аддитивная — колонка `users.auth_provider` со значением `password` у всех
+   существующих строк).
+4. Проверить: страница `/login` показывает кнопку **Sign in with SSO**,
+   парольная форма — под спойлером «Sign in with password».
+5. Войти самому через SSO, убедиться в роли (Admin → Users, колонка
+   **Auth** = `SSO`).
+
+### Что происходит при увольнении
+
+Отзыв доступа — операция на стороне Keycloak/AD, у нас руками ничего делать
+не нужно. Есть два сценария, и они отличаются тем, где именно человек
+получит отказ:
+
+| Действие в Keycloak | Что видит пользователь | Что попадает в наш audit_log |
+|---|---|---|
+| Аккаунт **отключен** (disabled) | Ошибка на форме логина **Keycloak** — до ABSet он не доходит | ничего (наш callback не вызывался) |
+| **Убран из групп** доступа | Наша страница «Could not sign you in» с объяснением | `auth.oidc_login_rejected` (`reason: no_role_mapping`) |
+| Деактивирован в ABSet (Admin → Users) | Наша страница «Could not sign you in» | `auth.oidc_login_rejected` (`reason: inactive`) |
+
+Во всех трех случаях **отступить на пароль он не может**: у аккаунта,
+заведенного через SSO, пароля нет вовсе (хранится заведомо не-хеш, см.
+`abkit/auth/passwords.py::NO_PASSWORD_SENTINEL`), и попытка входа паролем
+дает внятное «This account signs in through corporate SSO».
+
+**Важное ограничение по времени.** ABSet не проксирует токены Keycloak и не
+опрашивает IdP на каждый запрос — после входа действует НАША сессия
+(`ABKIT_SESSION_LIFETIME_HOURS`, по умолчанию 72 часа). Уже вошедший
+сотрудник, которого отключили в AD, останется в системе до истечения своей
+сессии. Если нужно отрезать немедленно — деактивировать его в Admin → Users
+(это действует сразу, на каждом запросе) или уменьшить время жизни сессии.
+
+### Аудит
+
+Все события SSO попадают в **Admin → Action log** (и в `audit_log`):
+
+| Действие | Когда |
+|---|---|
+| `auth.oidc_login` | успешный вход (в деталях — роль и группы) |
+| `auth.oidc_user_provisioned` | учетная запись создана при первом входе |
+| `auth.oidc_role_changed` | роль изменилась из-за смены групп (`from` → `to`) |
+| `auth.oidc_login_rejected` | отказ: нет групп, деактивирован, невалидный state/nonce, отказ IdP |
+
+### Диагностика
+
+| Симптом | Причина / что делать |
+|---|---|
+| Кнопки SSO нет на `/login` | `ABKIT_OIDC_ENABLED` не `true`, ЛИБО конфиг битый (например невалидный JSON в `ABKIT_OIDC_ROLE_MAP`). Второе намеренно НЕ роняет страницу логина — смотреть лог backend, там будет причина |
+| «Single sign-on is misconfigured» | не заданы обязательные переменные — в тексте ошибки перечислено, какие |
+| «Discovery issuer mismatch» | `ABKIT_OIDC_ISSUER` не совпадает с тем, что realm сообщает о себе. Обычно опечатка в имени realm или лишний/недостающий слэш |
+| «not a member of any group that grants access» | пользователя нет ни в одной группе из `ABKIT_OIDC_ROLE_MAP`, а `ABKIT_OIDC_DEFAULT_ROLE` пуст |
+| «not marked as verified» | у пользователя в Keycloak `email_verified=false` — чинится на стороне IdP |
+| «state mismatch» / «link has expired» | вход начали в одной вкладке, завершили в другой, либо форма логина Keycloak провисела больше 10 минут. «Try again» решает |
+| Redirect URI mismatch (ошибка Keycloak) | `ABKIT_PUBLIC_URL` не совпадает с Valid redirect URI у клиента |
+
+### Локальная разработка и тесты
+
+Корпоративный realm для этого не нужен — есть одноразовый Keycloak в
+`docker-compose.keycloak.yml` (**dev-only**, прод-compose он не трогает: в
+проде Keycloak — внешняя инфраструктура SRE):
+
+```bash
+# dev-стек вместе с Keycloak (реалм abset-dev импортируется автоматически)
+docker compose -f docker-compose.yml -f docker-compose.keycloak.yml up -d --build
+# Keycloak: http://localhost:8081 (admin/admin), ABSet: http://localhost:8080
+
+# e2e-сценарии SSO (одноразовый изолированный стек, как обычный scripts/e2e.sh)
+bash scripts/e2e.sh --keycloak e2e/sso.spec.ts
+```
+
+Пользователи dev-реалма (пароль у всех `password`): `alice` →
+`abset-admins`, `bob` → `abset-editors`, `carol` → без групп (отказ),
+`dave` → неподтвержденный email (отказ).
+
+Единственная переменная, которая нужна dev-окружению и не нужна проду —
+`ABKIT_OIDC_INTERNAL_BASE_URL`: браузер видит Keycloak как
+`localhost:8081`, а backend внутри контейнера по этому адресу увидел бы
+себя. Проверка `iss` при этом остается на публичном issuer, переписываются
+только серверные вызовы (discovery/token/JWKS).
+
+
 ## 7. Диагностика
 
 ### Логи

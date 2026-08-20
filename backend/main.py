@@ -22,6 +22,7 @@ from backend.routers import design as design_router
 from backend.routers import experiments as experiments_router
 from backend.routers import folders as folders_router
 from backend.routers import jobs as jobs_router
+from backend.routers import oidc as oidc_router
 from backend.routers import tags as tags_router
 from backend.routers import users as users_router
 
@@ -93,6 +94,9 @@ def create_app() -> FastAPI:
         )
 
     app.include_router(auth_router.router, prefix="/api/v1")
+    # SSO (Keycloak OIDC) — отдельный роутер: это навигация браузера с
+    # HTML-ответами, а не JSON-API, см. backend/routers/oidc.py.
+    app.include_router(oidc_router.router, prefix="/api/v1")
     app.include_router(experiments_router.router, prefix="/api/v1")
     app.include_router(datasets_router.router, prefix="/api/v1")
     app.include_router(db_connections_router.router, prefix="/api/v1")

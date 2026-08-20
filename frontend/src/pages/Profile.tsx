@@ -17,6 +17,11 @@ export function ProfilePage() {
   const [success, setSuccess] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const forced = user?.must_change_password ?? false
+  // У SSO-аккаунта пароля нет вовсе (abkit/auth/passwords.py::
+  // NO_PASSWORD_SENTINEL), поэтому форма смены пароля ему не просто
+  // бесполезна — она вводит в заблуждение: пользователь заполнил бы
+  // "Current Password", которого не существует, и получил бы отказ.
+  const isSso = user?.auth_provider === 'oidc'
 
   const onFinish = async (values: ChangePasswordValues) => {
     setSubmitting(true)
@@ -41,7 +46,7 @@ export function ProfilePage() {
 
   return (
     <Card style={{ maxWidth: 420 }}>
-      <Typography.Title level={4}>{forced ? 'Change Password' : 'Profile'}</Typography.Title>
+      <Typography.Title level={4}>{forced && !isSso ? 'Change Password' : 'Profile'}</Typography.Title>
       {forced && (
         <Alert
           type="warning"
@@ -52,11 +57,22 @@ export function ProfilePage() {
       )}
       <Typography.Paragraph type="secondary">
         {user?.email} · role {user?.role}
+        {isSso && ' · corporate SSO'}
       </Typography.Paragraph>
+      {isSso && (
+        <Alert
+          type="info"
+          showIcon
+          message="This account signs in through corporate SSO"
+          description="There is no ABSet password to change. Your access and role come from your groups in the corporate identity provider."
+          style={{ marginBottom: 16 }}
+        />
+      )}
       {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />}
       {success && !forced && (
         <Alert type="success" message="Password changed" showIcon style={{ marginBottom: 16 }} />
       )}
+      {!isSso && (
       <Form form={form} layout="vertical" onFinish={onFinish} disabled={submitting}>
         <Form.Item name="old_password" label="Current Password" rules={[{ required: true }]}>
           <Input.Password autoComplete="current-password" />
@@ -70,6 +86,7 @@ export function ProfilePage() {
           </Button>
         </Form.Item>
       </Form>
+      )}
     </Card>
   )
 }

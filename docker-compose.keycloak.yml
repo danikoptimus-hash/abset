@@ -1,0 +1,85 @@
+# Dev/e2e ONLY — Keycloak for developing and testing SSO locally.
+#
+# Prod compose (docker-compose.yml) is deliberately untouched by this file:
+# in production Keycloak is EXTERNAL infrastructure run by SRE
+# (https://keycloak.intra.click.uz), not something ABSet ships or operates.
+# This override exists so the whole SSO feature is developable and testable
+# before the corporate realm exists at all.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.keycloak.yml up -d --build
+#   scripts/e2e.sh --keycloak            # same thing, throwaway stack, for the SSO specs
+#
+# The realm (docker/keycloak/abset-dev-realm.json) is imported on start:
+#   client   abset            confidential, secret "abset-dev-secret"
+#   groups   abset-admins / abset-editors / abset-viewers
+#   users    alice -> abset-admins, bob -> abset-editors, carol -> no groups
+#   (all passwords: "password", all emails pre-verified)
+#
+# The "groups" claim is added to the ID token by a group-membership mapper on
+# the client's dedicated scope — without it ABKIT_OIDC_ROLE_CLAIM would find
+# nothing and every user would fall through to the default role.
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    # start-dev: in-memory H2 + no TLS requirement. Never for production.
+    command: ["start-dev", "--import-realm", "--http-port=8081"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # The browser and the backend must agree on the issuer string, or the
+      # `iss` check in verify_id_token fails. Both reach Keycloak through the
+      # SAME host:port here (published on the host, and the backend container
+      # talks to it via the host gateway) precisely so one issuer works for
+      # both — the classic "works in the browser, fails server-side" OIDC
+      # trap when the container name and the public URL differ.
+      # MUST follow the published port: this is the hostname Keycloak puts in
+      # `iss` and in every discovery URL, and it has to match
+      # ABKIT_OIDC_ISSUER byte for byte. Hardcoding 8081 here broke the e2e
+      # run on an alternate port (issuer said 8081, config said 8181) — the
+      # mismatch check in discover() caught it, which is exactly its job.
+      KC_HOSTNAME: http://localhost:${ABKIT_KEYCLOAK_PORT:-8081}
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "${ABKIT_KEYCLOAK_PORT:-8081}:8081"
+    volumes:
+      - ./docker/keycloak/abset-dev-realm.json:/opt/keycloak/data/import/abset-dev-realm.json:ro
+    healthcheck:
+      # No curl/wget in the Keycloak image; the JVM's own HTTP client via
+      # /bin/sh is the documented workaround for a health probe here.
+      test:
+        - CMD-SHELL
+        - "exec 3<>/dev/tcp/127.0.0.1/8081 && echo -e 'GET /realms/abset-dev HTTP/1.1\\nHost: localhost\\nConnection: close\\n\\n' >&3 && cat <&3 | head -1 | grep -q '200 OK'"
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 20s
+
+  backend:
+    environment:
+      ABKIT_OIDC_ENABLED: ${ABKIT_OIDC_ENABLED:-true}
+      # localhost:8081 — the SAME string the browser uses (see KC_HOSTNAME
+      # above), so the issuer matches on both sides. host.docker.internal maps
+      # it to the host from inside the container.
+      ABKIT_OIDC_ISSUER: ${ABKIT_OIDC_ISSUER:-http://localhost:8081/realms/abset-dev}
+      ABKIT_OIDC_CLIENT_ID: ${ABKIT_OIDC_CLIENT_ID:-abset}
+      ABKIT_OIDC_CLIENT_SECRET: ${ABKIT_OIDC_CLIENT_SECRET:-abset-dev-secret}
+      ABKIT_OIDC_ROLE_CLAIM: ${ABKIT_OIDC_ROLE_CLAIM:-groups}
+      ABKIT_OIDC_ROLE_MAP: ${ABKIT_OIDC_ROLE_MAP:-{"abset-admins":"admin","abset-editors":"editor","abset-viewers":"viewer"}}
+      # Empty by default in dev so the "carol has no groups -> rejected"
+      # scenario is the default behaviour and the e2e spec can flip it.
+      ABKIT_OIDC_DEFAULT_ROLE: ${ABKIT_OIDC_DEFAULT_ROLE:-}
+      ABKIT_PUBLIC_URL: ${ABKIT_PUBLIC_URL:-http://localhost:${ABKIT_PORT:-8080}}
+      # Split horizon, DEV ONLY (empty in production, where one URL works for
+      # everyone): the browser reaches Keycloak at localhost:8081, but inside
+      # the backend container that address is the backend itself. The `iss`
+      # check still uses the public issuer above; only server-to-server calls
+      # (discovery / token / JWKS) go to this internal origin. See
+      # abkit/auth/oidc.py::to_internal_url.
+      ABKIT_OIDC_INTERNAL_BASE_URL: ${ABKIT_OIDC_INTERNAL_BASE_URL:-http://keycloak:8081}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy

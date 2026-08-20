@@ -33,6 +33,11 @@ dependencies = [
     "sqlglot>=25.0",
     "Pillow>=10.0",
     "psutil>=5.9",
+    # HTTP-клиент для SSO (Keycloak OIDC): discovery + обмен кода на токены.
+    # Стал рантайм-зависимостью вместе с этой фичей — до нее httpx требовался
+    # только в dev (fastapi TestClient), поэтому из dev-extras он убран, чтобы
+    # не значиться в двух местах с разными версиями.
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
@@ -41,7 +46,6 @@ dev = [
     "pytest-cov>=5.0",
     "testcontainers[postgres]>=4.0",
     "pyflakes>=3.4",
-    "httpx>=0.27",
 ]
 # Database Connections feature (CLAUDE.md): drivers for the non-Postgres
 # engines. PostgreSQL connections reuse psycopg (core dependency, already

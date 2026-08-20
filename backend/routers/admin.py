@@ -43,7 +43,7 @@ def _to_out(u) -> UserAdminOut:
         id=str(u.id), email=u.email, first_name=u.first_name, last_name=u.last_name,
         role=u.role, is_active=u.is_active,
         must_change_password=u.must_change_password, created_at=u.created_at,
-        last_login_at=u.last_login_at,
+        last_login_at=u.last_login_at, auth_provider=u.auth_provider,
     )
 
 

@@ -303,6 +303,24 @@ operational/publication status, or delete it. A draft experiment is invisible
 to editors without a grant; a published one is visible to everyone unless its
 owner restricted visibility to specific roles.
 
+**Where your role comes from.** If your instance has corporate single sign-on
+enabled, the login page offers **Sign in with SSO** as the main button (the
+password form is still there, tucked under "Sign in with password"). Signing in
+that way creates your ABSet account automatically on first use, and your role
+is taken from your groups in the corporate identity provider — `abset-admins`
+→ Admin, `abset-editors` → Editor, `abset-viewers` → Viewer. It is re-read on
+**every** sign-in, so a group change applies the next time you log in, and an
+Admin editing your role by hand in Admin → Users will be overwritten by your
+groups at your next SSO login. Ask your platform administrator to change your
+groups rather than your role.
+
+SSO accounts have no ABSet password: there is nothing to change on the Profile
+page, and Admins see no "Reset Password" action for them (Admin → Users shows
+an **Auth** column saying `SSO` or `password`). Accounts that existed before
+SSO keep their password and continue to sign in with it. If you lose access
+after leaving a group — or after leaving the company — the sign-in simply
+stops working; there is no password to fall back on.
+
 ## Walkthrough: from data to decision
 
 ### 1. Prepare a dataset and write your hypothesis

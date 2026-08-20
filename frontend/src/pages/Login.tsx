@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Button, Card, Form, Input, Typography, Alert, Collapse } from 'antd'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { Button, Card, Form, Input, Typography, Alert, Collapse, Divider } from 'antd'
+import { LoginOutlined } from '@ant-design/icons'
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '../auth/AuthContext'
 import { apiClient, errorMessage } from '../api/client'
@@ -80,8 +81,14 @@ export function LoginPage() {
   const { login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const [searchParams] = useSearchParams()
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  // Проставляется ссылкой "Use password instead" со страницы ошибки SSO
+  // (backend/routers/oidc.py::_error_page) — тогда парольную форму сразу
+  // разворачиваем: человек уже знает, что через SSO не вышло, и заставлять
+  // его еще раз кликать "Sign in with password" незачем.
+  const ssoFailed = searchParams.get('sso') === 'failed'
 
   const { data: config } = useQuery({
     queryKey: queryKeys.authConfig(),
@@ -115,19 +122,73 @@ export function LoginPage() {
           <Typography.Text type="secondary">Sign in</Typography.Text>
         </div>
         {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />}
-        <Form layout="vertical" onFinish={onFinish} disabled={submitting}>
-          <Form.Item name="email" label="Email" rules={[{ required: true, message: 'Enter your email' }]}>
-            <Input autoFocus autoComplete="username" />
-          </Form.Item>
-          <Form.Item name="password" label="Password" rules={[{ required: true, message: 'Enter your password' }]}>
-            <Input.Password autoComplete="current-password" />
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit" block loading={submitting}>
-              Sign In
+        {ssoFailed && !error && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="Single sign-on didn't complete. You can try again or sign in with a password."
+          />
+        )}
+
+        {/* SSO включено — кнопка становится ОСНОВНЫМ действием, парольная
+            форма уезжает под спойлер (ТЗ п.3). Это обычная ссылка, а не
+            fetch: весь обмен идет редиректами браузера, и XHR на
+            /auth/oidc/login просто вернул бы 302 в никуда. */}
+        {config?.oidc_enabled && (
+          <>
+            <Button
+              type="primary"
+              size="large"
+              block
+              icon={<LoginOutlined />}
+              href="/api/v1/auth/oidc/login"
+              // Не react-router Link: цель находится ВНЕ SPA (это редирект на
+              // Keycloak), клиентская навигация тут неприменима.
+            >
+              Sign in with SSO
             </Button>
-          </Form.Item>
-        </Form>
+            <Divider plain style={{ marginTop: 20, marginBottom: 8 }}>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                or
+              </Typography.Text>
+            </Divider>
+          </>
+        )}
+
+        <Collapse
+          ghost
+          // Без SSO — форма просто раскрыта, страница выглядит как раньше.
+          // С SSO — свернута, кроме случая, когда пользователь пришел сюда
+          // со страницы ошибки SSO.
+          activeKey={!config?.oidc_enabled || ssoFailed ? ['password'] : undefined}
+          defaultActiveKey={!config?.oidc_enabled || ssoFailed ? ['password'] : undefined}
+          collapsible={config?.oidc_enabled ? undefined : 'disabled'}
+          items={[
+            {
+              key: 'password',
+              // При выключенном SSO заголовок скрываем: старая страница
+              // логина не должна обрасти лишним аккордеоном.
+              label: config?.oidc_enabled ? 'Sign in with password' : null,
+              showArrow: !!config?.oidc_enabled,
+              children: (
+                <Form layout="vertical" onFinish={onFinish} disabled={submitting}>
+                  <Form.Item name="email" label="Email" rules={[{ required: true, message: 'Enter your email' }]}>
+                    <Input autoFocus={!config?.oidc_enabled} autoComplete="username" />
+                  </Form.Item>
+                  <Form.Item name="password" label="Password" rules={[{ required: true, message: 'Enter your password' }]}>
+                    <Input.Password autoComplete="current-password" />
+                  </Form.Item>
+                  <Form.Item style={{ marginBottom: 0 }}>
+                    <Button type={config?.oidc_enabled ? 'default' : 'primary'} htmlType="submit" block loading={submitting}>
+                      Sign In
+                    </Button>
+                  </Form.Item>
+                </Form>
+              ),
+            },
+          ]}
+        />
         {config?.self_registration_enabled && (
           <Collapse
             ghost

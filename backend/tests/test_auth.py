@@ -118,14 +118,18 @@ def test_config_reports_self_registration_disabled_by_default(app_client, monkey
     monkeypatch.delenv("ABKIT_ALLOW_SELF_REGISTRATION", raising=False)
     resp = app_client.get("/api/v1/auth/config")
     assert resp.status_code == 200
-    assert resp.json() == {"self_registration_enabled": False}
+    # Проверяем КЛЮЧ, а не весь словарь целиком: /auth/config — точка роста
+    # (сюда приезжает каждый новый флаг страницы логина, например oidc_enabled
+    # из SSO-пакета), и сравнение по == делало бы каждый такой флаг ложным
+    # падением этого теста.
+    assert resp.json()["self_registration_enabled"] is False
 
 
 def test_config_reports_self_registration_enabled(app_client, monkeypatch):
     monkeypatch.setenv("ABKIT_ALLOW_SELF_REGISTRATION", "true")
     resp = app_client.get("/api/v1/auth/config")
     assert resp.status_code == 200
-    assert resp.json() == {"self_registration_enabled": True}
+    assert resp.json()["self_registration_enabled"] is True
 
 
 def test_register_returns_403_when_disabled(app_client, monkeypatch):

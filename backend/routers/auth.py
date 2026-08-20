@@ -25,12 +25,28 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.get("/config")
 def config() -> dict[str, bool]:
-    """Публичный (без авторизации) — фронту нужно знать до логина, показывать
-    ли ссылку/форму 'Регистрация' на странице логина (DOCKER.md §4.2)."""
+    """Публичный (без авторизации) — фронту нужно знать ДО логина, что
+    показывать на странице входа: форму регистрации (DOCKER.md §4.2) и/или
+    кнопку SSO.
+
+    Отдаются только БУЛЕВЫ ФЛАГИ. Ни issuer, ни client_id сюда не попадают:
+    эндпоинт неаутентифицированный, а весь OIDC-обмен идет server-side —
+    фронту достаточно знать, рисовать ли кнопку, ведущую на
+    /api/v1/auth/oidc/login."""
+    from abkit.auth.oidc import OidcError, load_settings
+
+    try:
+        oidc_enabled = load_settings().enabled
+    except OidcError:
+        # Битая OIDC-конфигурация не должна ронять страницу логина целиком —
+        # иначе опечатка в ABKIT_OIDC_ROLE_MAP отрезает и вход по паролю.
+        # Кнопку не рисуем; настоящая причина уже в логе backend'а.
+        oidc_enabled = False
     return {
         "self_registration_enabled": os.environ.get(
             "ABKIT_ALLOW_SELF_REGISTRATION", "false"
         ).lower() == "true",
+        "oidc_enabled": oidc_enabled,
     }
 
 
@@ -101,9 +117,26 @@ def register(body: RegisterRequest) -> dict[str, bool]:
 
 
 @router.post("/logout")
-def logout(response: Response) -> dict[str, bool]:
+def logout(response: Response) -> dict[str, str | bool]:
+    """Всегда гасит НАШУ сессию. Опционально (ABKIT_OIDC_LOGOUT_UPSTREAM=true)
+    возвращает ссылку на RP-initiated logout Keycloak — фронт по ней уводит
+    браузер, чтобы разлогинить и SSO-сессию тоже.
+
+    По умолчанию выключено намеренно: на общей машине выход из ABSet не должен
+    неожиданно выкидывать пользователя из ВСЕХ корпоративных приложений разом.
+    Возвращаем ссылку, а не редиректим сами: /logout вызывается XHR'ом, и
+    302 в ответ на fetch браузер отработает молча, никуда не уводя."""
     response.delete_cookie(COOKIE_NAME, path="/")
-    return {"ok": True}
+    upstream: str | None = None
+    try:
+        from abkit.auth.oidc import OidcError, build_logout_url, load_settings
+
+        settings = load_settings()
+        if settings.enabled:
+            upstream = build_logout_url(settings)
+    except OidcError:
+        upstream = None
+    return {"ok": True, "upstream_logout_url": upstream or ""}
 
 
 @router.get("/me", response_model=UserOut)

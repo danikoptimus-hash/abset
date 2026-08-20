@@ -13,8 +13,14 @@ export interface paths {
         };
         /**
          * Config
-         * @description Публичный (без авторизации) — фронту нужно знать до логина, показывать
-         *     ли ссылку/форму 'Регистрация' на странице логина (DOCKER.md §4.2).
+         * @description Публичный (без авторизации) — фронту нужно знать ДО логина, что
+         *     показывать на странице входа: форму регистрации (DOCKER.md §4.2) и/или
+         *     кнопку SSO.
+         *
+         *     Отдаются только БУЛЕВЫ ФЛАГИ. Ни issuer, ни client_id сюда не попадают:
+         *     эндпоинт неаутентифицированный, а весь OIDC-обмен идет server-side —
+         *     фронту достаточно знать, рисовать ли кнопку, ведущую на
+         *     /api/v1/auth/oidc/login.
          */
         get: operations["config_api_v1_auth_config_get"];
         put?: never;
@@ -75,7 +81,17 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Logout */
+        /**
+         * Logout
+         * @description Всегда гасит НАШУ сессию. Опционально (ABKIT_OIDC_LOGOUT_UPSTREAM=true)
+         *     возвращает ссылку на RP-initiated logout Keycloak — фронт по ней уводит
+         *     браузер, чтобы разлогинить и SSO-сессию тоже.
+         *
+         *     По умолчанию выключено намеренно: на общей машине выход из ABSet не должен
+         *     неожиданно выкидывать пользователя из ВСЕХ корпоративных приложений разом.
+         *     Возвращаем ссылку, а не редиректим сами: /logout вызывается XHR'ом, и
+         *     302 в ответ на fetch браузер отработает молча, никуда не уводя.
+         */
         post: operations["logout_api_v1_auth_logout_post"];
         delete?: never;
         options?: never;
@@ -140,6 +156,46 @@ export interface paths {
         put?: never;
         /** Change Password */
         post: operations["change_password_api_v1_auth_change_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/oidc/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Oidc Login Start
+         * @description Старт входа: редирект на Keycloak с state/nonce/PKCE.
+         */
+        get: operations["oidc_login_start_api_v1_auth_oidc_login_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/oidc/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Oidc Callback
+         * @description Возврат от Keycloak: проверка state/nonce, обмен кода, наша сессия.
+         */
+        get: operations["oidc_callback_api_v1_auth_oidc_callback_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3293,6 +3349,11 @@ export interface components {
             /** Must Change Password */
             must_change_password: boolean;
             /**
+             * Auth Provider
+             * @default password
+             */
+            auth_provider: string;
+            /**
              * Created At
              * Format: date-time
              */
@@ -3329,6 +3390,11 @@ export interface components {
             role: string;
             /** Must Change Password */
             must_change_password: boolean;
+            /**
+             * Auth Provider
+             * @default password
+             */
+            auth_provider: string;
             /**
              * Folders Panel Collapsed
              * @default true
@@ -3493,7 +3559,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        [key: string]: boolean;
+                        [key: string]: string | boolean;
                     };
                 };
             };
@@ -3589,6 +3655,62 @@ export interface operations {
                     "application/json": {
                         [key: string]: boolean;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    oidc_login_start_api_v1_auth_oidc_login_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    oidc_callback_api_v1_auth_oidc_callback_get: {
+        parameters: {
+            query?: {
+                code?: string | null;
+                state?: string | null;
+                error?: string | null;
+                error_description?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                abkit_oidc_tx?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

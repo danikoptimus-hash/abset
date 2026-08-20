@@ -14,6 +14,9 @@ class UserAdminOut(BaseModel):
     role: str
     is_active: bool
     must_change_password: bool
+    # 'password' | 'oidc' — админу нужно видеть, откуда аккаунт, чтобы не
+    # предлагать сброс пароля тому, у кого пароля нет (SSO).
+    auth_provider: str = "password"
     created_at: datetime
     last_login_at: datetime | None
 

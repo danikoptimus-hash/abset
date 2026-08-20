@@ -1,0 +1,144 @@
+{
+  "realm": "abset-dev",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "verifyEmail": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "groups": [
+    {
+      "name": "abset-admins",
+      "path": "/abset-admins"
+    },
+    {
+      "name": "abset-editors",
+      "path": "/abset-editors"
+    },
+    {
+      "name": "abset-viewers",
+      "path": "/abset-viewers"
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "abset",
+      "name": "ABSet",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "secret": "abset-dev-secret",
+      "redirectUris": [
+        "http://localhost:8080/api/v1/auth/oidc/callback",
+        "http://localhost:8090/api/v1/auth/oidc/callback",
+        "http://localhost:8091/api/v1/auth/oidc/callback"
+      ],
+      "webOrigins": [
+        "http://localhost:8080",
+        "http://localhost:8090",
+        "http://localhost:8091"
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:8080/login##http://localhost:8090/login##http://localhost:8091/login",
+        "pkce.code.challenge.method": "S256"
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "claim.name": "groups"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "alice@abset-dev.test",
+      "firstName": "Alice",
+      "lastName": "Admin",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/abset-admins"
+      ]
+    },
+    {
+      "username": "bob",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "bob@abset-dev.test",
+      "firstName": "Bob",
+      "lastName": "Editor",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/abset-editors"
+      ]
+    },
+    {
+      "username": "carol",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "carol@abset-dev.test",
+      "firstName": "Carol",
+      "lastName": "Nogroup",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "groups": []
+    },
+    {
+      "username": "dave",
+      "enabled": true,
+      "emailVerified": false,
+      "email": "dave@abset-dev.test",
+      "firstName": "Dave",
+      "lastName": "Unverified",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/abset-editors"
+      ]
+    }
+  ]
+}

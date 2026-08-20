@@ -503,6 +503,83 @@ Drag&drop строки на папку (п.5.3.в опционально) — Н
 
 Тесты: `backend/tests/test_folders.py` (create/list-with-counts/rename/delete permissions/move single+bulk/filter composition), `tests/test_audit_log.py`-стиль для audit-деталей покрыт внутри `test_folders.py` через прямые ассерты `AuditRepo`. E2E: `frontend/e2e/folders.spec.ts` (создание папки → move по одной строке → фильтр по клику → bulk-move второго теста → delete папки → оба теста пережили удаление, вернулись в Uncategorized; отдельный тест — viewer не видит "New folder", All tests/Uncategorized видны всем).
 
+## SSO: Keycloak OIDC (вход через корпоративный IdP)
+
+Регламент эксплуатации, все env-переменные и **готовый текст заявки админу
+Keycloak** — [docs/OPERATIONS.md](docs/OPERATIONS.md) §6.1. Здесь — только
+архитектурные решения.
+
+**Главное решение: токены Keycloak НЕ проксируются в наш API.** Успешный
+callback выпускает ОБЫЧНУЮ сессию ABSet (`abkit/auth/tokens.py`) — ту же, что
+и вход по паролю. Отсюда: нет refresh-token-машинерии, нет хранения
+access/refresh, нет интроспекции на каждый запрос; временем доступа управляет
+`ABKIT_SESSION_LIFETIME_HOURS`. Следствие, которое надо знать: уволенный
+теряет доступ на СЛЕДУЮЩЕМ входе либо по истечении текущей сессии, не
+мгновенно (мгновенный отзыв — деактивация в Admin → Users).
+
+**Раздел ответственности** — тот же, что у `exchange.py`/`jobs.py`:
+`abkit/auth/oidc.py` — чистый протокол (конфиг, discovery, PKCE, проверка
+ID-токена, резолв роли), без БД и без FastAPI, тестируется без Postgres и без
+Keycloak (`tests/test_oidc_core.py`); `abkit/auth/service.py::oidc_login` —
+провижининг (БД + audit); `backend/routers/oidc.py` — HTTP.
+
+**Почему отдельный роутер, а не `routers/auth.py`**: эти два эндпоинта —
+НАВИГАЦИЯ БРАУЗЕРА, а не JSON-API. Они отвечают редиректами и HTML; ошибка
+callback'а обязана быть человеческой страницей (`_error_page`), потому что
+пользователь смотрит на нее в адресной строке — `{"error":{...}}` там
+неприемлем.
+
+**Транзакция входа (state/nonce/PKCE-verifier)** живет в ОТДЕЛЬНОЙ подписанной
+cookie `abkit_oidc_tx`, а не в памяти процесса: переживает рестарт backend'а
+посреди входа, не требует общего состояния. `SameSite=lax`, НЕ `strict` как у
+сессионной — Strict-cookie браузер не пришлет при возврате с домена Keycloak, и
+вход ломался бы ровно на callback'е. Узкий `path=/api/v1/auth/oidc`, время
+жизни 10 минут.
+
+**Пароля у SSO-аккаунта нет вовсе.** `password_hash` хранит
+`NO_PASSWORD_SENTINEL` (`abkit/auth/passwords.py`) — заведомо НЕ-хеш, для
+которого ветка сравнения не существует ни в одной версии `verify_password`.
+Колонку осознанно НЕ делали nullable: откат на предыдущий тег приложения
+уронил бы старый код на `None`, а на сентинеле он честно скажет «Invalid email
+or password». Поверх этого — явная проверка `auth_provider == 'oidc'` в
+`login()` с внятным сообщением (защита в глубину + чтобы уволенный не решил,
+что просто забыл пароль).
+
+**Роль перечитывается из групп на КАЖДОМ входе** (ТЗ: смена групп доезжает
+сама). Побеждает самая высокая (`admin > editor > viewer`) — иначе результат
+зависел бы от порядка ключей в JSON. `"*"` — участник того же выбора
+максимума, а не «последнее слово».
+
+**`redirect_uri` — только из `ABKIT_PUBLIC_URL`**, никогда из `Host`/
+`X-Forwarded-Host`: заголовок подконтролен клиенту, и на нем redirect_uri стал
+бы вектором увода кода авторизации. Покрыто тестом и на уровне API, и в e2e.
+
+**Dev-окружение** (`docker-compose.keycloak.yml` + `docker/keycloak/
+abset-dev-realm.json`, прод-compose не трогается — там Keycloak внешний):
+`bash scripts/e2e.sh --keycloak` поднимает одноразовый стек с Keycloak;
+`e2e/sso.spec.ts` без флага пропускается целиком, поэтому обычный прогон e2e
+не требует IdP. Единственная dev-только переменная —
+`ABKIT_OIDC_INTERNAL_BASE_URL`: браузер видит Keycloak как `localhost:8081`, а
+backend по этому адресу увидел бы себя; проверка `iss` остается на публичном
+issuer, переписываются только серверные вызовы (`to_internal_url`). Подменять
+`localhost` через `extra_hosts` НЕЛЬЗЯ — это ломает собственный loopback
+(healthcheck backend'а). `KC_HOSTNAME` обязан следовать за опубликованным
+портом, иначе issuer в токене разъедется с настроенным (уже ловили на прогоне
+e2e на альтернативном порту — поймала проверка issuer-mismatch в `discover()`).
+
+**Сценарий увольнения различает два случая** (важно для ожиданий): аккаунт
+ОТКЛЮЧЕН в Keycloak — отказ приходит на форме Keycloak, до нашего callback'а,
+и записи в нашем audit_log не будет (ее физически неоткуда взять); ВЫНУТ ИЗ
+ГРУПП — доходит до нас, показывается наша страница ошибки и пишется
+`auth.oidc_login_rejected`. Оба покрыты отдельными e2e; таблица — в
+OPERATIONS §6.1.
+
+Тесты: `tests/test_oidc_core.py` (чистая логика, включая alg=none, чужой ключ,
+clock skew, кэш JWKS/discovery), `backend/tests/test_oidc_api.py` (провижининг,
+роли, отказы, подделка state, forged Host, сосуществование с паролем — против
+реальной БД), `frontend/e2e/sso.spec.ts` (браузер против настоящего Keycloak,
+включая обе версии сценария увольнения).
+
 ## Пакет design & reporting fixes (A1-A5 / B1-B3 / C1-C4)
 
 **A1. Подпись метрики отдельно от колонки.** `MetricConfig.display_name`

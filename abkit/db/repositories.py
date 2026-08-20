@@ -58,7 +58,12 @@ class UserRepo:
         password_hash: str,
         role: str,
         must_change_password: bool = False,
+        auth_provider: str = "password",
     ) -> uuid_mod.UUID:
+        """auth_provider (Keycloak SSO, миграция 0024) — 'password' по
+        умолчанию, поэтому все существующие вызовы (CLI, admin-создание,
+        self-registration) продолжают заводить обычные парольные аккаунты без
+        единой правки. 'oidc' передает только провижининг SSO."""
         with session_scope() as s:
             if s.scalar(select(User).where(User.email == email)) is not None:
                 raise RepoError(f"A user with email '{email}' already exists")
@@ -69,6 +74,7 @@ class UserRepo:
                 password_hash=password_hash,
                 role=role,
                 must_change_password=must_change_password,
+                auth_provider=auth_provider,
             )
             s.add(user)
             s.flush()

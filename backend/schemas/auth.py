@@ -28,6 +28,10 @@ class UserOut(BaseModel):
     name: str
     role: str
     must_change_password: bool
+    # 'password' | 'oidc' — фронт прячет по нему смену пароля (у SSO-аккаунта
+    # пароля нет). Дефолт есть, чтобы старые сериализованные ответы/тесты не
+    # ломались на отсутствии поля.
+    auth_provider: str = "password"
     # Per-user UI-настройки едут вместе со всем остальным про текущего
     # пользователя: и /login, и /me отдают UserOut, так что отдельного
     # запроса за настройками на старте приложения не нужно.
@@ -40,6 +44,7 @@ class UserOut(BaseModel):
         return cls(
             id=user.id, email=user.email, name=user.name, role=user.role,
             must_change_password=user.must_change_password,
+            auth_provider=user.auth_provider,
             folders_panel_collapsed=user.folders_panel_collapsed,
             strata_balance_expanded=user.strata_balance_expanded,
             strata_power_expanded=user.strata_power_expanded,

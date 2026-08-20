@@ -34,7 +34,12 @@ class Base(DeclarativeBase):
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = (CheckConstraint("role IN ('viewer','editor','admin')", name="ck_users_role"),)
+    __table_args__ = (
+        CheckConstraint("role IN ('viewer','editor','admin')", name="ck_users_role"),
+        CheckConstraint(
+            "auth_provider IN ('password','oidc')", name="ck_users_auth_provider"
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
@@ -43,6 +48,13 @@ class User(Base):
     first_name: Mapped[str] = mapped_column(Text, nullable=False, default="")
     last_name: Mapped[str] = mapped_column(Text, nullable=False, default="")
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    # Keycloak OIDC SSO (migration 0024): 'password' (default, everything that
+    # existed before SSO — including the break-glass admin) or 'oidc'
+    # (auto-provisioned on first SSO login, has no password at all: see
+    # abkit/auth/passwords.py::NO_PASSWORD_SENTINEL). Password login is
+    # refused for 'oidc' accounts, and the UI hides every password
+    # affordance for them.
+    auth_provider: Mapped[str] = mapped_column(Text, nullable=False, default="password")
     role: Mapped[str] = mapped_column(Text, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

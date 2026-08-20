@@ -26,9 +26,16 @@ export async function clickSelectOption(page: Page, label: string) {
 
 export async function loginViaUi(page: Page, email = 'admin@e2e.test', password = 'e2epass123') {
   await page.goto('/login')
+  // С включенным SSO (scripts/e2e.sh --keycloak) парольная форма убрана под
+  // спойлер — разворачиваем, если он есть. Без SSO страница выглядит как
+  // раньше, и этот шаг просто пропускается: один хелпер работает в обоих
+  // режимах, без ветвления по env в каждом спеке.
+  const passwordToggle = page.getByText('Sign in with password')
+  if (await passwordToggle.count()) await passwordToggle.click()
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password').fill(password)
-  await page.getByRole('button', { name: 'Sign In' }).click()
+  // exact: иначе подстрочное совпадение ловит и заголовок спойлера выше.
+  await page.getByRole('button', { name: 'Sign In', exact: true }).click()
   await expect(page).toHaveURL(/\/experiments$/)
 }
 

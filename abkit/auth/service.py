@@ -78,6 +78,22 @@ def login(email: str, password: str) -> str:
         )
         raise AuthError("This account has been deactivated by an administrator")
 
+    # SSO-аккаунт паролем не входит — у него пароля нет вовсе
+    # (NO_PASSWORD_SENTINEL). Проверка стоит ДО verify_password и дает внятное
+    # сообщение вместо «Invalid email or password»: иначе уволенный сотрудник,
+    # которому Keycloak уже отказал, решил бы, что просто забыл пароль, и
+    # ушел бы выяснять это к админам. verify_password на сентинеле и так
+    # вернул бы False — это защита в глубину, а не единственный барьер.
+    if user.auth_provider == "oidc":
+        _audit(
+            action="auth.login_failed", user_id=user.id, user_email=email,
+            details={"reason": "oidc_account_no_password"},
+        )
+        raise AuthError(
+            "This account signs in through corporate SSO and has no password. "
+            "Use the 'Sign in with SSO' button."
+        )
+
     if not verify_password(password, user.password_hash):
         repo.record_login_failure(email, max_attempts=_MAX_LOGIN_ATTEMPTS, lockout_minutes=_LOCKOUT_MINUTES)
         _audit(
@@ -88,6 +104,98 @@ def login(email: str, password: str) -> str:
 
     repo.record_login_success(user.id)
     _audit(action="auth.login", user_id=user.id, user_email=user.email)
+    return create_session_token(
+        user_id=str(user.id),
+        email=user.email,
+        role=user.role,
+        lifetime_hours=_session_lifetime_hours(),
+    )
+
+
+class OidcRejected(AuthError):
+    """Вход через SSO отклонен НАМИ (не Keycloak): пользователь аутентифицирован,
+    но его группы не дают ни одной роли, либо аккаунт деактивирован у нас.
+    Отдельный тип, потому что роутер рисует для него человеческую страницу с
+    конкретной причиной, а не общий 401."""
+
+
+def oidc_login(identity, settings) -> str:
+    """Провижининг + вход по проверенной OIDC-личности. Возвращает токен
+    сессии ABSet — ТОТ ЖЕ, что выдает вход по паролю (см. модульный docstring
+    abkit/auth/oidc.py: токены Keycloak наружу не проксируются).
+
+    identity: abkit.auth.oidc.OidcIdentity (подпись и nonce уже проверены).
+    settings: abkit.auth.oidc.OidcSettings — нужен для карты ролей.
+
+    Сопоставление — по email (уже проверенному на email_verified). Роль
+    вычисляется из групп НА КАЖДОМ входе, поэтому изменение групп в AD/Keycloak
+    доезжает при следующем входе, без ручной правки у нас (ТЗ п.2).
+    """
+    from abkit.auth.oidc import resolve_role
+    from abkit.auth.passwords import NO_PASSWORD_SENTINEL
+
+    email = identity.email
+    role = resolve_role(identity.groups, settings)
+    repo = UserRepo()
+    user = repo.get_by_email(email)
+
+    if role is None:
+        # Нет ни совпавшей группы, ни дефолтной роли — вход отклоняем.
+        _audit(
+            action="auth.oidc_login_rejected",
+            user_id=user.id if user is not None else None,
+            user_email=email,
+            details={"reason": "no_role_mapping", "groups": identity.groups},
+        )
+        raise OidcRejected(
+            f"Your account ({email}) is not a member of any group that grants access "
+            "to ABSet. Ask an administrator to add you to the appropriate access group."
+        )
+
+    if user is None:
+        # Имя может не приехать (не все реалмы отдают given_name) — тогда
+        # локальная часть email лучше пустой строки в списке пользователей.
+        first_name = identity.first_name or email.split("@", 1)[0]
+        user_id = repo.create(
+            email=email,
+            first_name=first_name,
+            last_name=identity.last_name,
+            password_hash=NO_PASSWORD_SENTINEL,
+            role=role,
+            must_change_password=False,
+            auth_provider="oidc",
+        )
+        _audit(
+            action="auth.oidc_user_provisioned", user_id=user_id, user_email=email,
+            object_type="user", object_id=str(user_id), object_name=email,
+            details={"role": role, "groups": identity.groups},
+        )
+        user = repo.get_by_id(user_id)
+    else:
+        if not user.is_active:
+            # Деактивирован у НАС. Keycloak про это не знает и пустил бы —
+            # локальная деактивация должна перевешивать.
+            _audit(
+                action="auth.oidc_login_rejected", user_id=user.id, user_email=email,
+                details={"reason": "inactive"},
+            )
+            raise OidcRejected(
+                "This account has been deactivated in ABSet by an administrator."
+            )
+        if user.role != role:
+            repo.update_role(user.id, role)
+            _audit(
+                action="auth.oidc_role_changed", user_id=user.id, user_email=email,
+                object_type="user", object_id=str(user.id), object_name=email,
+                details={"from": user.role, "to": role, "groups": identity.groups},
+            )
+            user = repo.get_by_id(user.id)
+
+    repo.record_login_success(user.id)
+    _audit(
+        action="auth.oidc_login", user_id=user.id, user_email=user.email,
+        details={"role": user.role, "groups": identity.groups},
+    )
     return create_session_token(
         user_id=str(user.id),
         email=user.email,
@@ -118,6 +226,7 @@ def current_user_from_token(token: str | None) -> CurrentUser | None:
         name=user.full_name,
         role=user.role,
         must_change_password=user.must_change_password,
+        auth_provider=user.auth_provider,
         folders_panel_collapsed=user.folders_panel_collapsed,
         strata_balance_expanded=user.strata_balance_expanded,
         strata_power_expanded=user.strata_power_expanded,

@@ -247,6 +247,16 @@ export function AdminPage() {
           { title: 'Last Name', dataIndex: 'last_name' },
           { title: 'Role', dataIndex: 'role' },
           {
+            // Откуда аккаунт: обычный пароль или корпоративный SSO. Нужно
+            // видеть в списке, потому что от этого зависит, что с аккаунтом
+            // вообще можно сделать (сброс пароля — нельзя) и откуда у него
+            // роль (у SSO она перезаписывается группами на каждом входе).
+            title: 'Auth',
+            dataIndex: 'auth_provider',
+            render: (provider: string) =>
+              provider === 'oidc' ? <Tag color="blue">SSO</Tag> : <Tag>password</Tag>,
+          },
+          {
             title: 'Active',
             dataIndex: 'is_active',
             render: (active: boolean) => <Tag color={active ? 'success' : 'default'}>{active ? 'yes' : 'no'}</Tag>,
@@ -259,9 +269,14 @@ export function AdminPage() {
                 <Button size="small" onClick={() => openEdit(record)}>
                   Edit
                 </Button>
-                <Button size="small" onClick={() => handleResetPassword(record)}>
-                  Reset Password
-                </Button>
+                {/* У SSO-аккаунта пароля нет — сбрасывать нечего. Кнопка не
+                    просто отключена, а отсутствует: отключенная кнопка
+                    намекала бы, что «пароль есть, но сейчас нельзя». */}
+                {record.auth_provider !== 'oidc' && (
+                  <Button size="small" onClick={() => handleResetPassword(record)}>
+                    Reset Password
+                  </Button>
+                )}
               </Space>
             ),
           },
