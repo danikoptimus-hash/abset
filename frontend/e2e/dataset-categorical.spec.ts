@@ -38,7 +38,9 @@ test('categorical flag: integer column shows per-value strata, editable in Edit 
   await page.getByRole('row', { name: new RegExp(filename.replace('.', '\\.')) })
     .getByRole('button', { name: 'Edit' })
     .click()
-  await page.getByText('Column types (categorical vs binned)').click()
+  // Секция переименована в f736b91 (removable columns): редактор теперь
+  // не только про categorical-флаги, но и про удаление колонок.
+  await page.getByText('Columns (types & removal)').click()
   const monthsCheckbox = page.getByRole('checkbox', { name: 'categorical-months_ago' })
   await expect(monthsCheckbox).toBeChecked()
   // Toggle off and back on to exercise the control, then save.

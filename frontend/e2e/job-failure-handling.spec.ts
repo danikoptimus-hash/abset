@@ -1,29 +1,36 @@
 import { test, expect } from '@playwright/test'
 import { clickSelectOption, loginViaUi, seedExperiment, uploadDataset } from './helpers'
 
-// Regression for the compare-methods crash bug: a failed analyze job must
-// show its real, human-readable error (job.error) instead of the generic
-// "Failed to get job status" that used to appear whenever the backend
-// process died mid-poll (OOM-killed worker). Triggering a genuine OOM here
-// isn't practical in e2e — instead we trigger a deterministic, real
-// AnalysisError and check the UI surfaces its actual message.
+const API_BASE = process.env.E2E_API_BASE ?? 'http://localhost:8000/api/v1'
+
+// Reserved-column collision is caught BEFORE a job is queued.
 //
-// Trigger: a post-period export with its own "group" column, which collides
-// with the assignments join (ref edb716f1) — no duplicate unit ids, so
-// item 2's Date-column-required guard doesn't block Run analysis here; a
-// duplicate-unit-id trigger was used previously, but that path is now
-// caught by the UI itself before the button is even enabled, which would
-// make this test about the wrong thing.
-test('a failed analyze job shows its real error message, not a generic one', async ({
+// История этого теста стоит того, чтобы ее знать, иначе он сломается в
+// третий раз. Изначально он ловил регрессию compare-methods: упавшая
+// analyze-джоба обязана показывать СВОЮ ошибку (job.error), а не общее
+// "Failed to get job status". Настоящий OOM в e2e не воспроизвести, поэтому
+// брали детерминированный триггер — датасет, на котором анализ падает
+// по-настоящему. Триггер меняли уже дважды, и оба раза по одной причине:
+// приложение училось ловить эту ошибку РАНЬШЕ, на клиенте.
+//   1. дубликаты unit id -> перекрыты гардом "выбери колонку даты";
+//   2. своя колонка "group" -> перекрыта гардом зарезервированных колонок
+//      (0df8e26, "fix(analyze): validation errors must not replace the
+//      analysis form").
+//
+// Гоняться за третьим триггером незачем: исходная цель — «упавшая джоба
+// показывает свою настоящую ошибку» — полностью покрыта соседним тестом
+// (post-data без unit-колонки: он проходит клиентские проверки, реально
+// запускает джобу и ждет ее собственный текст ошибки). А вот сам гард
+// 0df8e26 не покрыт ничем, хотя это и есть нынешнее ЗАДУМАННОЕ поведение:
+// не дать поставить заведомо провальную джобу в очередь.
+test('a dataset with reserved columns is refused up front, before any job is queued', async ({
   page,
   request,
 }) => {
-  const name = `analyze_fail_e2e_${Date.now()}`
+  const name = `analyze_reserved_col_e2e_${Date.now()}`
   await seedExperiment(request, name)
 
-  // Uploaded via the API BEFORE navigating: DatasetSelect's query is
-  // fetched once on mount and isn't invalidated by an out-of-band API call
-  // happening after the page loads.
+  // Своя колонка "group" сталкивается с колонкой назначений (ref edb716f1).
   const csv =
     'user_id,revenue,group\n' +
     Array.from({ length: 50 }, (_, i) => `u${i},${100},control`).join('\n')
@@ -38,11 +45,28 @@ test('a failed analyze job shows its real error message, not a generic one', asy
   await datasetSelect.click()
   await datasetSelect.fill(collisionFilename)
   await page.getByTitle(collisionFilename).click()
-  await expect(page.getByText(new RegExp(`Data ready: ${collisionFilename.replace('.', '\\.')}`))).toBeVisible()
 
-  await page.getByRole('button', { name: 'Run analysis' }).click()
-  await expect(page.getByText(/collide with ABSet's own/)).toBeVisible({ timeout: 20_000 })
+  // Вместо "Data ready" — объяснение, ЧТО именно не так и что делать.
+  await expect(page.getByText(/collide with ABSet's own/)).toBeVisible()
+  await expect(page.getByText(new RegExp(`Data ready: ${collisionFilename.replace('.', '\\.')}`))).toBeHidden()
+
+  // Кнопка заблокирована — джоба не ставится в очередь вовсе.
+  const runButton = page.getByRole('button', { name: 'Run analysis' })
+  await expect(runButton).toBeDisabled()
+
+  // 0df8e26: ошибка валидации показывается ВМЕСТО результата, но НЕ заменяет
+  // собой форму — датасет можно перевыбрать, не перезагружая страницу.
+  await expect(datasetSelect).toBeVisible()
+
+  // И ничего похожего на общую ошибку поллинга (исходный повод для теста).
   await expect(page.getByText('Failed to get job status')).not.toBeVisible()
+
+  // Джоба действительно не создавалась: у эксперимента нет результатов.
+  const results = await request.get(`${API_BASE}/experiments/${name}/results`)
+  expect([404, 200]).toContain(results.status())
+  if (results.status() === 200) {
+    expect((await results.json()).results ?? []).toHaveLength(0)
+  }
 })
 
 // Regression for a real production internal_error report: post-period data

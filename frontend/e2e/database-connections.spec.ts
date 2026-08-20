@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import type { Page } from '@playwright/test'
 import { loginViaUi } from './helpers'
 
 // DB4 (CLAUDE.md, Database Connections feature): full round trip through
@@ -15,6 +16,23 @@ const PG = {
   user: process.env.E2E_POSTGRES_USER,
   password: process.env.E2E_POSTGRES_PASSWORD,
   db: process.env.E2E_POSTGRES_DB,
+}
+
+/** Второй шаг создания датасета — подтверждение колонок (f736b91,
+ * "removable columns with exclusion list"). До этого пакета модалка
+ * закрывалась сразу после "Create dataset"; теперь она показывает типы
+ * колонок и возможность их убрать, и закрывается только по Finish.
+ *
+ * Ждем именно текст шага, а не сразу Finish: если создание датасета
+ * провалится, модалка тоже останется открытой, и голое ожидание кнопки
+ * упало бы по таймауту без указания на причину. */
+async function createDatasetConfirmStep(page: Page) {
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByText(/Dataset created\. Confirm the columns/)).toBeVisible({
+    timeout: 20_000,
+  })
+  await dialog.getByRole('button', { name: 'Finish' }).click()
+  await expect(dialog).not.toBeVisible({ timeout: 20_000 })
 }
 
 test('create a database connection, test it, preview SQL, create a dataset, and design on it', async ({ page }) => {
@@ -91,7 +109,7 @@ test('create a database connection, test it, preview SQL, create a dataset, and 
   const datasetName = `e2e_sql_dataset_${Date.now()}`
   await page.getByPlaceholder('e.g. active_users_30d').fill(datasetName)
   await page.getByRole('button', { name: 'Create dataset' }).click()
-  await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: 20_000 })
+  await createDatasetConfirmStep(page)
 
   const row = page.getByRole('row', { name: new RegExp(datasetName) })
   await expect(row).toBeVisible()
@@ -187,7 +205,7 @@ test('Edit dataset (source=sql) shows the schema/table cascade prefilled and bot
   const datasetName = `e2e_sql_edit_${Date.now()}`
   await page.getByPlaceholder('e.g. active_users_30d').fill(datasetName)
   await page.getByRole('button', { name: 'Create dataset' }).click()
-  await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: 20_000 })
+  await createDatasetConfirmStep(page)
 
   const row = page.getByRole('row', { name: new RegExp(datasetName) })
   await expect(row).toBeVisible()
@@ -318,7 +336,7 @@ test('Creating via the schema/table cascade persists source_schema/source_table,
   const datasetName = `e2e_cascade_persist_${Date.now()}`
   await page.getByPlaceholder('e.g. active_users_30d').fill(datasetName)
   await page.getByRole('button', { name: 'Create dataset' }).click()
-  await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: 20_000 })
+  await createDatasetConfirmStep(page)
 
   // The persisted columns are the point of this fix — assert them directly
   // via the API, not just that the Edit modal happens to show something
