@@ -37,9 +37,11 @@ if [ "${1:-}" = "--keycloak" ]; then
     shift
 fi
 
-COMPOSE_FILES=(-f docker-compose.yml)
+# Абсолютные пути: массив используется и в cleanup, который выполняется из
+# другого рабочего каталога (см. комментарий там же).
+COMPOSE_FILES=(-f "$PROJECT_DIR/docker-compose.yml")
 if [ "$WITH_KEYCLOAK" = "1" ]; then
-    COMPOSE_FILES+=(-f docker-compose.keycloak.yml)
+    COMPOSE_FILES+=(-f "$PROJECT_DIR/docker-compose.keycloak.yml")
 fi
 ENV_FILE="$(mktemp)"
 PG_PASSWORD="$(openssl rand -hex 16)"
@@ -75,7 +77,18 @@ fi
 
 cleanup() {
     echo "==> Tearing down $PROJECT (docker compose down -v)"
-    docker compose --env-file "$ENV_FILE" "${COMPOSE_FILES[@]}" -p "$PROJECT" down -v --remove-orphans || true
+    # -f "$PROJECT_DIR/..." и явный cd: этот trap срабатывает ПОСЛЕ `cd frontend`
+    # ниже, где docker-compose.yml не существует. Раньше пути были
+    # относительными, из-за чего down молча падал ("no such file"), а `|| true`
+    # прятал это — одноразовый стек и его volumes ПЕРЕЖИВАЛИ прогон, и
+    # следующий запуск переиспользовал грязную БД (имя проекта то же самое).
+    # Отсюда же росли "port is already allocated" и падения healthcheck'а.
+    # Ошибку больше не глотаем: не убранный за собой стек — то, о чем надо
+    # узнать сразу, а не через три пакета.
+    (
+        cd "$PROJECT_DIR" || exit 1
+        docker compose --env-file "$ENV_FILE" "${COMPOSE_FILES[@]}" -p "$PROJECT" down -v --remove-orphans
+    ) || echo "!!! teardown FAILED — run: docker compose -p $PROJECT down -v"
     rm -f "$ENV_FILE"
 }
 trap cleanup EXIT
