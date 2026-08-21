@@ -17,6 +17,7 @@ from sqlalchemy import delete, func, insert, select, text
 from abkit import storage
 from abkit.db.engine import session_scope
 from abkit.db.models import (
+    SqlLabQuery,
     AnalysisResult,
     AuditLog,
     Assignment,
@@ -1816,3 +1817,74 @@ class MonitoringRepo:
                 {"limit": limit},
             ).all()
             return [{"table_name": r.table_name, "size_bytes": int(r.size_bytes)} for r in rows]
+
+
+class SqlLabQueryRepo:
+    """История запросов SQL Lab. Личная для каждого пользователя — все методы
+    принимают user_id и фильтруют по нему, «глобального» чтения истории нет
+    даже для админа (текст SQL чувствителен сам по себе)."""
+
+    # Сколько записей храним на пользователя. Записываем каждый прогон, поэтому
+    # без подрезки таблица растет линейно от активности; 50 — столько, сколько
+    # реально листают руками, дальше проще написать запрос заново.
+    MAX_PER_USER = 50
+
+    def record(
+        self,
+        *,
+        user_id: uuid_mod.UUID,
+        connection_id: uuid_mod.UUID | None,
+        connection_name: str | None,
+        sql_text: str,
+        duration_ms: int | None,
+        n_rows: int | None,
+        error: str | None,
+    ) -> uuid_mod.UUID:
+        with session_scope() as s:
+            entry = SqlLabQuery(
+                user_id=user_id,
+                connection_id=connection_id,
+                connection_name=connection_name,
+                sql_text=sql_text,
+                duration_ms=duration_ms,
+                n_rows=n_rows,
+                error=error,
+            )
+            s.add(entry)
+            s.flush()
+            entry_id = entry.id
+            # Подрезка сразу после вставки, в той же транзакции: отдельная
+            # фоновая чистка была бы еще одним движущимся куском ради таблицы,
+            # которая и так пишется по одной строке за прогон.
+            stale = list(
+                s.scalars(
+                    select(SqlLabQuery.id)
+                    .where(SqlLabQuery.user_id == user_id)
+                    .order_by(SqlLabQuery.started_at.desc())
+                    .offset(self.MAX_PER_USER)
+                )
+            )
+            if stale:
+                s.execute(delete(SqlLabQuery).where(SqlLabQuery.id.in_(stale)))
+            return entry_id
+
+    def list_for_user(
+        self, user_id: uuid_mod.UUID, limit: int = MAX_PER_USER
+    ) -> list[SqlLabQuery]:
+        with session_scope() as s:
+            rows = list(
+                s.scalars(
+                    select(SqlLabQuery)
+                    .where(SqlLabQuery.user_id == user_id)
+                    .order_by(SqlLabQuery.started_at.desc())
+                    .limit(limit)
+                )
+            )
+            for row in rows:
+                s.expunge(row)
+            return rows
+
+    def clear_for_user(self, user_id: uuid_mod.UUID) -> int:
+        with session_scope() as s:
+            result = s.execute(delete(SqlLabQuery).where(SqlLabQuery.user_id == user_id))
+            return result.rowcount or 0

@@ -23,6 +23,7 @@ from backend.routers import experiments as experiments_router
 from backend.routers import folders as folders_router
 from backend.routers import jobs as jobs_router
 from backend.routers import oidc as oidc_router
+from backend.routers import sql_lab as sql_lab_router
 from backend.routers import tags as tags_router
 from backend.routers import users as users_router
 
@@ -106,6 +107,7 @@ def create_app() -> FastAPI:
     app.include_router(design_router.router, prefix="/api/v1")
     app.include_router(folders_router.router, prefix="/api/v1")
     app.include_router(jobs_router.router, prefix="/api/v1")
+    app.include_router(sql_lab_router.router, prefix="/api/v1")
     app.include_router(tags_router.router, prefix="/api/v1")
     app.include_router(users_router.router, prefix="/api/v1")
 

@@ -368,11 +368,24 @@ function SqlColumnsConfirmStep({ datasetId, onDone }: { datasetId: string; onDon
   )
 }
 
-function FromSqlTab({ onDone, onDirtyChange }: { onDone: () => void; onDirtyChange: (dirty: boolean) => void }) {
-  const [connectionId, setConnectionId] = useState<string | undefined>(undefined)
+function FromSqlTab({
+  onDone,
+  onDirtyChange,
+  initialSql,
+  initialConnectionId,
+}: {
+  onDone: () => void
+  onDirtyChange: (dirty: boolean) => void
+  // Передача из SQL Lab: запрос и подключение приезжают уже готовыми,
+  // пользователю остается назвать датасет. Полная материализация идет
+  // обычным путем — БЕЗ интерактивного лимита SQL Lab.
+  initialSql?: string
+  initialConnectionId?: string
+}) {
+  const [connectionId, setConnectionId] = useState<string | undefined>(initialConnectionId)
   const [schema, setSchema] = useState<string | undefined>(undefined)
   const [table, setTable] = useState<string | undefined>(undefined)
-  const [sql, setSql] = useState('')
+  const [sql, setSql] = useState(initialSql ?? '')
   const [name, setName] = useState('')
   const [createError, setCreateError] = useState<string | null>(null)
   // Part 2 (removable columns): set once the create job succeeds — switches
@@ -510,7 +523,17 @@ function FromSqlTab({ onDone, onDirtyChange }: { onDone: () => void; onDirtyChan
   )
 }
 
-export function CreateDatasetModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function CreateDatasetModal({
+  open,
+  onClose,
+  initialSql,
+  initialConnectionId,
+}: {
+  open: boolean
+  onClose: () => void
+  initialSql?: string
+  initialConnectionId?: string
+}) {
   const queryClient = useQueryClient()
   const [sqlTabDirty, setSqlTabDirty] = useState(false)
   // open gate: this component unmounts on close (destroyOnHidden, and the
@@ -532,9 +555,23 @@ export function CreateDatasetModal({ open, onClose }: { open: boolean; onClose: 
     <Modal title="New dataset" open={open} onCancel={guardedClose} footer={null} width={640} destroyOnHidden>
       <StopClickPropagation>
         <Tabs
+          // Пришли из SQL Lab с готовым запросом — открываемся сразу на
+          // нужной вкладке, а не на загрузке файла.
+          defaultActiveKey={initialSql ? 'sql' : 'upload'}
           items={[
             { key: 'upload', label: 'Upload file', children: <UploadTab onDone={handleDone} /> },
-            { key: 'sql', label: 'From SQL', children: <FromSqlTab onDone={handleDone} onDirtyChange={setSqlTabDirty} /> },
+            {
+              key: 'sql',
+              label: 'From SQL',
+              children: (
+                <FromSqlTab
+                  onDone={handleDone}
+                  onDirtyChange={setSqlTabDirty}
+                  initialSql={initialSql}
+                  initialConnectionId={initialConnectionId}
+                />
+              ),
+            },
           ]}
         />
       </StopClickPropagation>

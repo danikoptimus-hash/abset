@@ -20,6 +20,10 @@ const { Header, Content } = Layout
 const NAV_ITEMS = [
   { key: '/experiments', label: <Link to="/experiments">A/B Tests</Link> },
   { key: '/datasets', label: <Link to="/datasets">Datasets</Link> },
+  // SQL Lab — Editor+ (каждый его эндпоинт требует editor+), поэтому пункт
+  // виден не всем: вести viewer'а на страницу, где любое действие вернет
+  // 403, — та же загадка, что задизейбленная кнопка без объяснения.
+  { key: '/sql-lab', label: <Link to="/sql-lab">SQL Lab</Link>, minRole: 'editor' as const },
 ]
 
 export function AppLayout() {
@@ -119,7 +123,14 @@ export function AppLayout() {
         >
           <img src={logo} alt={PRODUCT_NAME} style={{ height: 42, width: 'auto', display: 'block' }} />
         </Link>
-        <Menu mode="horizontal" selectedKeys={[selectedKey]} items={NAV_ITEMS} style={{ flex: 1, borderBottom: 'none' }} />
+        <Menu
+          mode="horizontal"
+          selectedKeys={[selectedKey]}
+          items={NAV_ITEMS.filter((item) => !item.minRole || hasMinRole(user, item.minRole)).map(
+            ({ key, label }) => ({ key, label }),
+          )}
+          style={{ flex: 1, borderBottom: 'none' }}
+        />
         {canCreate && (
           <Dropdown menu={{ items: createItems, onClick: handleCreateMenuClick }} trigger={['click']}>
             <Button

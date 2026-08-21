@@ -589,3 +589,35 @@ class MonitoringSnapshot(Base):
     disk_free_mb_max: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     active_jobs: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class SqlLabQuery(Base):
+    """История запросов SQL Lab, ЛИЧНАЯ для каждого пользователя (миграция
+    0025). Не audit_log: тот про изменения данных и прав, а прочитанные
+    запросы там были бы шумом — плюс истории нужны свои поля (длительность,
+    число строк, ошибка) и своя подрезка (последние N на пользователя).
+
+    Текст запроса виден только его автору: в SQL легко оказываются имена
+    таблиц и условия, чувствительные сами по себе."""
+
+    __tablename__ = "sql_lab_queries"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    # SET NULL, не CASCADE: удаленное подключение не должно стирать историю —
+    # текст запроса остается полезен и переносим на другое подключение.
+    connection_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("database_connections.id", ondelete="SET NULL"), nullable=True
+    )
+    connection_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sql_text: Mapped[str] = mapped_column(Text, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    n_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -14,6 +14,7 @@ import { ProfilePage } from './pages/Profile'
 import { DatabaseConnectionsPage } from './pages/admin/DatabaseConnections'
 import { TagsAdminPage } from './pages/admin/Tags'
 import { MonitoringPage } from './pages/settings/MonitoringPage'
+import { SqlLabPage } from './pages/SqlLab'
 
 // UX contract (unsaved-changes guard, part A): createRoutesFromElements lets
 // this stay ordinary JSX <Route> elements (same as the <Routes> tree this
@@ -59,6 +60,17 @@ export const routes = createRoutesFromElements(
         }
       />
       <Route path="/datasets" element={<DatasetsPage />} />
+      {/* SQL Lab — Editor+, как визард и Validation. Пункт меню от viewer'а
+          скрыт (AppLayout), но одного этого мало: по прямой ссылке страница
+          иначе открылась бы и молча отдавала 403 на каждое действие. */}
+      <Route
+        path="/sql-lab"
+        element={
+          <RequireAuth minRole="editor">
+            <SqlLabPage />
+          </RequireAuth>
+        }
+      />
       {/* 6-part package pt.11: Validation moved into Settings > Tools;
           the old top-level URL redirects so existing links/bookmarks
           still work. */}

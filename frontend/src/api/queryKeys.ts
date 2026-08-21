@@ -14,6 +14,10 @@
 // мутаций").
 export const queryKeys = {
   // Tags
+  // SQL Lab: личная история запросов (инвалидируется после каждого
+  // прогона — и успешного, и упавшего).
+  sqlLabHistory: () => ['sql-lab-history'] as const,
+  dbConnectionsForSelect: () => ['db-connections-select'] as const,
   tagsTypeahead: (search: string) => ['tags-typeahead', search] as const,
   // Prefix-only (no `search` segment) — TanStack Query's invalidateQueries
   // matches any cached query whose key STARTS WITH the given array, so this

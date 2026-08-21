@@ -747,6 +747,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/experiments/{name}/results-dataset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Results Dataset Info
+         * @description Показывать ли кнопку «Fetch results dataset» и с какими датами.
+         *
+         *     Условие составное и целиком серверное (SQL-датасет + плейсхолдеры + даты
+         *     эксперимента), поэтому решает сервер, а фронт по ответу либо рисует
+         *     кнопку, либо НЕ рисует вовсе — задизейбленная кнопка с загадкой хуже
+         *     отсутствующей (ТЗ п.3).
+         */
+        get: operations["results_dataset_info_api_v1_experiments__name__results_dataset_get"];
+        put?: never;
+        /**
+         * Fetch Results Dataset
+         * @description Собирает датасет результатов тем же запросом, что и design-датасет, но
+         *     за период теста. Джоба (как и остальные длинные операции): выборка может
+         *     идти минуты, и держать на ней HTTP-запрос нельзя.
+         */
+        post: operations["fetch_results_dataset_api_v1_experiments__name__results_dataset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/experiments/{name}/analyze": {
         parameters: {
             query?: never;
@@ -1039,6 +1070,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/datasets/inspect-sql-params": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Inspect Sql Params
+         * @description Какие плейсхолдеры есть в этом SQL — чтобы форма знала, показывать ли
+         *     поля дат. Разбор ЖИВЕТ НА СЕРВЕРЕ и здесь же валидирует: неизвестное имя
+         *     отклоняется с указанием, какое именно, ещё до того как пользователь
+         *     нажмёт «Create dataset» и подождёт материализации впустую.
+         */
+        post: operations["inspect_sql_params_api_v1_datasets_inspect_sql_params_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/datasets/from-sql": {
         parameters: {
             query?: never;
@@ -1075,6 +1129,10 @@ export interface paths {
          * Refresh Sql Dataset
          * @description DB2: re-runs a source='sql' dataset's stored sql_text, overwriting
          *     its parquet file in place and bumping fetched_at.
+         *
+         *     Тело необязательно: без него перевыполняется с уже сохраненными
+         *     параметрами дат (обычный Refresh). С датами — «Refresh with new dates…»,
+         *     новые значения и применяются, и сохраняются.
          */
         post: operations["refresh_sql_dataset_api_v1_datasets__dataset_id__refresh_post"];
         delete?: never;
@@ -1536,6 +1594,46 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sql-lab/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run Query */
+        post: operations["run_query_api_v1_sql_lab_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sql-lab/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * History
+         * @description Только СВОЯ история — user_id берется из сессии и не принимается
+         *     параметром: чужой SQL (имена таблиц, условия) читать нельзя никому,
+         *     включая админа.
+         */
+        get: operations["history_api_v1_sql_lab_history_get"];
+        put?: never;
+        post?: never;
+        /** Clear History */
+        delete: operations["clear_history_api_v1_sql_lab_history_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2224,6 +2322,10 @@ export interface components {
             categorical_columns?: string[] | null;
             /** Excluded Columns */
             excluded_columns?: string[] | null;
+            /** Param Date From */
+            param_date_from?: string | null;
+            /** Param Date To */
+            param_date_to?: string | null;
         };
         /** DatasetOut */
         DatasetOut: {
@@ -2277,6 +2379,14 @@ export interface components {
             } | null;
             /** Categorical Columns */
             categorical_columns?: string[] | null;
+            /** Param Date From */
+            param_date_from?: string | null;
+            /** Param Date To */
+            param_date_to?: string | null;
+            /** Source Experiment Id */
+            source_experiment_id?: string | null;
+            /** Source Experiment Name */
+            source_experiment_name?: string | null;
             /** Excluded Columns */
             excluded_columns?: string[] | null;
             /**
@@ -2609,6 +2719,18 @@ export interface components {
             /** Folder Name */
             folder_name?: string | null;
         };
+        /**
+         * FetchResultsDatasetRequest
+         * @description Даты редактируются в диалоге перед запуском (ТЗ п.3) — прилетают уже
+         *     подтвержденными пользователем, но всё равно разбираются строго на
+         *     сервере (abkit/db_connections/sql_params.py::parse_date).
+         */
+        FetchResultsDatasetRequest: {
+            /** Date From */
+            date_from: string;
+            /** Date To */
+            date_to: string;
+        };
         /** FileInfo */
         FileInfo: {
             /** Path */
@@ -2677,6 +2799,11 @@ export interface components {
              * @default []
              */
             warnings: string[];
+        };
+        /** InspectSqlParamsRequest */
+        InspectSqlParamsRequest: {
+            /** Sql */
+            sql: string;
         };
         /** JobAccepted */
         JobAccepted: {
@@ -2971,6 +3098,10 @@ export interface components {
             column_renames?: {
                 [key: string]: string;
             } | null;
+            /** Param Date From */
+            param_date_from?: string | null;
+            /** Param Date To */
+            param_date_to?: string | null;
         };
         /** PatchDatasetResponse */
         PatchDatasetResponse: {
@@ -2995,6 +3126,19 @@ export interface components {
             role?: string | null;
             /** Is Active */
             is_active?: boolean | null;
+        };
+        /**
+         * RefreshDatasetRequest
+         * @description Тело POST /datasets/{id}/refresh. Пустое тело (обе даты None) —
+         *     обычный Refresh: перевыполнить с УЖЕ СОХРАНЕННЫМИ параметрами. Заданные
+         *     даты — «Refresh with new dates…»: они и применяются, и становятся новыми
+         *     сохраненными значениями.
+         */
+        RefreshDatasetRequest: {
+            /** Param Date From */
+            param_date_from?: string | null;
+            /** Param Date To */
+            param_date_to?: string | null;
         };
         /** RegisterRequest */
         RegisterRequest: {
@@ -3024,6 +3168,51 @@ export interface components {
         ResetPasswordResponse: {
             /** New Password */
             new_password: string;
+        };
+        /**
+         * ResultsFetchInfo
+         * @description Доступность кнопки «Fetch results dataset» + предзаполнение диалога.
+         */
+        ResultsFetchInfo: {
+            /** Available */
+            available: boolean;
+            /** Reason */
+            reason?: string | null;
+            /** Dataset Id */
+            dataset_id?: string | null;
+            /** Date From */
+            date_from?: string | null;
+            /** Date To */
+            date_to?: string | null;
+        };
+        /** RunQueryRequest */
+        RunQueryRequest: {
+            /** Connection Id */
+            connection_id: string;
+            /** Sql */
+            sql: string;
+        };
+        /** RunQueryResponse */
+        RunQueryResponse: {
+            /** Columns */
+            columns: string[];
+            /** Rows */
+            rows: {
+                [key: string]: unknown;
+            }[];
+            /** N Rows */
+            n_rows: number;
+            /** Elapsed Ms */
+            elapsed_ms: number;
+            /** Truncated */
+            truncated: boolean;
+            /** Row Limit */
+            row_limit: number;
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
         };
         /** SampleInfo */
         SampleInfo: {
@@ -3111,6 +3300,46 @@ export interface components {
             flow_title: string;
             /** Image Ids */
             image_ids: string[];
+        };
+        /** SqlLabHistoryResponse */
+        SqlLabHistoryResponse: {
+            /** Items */
+            items: components["schemas"]["SqlLabQueryOut"][];
+        };
+        /** SqlLabQueryOut */
+        SqlLabQueryOut: {
+            /** Id */
+            id: string;
+            /** Connection Id */
+            connection_id: string | null;
+            /** Connection Name */
+            connection_name: string | null;
+            /** Sql Text */
+            sql_text: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Duration Ms */
+            duration_ms: number | null;
+            /** N Rows */
+            n_rows: number | null;
+            /** Error */
+            error: string | null;
+        };
+        /**
+         * SqlParamsInfo
+         * @description Разбор плейсхолдеров произвольного SQL — для формы: показывать ли поля
+         *     дат и какие именно.
+         */
+        SqlParamsInfo: {
+            /** Placeholders */
+            placeholders: string[];
+            /** Requires Date From */
+            requires_date_from: boolean;
+            /** Requires Date To */
+            requires_date_to: boolean;
         };
         /** SqlPreviewRequest */
         SqlPreviewRequest: {
@@ -4784,6 +5013,76 @@ export interface operations {
             };
         };
     };
+    results_dataset_info_api_v1_experiments__name__results_dataset_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultsFetchInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fetch_results_dataset_api_v1_experiments__name__results_dataset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FetchResultsDatasetRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     start_analyze_api_v1_experiments__name__analyze_post: {
         parameters: {
             query?: never;
@@ -5325,6 +5624,41 @@ export interface operations {
             };
         };
     };
+    inspect_sql_params_api_v1_datasets_inspect_sql_params_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InspectSqlParamsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SqlParamsInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_dataset_from_sql_api_v1_datasets_from_sql_post: {
         parameters: {
             query?: never;
@@ -5371,7 +5705,11 @@ export interface operations {
                 abkit_session?: string | null;
             };
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RefreshDatasetRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             202: {
@@ -6373,6 +6711,101 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["JobOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_query_api_v1_sql_lab_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunQueryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunQueryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    history_api_v1_sql_lab_history_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SqlLabHistoryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_history_api_v1_sql_lab_history_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                abkit_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
