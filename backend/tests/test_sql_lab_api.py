@@ -8,6 +8,7 @@ Database Connection и служит источником — то есть пр�
 
 from __future__ import annotations
 
+import os
 import time
 
 import pytest
@@ -481,3 +482,38 @@ def test_dataset_out_exposes_stored_parameters(app_client, connection_id):
     items = app_client.get("/api/v1/datasets?page_size=200").json()["items"]
     row = next(d for d in items if d["id"] == dataset_id)
     assert row["param_date_from"] == "2001-02-03"
+
+
+@pytest.mark.skipif(
+    os.environ.get("ABKIT_SKIP_SLOW") == "1", reason="ABKIT_SKIP_SLOW=1"
+)
+def test_results_fetch_is_unavailable_without_placeholders(app_client, connection_id):
+    """Кнопка не показывается (а не показывается задизейбленной с загадкой),
+    и сервер объясняет почему."""
+    _login(app_client)
+    csv = "user_id,revenue\n" + "\n".join(f"u{i},{100 + i}" for i in range(60))
+    up = app_client.post(
+        "/api/v1/datasets", data={"kind": "pre_design"},
+        files={"file": ("plain.csv", csv, "text/csv")},
+    )
+    dataset_id = up.json()["id"]
+    design = _poll(
+        app_client,
+        app_client.post(
+            "/api/v1/design",
+            json={
+                "config": {
+                    "name": "no_placeholders_exp", "unit_col": "user_id",
+                    "groups": {"control": 0.5, "treatment": 0.5},
+                    "metrics": [{"name": "revenue", "type": "continuous", "role": "primary"}],
+                    "sample_size": 60, "split_method": "simple", "isolation": "off",
+                },
+                "dataset_id": dataset_id,
+            },
+        ).json()["job_id"],
+    )
+    assert design["status"] == "completed", design.get("error")
+
+    info = app_client.get("/api/v1/experiments/no_placeholders_exp/results-dataset").json()
+    assert info["available"] is False
+    assert "SQL dataset" in info["reason"] or "placeholder" in info["reason"]

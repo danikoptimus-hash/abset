@@ -7,6 +7,7 @@ import { apiClient, errorMessage } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { useJobPolling } from '../../api/useJobPolling'
 import { DatasetSelect } from '../../components/DatasetSelect'
+import { FetchResultsButton } from './FetchResultsButton'
 import { SegmentCutPicker, type SegmentCuts } from '../../components/analysis/SegmentCutPicker'
 import { segmentSelectionDiffersFromRun } from './segmentRunIdentity'
 import { AnalyzeResults } from './AnalyzeResults'
@@ -522,6 +523,13 @@ export function AnalyzeSection({
 
           <Typography.Text strong>Data</Typography.Text>
           <div style={{ ...mt('FIELD'), ...mb('BLOCK') }}>
+            {/* Замыкание цикла: собрать результаты тем же запросом, что и
+                дизайн, но за период теста. Кнопки нет вовсе, если собирать
+                нечего — решает сервер, см. FetchResultsButton. */}
+            <FetchResultsButton
+              experimentName={experimentName}
+              onFetched={(datasetId) => void handleSelectDataset(datasetId)}
+            />
             <DatasetSelect
               value={prepared && !prepared.isDemo ? prepared.id : undefined}
               onChange={handleSelectDataset}

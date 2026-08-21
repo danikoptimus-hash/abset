@@ -18,7 +18,7 @@
 
 - Backend/ядро: `python -m pytest -q` (из корня, venv `.venv`), lint — `python -m pyflakes abkit backend tests migrations cli.py cli_admin.py conftest.py`.
 - Frontend: `cd frontend && npm run typecheck && npm run lint && npm run test:unit && npm run build`. `test:unit` (vitest, added for item B's memory-chart redesign) is the first frontend unit-test layer in the project — scoped to `src/**/*.test.ts` only (`frontend/vitest.config.ts`; without that scoping vitest also picks up `frontend/e2e/*.spec.ts` and fails on every one, since those use Playwright's own `test()`, not vitest's). Reserve it for PURE logic worth isolating from a DOM/canvas (e.g. `charts/MonitoringLineChart.tsx`'s option-builder) — everything else stays typecheck/lint/build + Playwright e2e, that split isn't changing wholesale.
-- E2E (Playwright): **`bash scripts/e2e.sh`** из корня — ЕДИНСТВЕННЫЙ способ гонять e2e локально. Поднимает одноразовый стек под отдельным compose project name (свои volumes/сеть/порт :8090, `docker compose down -v` на выходе всегда), не трогает персистентный dev-стек на :8080. НИКОГДА не гонять `npx playwright test` вручную с `E2E_BASE_URL`, указывающим на dev-стек (:8080) — это и есть root cause накопления мусора в БД (см. `abkit/jobs.py::run_cleanup_dev` docstring, «Правило: гигиена dev-артефактов» ниже). CI (`.github/workflows/ci.yml` job `e2e`) достигает той же изоляции иначе — одноразовый раннер-VM + `docker compose down -v` в конце, поэтому там `npx playwright test` напрямую — нормально, это не тот контекст, где накапливается мусор.
+- E2E (Playwright): **`bash scripts/e2e.sh`** из корня — ЕДИНСТВЕННЫЙ способ гонять e2e локально. Поднимает одноразовый стек под отдельным compose project name (свои volumes/сеть/порт :8090, `docker compose down -v` на выходе всегда), не трогает персистентный dev-стек на :8080. НИКОГДА не гонять `npx playwright test` вручную с `E2E_BASE_URL`, указывающим на dev-стек (:8080) — это и есть root cause накопления мусора в БД (см. `abkit/jobs.py::run_cleanup_dev` docstring, «Правило: гигиена dev-артефактов» ниже). CI (`.github/workflows/ci.yml` job `e2e`) достигает той же изоляции иначе — одноразовый раннер-VM + `docker compose down -v` в конце, поэтому там `npx playwright test` напрямую — нормально, это не тот контекст, где накапливается мусор. **Код возврата `scripts/e2e.sh` можно считать честным только начиная с пакета SQL Lab**: до этого EXIT-трап (teardown) заканчивался успешным `rm -f`, а в bash статус выхода скрипта — это статус последней команды трапа, поэтому упавшие тесты возвращали 0 и прогон выглядел зеленым (поймано на собственном упавшем спеке). Теперь трап сохраняет `$?` первой строкой и завершается явным `exit "$status"`.
 - После правок backend-роутов — перегенерировать типы фронта: `cd frontend && npm run gen:api`.
 - `scripts/*.sh` — `shellcheck scripts/*.sh` (локально `shellcheck` не стоит по умолчанию — ставится `pip install shellcheck-py`, либо `docker run --rm -v "$(pwd)/scripts:/scripts" koalaman/shellcheck:stable /scripts/*.sh`).
 
@@ -336,6 +336,81 @@ create/edit user, Settings → Database Connections modal. Не подключе
 **Bulk select/delete** (`frontend/src/pages/Datasets.tsx`, паттерн переиспользован из `ExperimentsList.tsx`'s bulk select — `POST /datasets/bulk-delete`, `backend/routers/datasets.py`): чекбокс-колонка + панель действий, как у экспериментов, но подтверждение ОДНО на весь батч (не два уровня, как у одиночного удаления) — модалка сразу подтягивает usage (`GET /datasets/{id}/usage`) на каждый выбранный id и показывает "used by: ..." построчно, ввод `DELETE` разрешает удалить всё сразу, включая используемые (сервер вызывает `run_delete_dataset(..., confirm="DELETE")` безусловно). Права — per-item (owner/admin) на сервере, несовпадающие пропускаются с "no permission" в итоговом отчете, а не роняют весь запрос.
 
 **Frontend**: `/admin/db-connections` (Settings → Data → Database Connections, только admin) — CRUD-страница в стиле Superset (`frontend/src/pages/admin/DatabaseConnections.tsx`). SQL-редактор в "From SQL" — обычный `Input.TextArea` (моно-шрифт), НЕ подсвеченный редактор: пробовали `react-simple-code-editor`, но библиотека стабильно роняла приложение (React error #130, чистый белый экран) после 2+ жестких переходов между страницами в одной сессии браузера — баг внутри самого `<Editor>` (воспроизводился даже с тривиальным `highlight={(code) => code}`, без Prism), библиотека полностью удалена (`npm uninstall`). Стабильность важнее подсветки синтаксиса.
+
+## SQL Lab + параметризованные датасеты + сбор результатов одной кнопкой
+
+Три части одного пакета, замыкающие цикл жизни теста: «дизайн на базовом окне
+→ тест → одна кнопка собирает результаты тем же запросом за период теста».
+
+**SQL Lab** (`abkit/db_connections/sql_lab.py`, `backend/routers/sql_lab.py`,
+`frontend/src/pages/SqlLab.tsx`, роут `/sql-lab`, Editor+): интерактивный
+прогон запроса против подключения. Отличается от материализации датасета
+(`sql_dataset.py`) ровно двумя вещами, и обе — про то, что ответа ждет
+человек: результат ограничен `INTERACTIVE_ROW_LIMIT = 1000` (НЕ настраивается
+env — это предел читаемости грида и объема JSON, а не ресурсная политика) и
+таймаут короткий (`ABKIT_SQL_LAB_TIMEOUT_SEC`, default 60, против 300 у
+выгрузки). SELECT-only гард (`sql_guard.py`) применяется БЕЗ изменений и — что
+важно — к ИСХОДНОМУ тексту, до внедрения лимита: проверять сгенерированный
+sqlglot'ом текст значило бы проверять не то, что ввел человек. Лимит внедряется
+через `apply_interactive_limit()` (sqlglot, диалект-зависимо: у MSSQL нет
+LIMIT, там `TOP`), существующий МЕНЬШИЙ лимит не поднимается, нечитаемое
+лимит-выражение не подменяется. **Ловушка, из-за которой сломался первый
+вариант**: в запрос внедряется `limit + 1`, а не `limit` — иначе при успешном
+пушдауне возвращается ровно `limit` строк и «результат ровно такой» неотличимо
+от «результат больше, БД обрезала», то есть тысяча строк молча выдавалась бы
+за весь ответ. Лишняя строка до пользователя не доезжает. Неудача пушдауна не
+ошибка: `chunksize=limit+1` читает один чанк и режет на нашей стороне.
+История — `sql_lab_queries` (миграция `0025`), последние 50 на пользователя
+(`SqlLabQueryRepo.MAX_PER_USER`, обрезка в той же транзакции, что вставка),
+пишется и для успеха, и для ошибки, читается ТОЛЬКО своя (даже admin не видит
+чужую — это черновики работы, не аудит). Редактор — обычный `Input.TextArea`
+по той же причине, что в `CreateDatasetModal` (см. «Database Connections»).
+Состояние вкладки (подключение/схема/таблица/SQL) — в `sessionStorage`
+(`pages/sqlLabState.ts`), потому что страница размонтируется при уходе.
+
+**Плейсхолдеры дат** (`abkit/db_connections/sql_params.py`, миграция `0026`:
+`datasets.param_date_from`/`param_date_to`/`source_experiment_id`): в
+`sql_text` датасета разрешены РОВНО два имени — `{{date_from}}`/`{{date_to}}`,
+любое другое `{{...}}` (и любое `{% ... %}`) отвергается с называнием
+виновника. Это НЕ Jinja и не шаблонизатор: подстановка — `f"'{date.isoformat()}'"`
+после `parse_date()`, то есть в SQL попадает только распарсенная дата, текст
+пользователя — никогда. В строке хранится ШАБЛОН, не отрендеренный текст —
+иначе повторный сбор за другой период стал бы невозможен после первой же
+материализации. Значения текущего снапшота лежат в `param_date_*` и
+переписываются ТОЛЬКО после успешной подмены файла (`run_refresh_sql_dataset`),
+чтобы оборванная выгрузка не оставила период, которому не соответствует ни
+один снапшот. Разбор для формы — серверный (`POST /datasets/inspect-sql-params`,
+хук `useSqlParams` в `components/datasets/SqlDateParams.tsx`), а не вторая
+регулярка на клиенте: правило одно, а второй его экземпляр разошелся бы с
+первым. Правка ОДНИХ ТОЛЬКО дат (текст запроса не тронут) — самая частая
+правка такого датасета, поэтому `PATCH /datasets/{id}` считает ее поводом
+перевыполнить запрос наравне со сменой SQL (`run_update_dataset`). `SqlParamError`
+маппится ОДНИМ глобальным хендлером (`backend/errors.py` → 422
+`sql_param_error`) и числится пользовательской ошибкой в
+`backend/jobs/runner.py` — иначе кривая дата приезжала бы как «Internal
+processing error (ref: ...)».
+
+**Сбор результатов одной кнопкой** (`abkit/jobs.py::experiment_results_fetch_info`/
+`run_fetch_results_dataset`, `GET`/`POST /experiments/{name}/results-dataset`,
+`frontend/src/pages/experiment/FetchResultsButton.tsx` над `DatasetSelect` в
+Analyze): перевыполняет запрос design-датасета с датами периода теста,
+создает датасет `<name> results (<from>..<to>)` (kind `post_analysis`,
+линкуется через `ExperimentDatasetRepo`, аудит `experiment.results_dataset_fetched`)
+и СРАЗУ выбирает его в форме анализа. Условие доступности составное и целиком
+серверное (design-датасет из SQL + плейсхолдеры в его запросе + `completed` +
+даты старта/окончания), поэтому живет в `experiment_results_fetch_info`, а не в
+кнопке: фронт по этому ответу решает ПОКАЗЫВАТЬ ли кнопку — задизейбленная
+кнопка с загадкой хуже отсутствующей (прямое требование ТЗ). Дата окончания —
+фактическая `completed_at`, а не плановая: собирали данные именно до нее.
+
+Тесты: `tests/test_sql_params.py` (включая попытки инъекции через значение
+параметра), `tests/test_sql_lab_core.py` (пушдаун лимита по диалектам,
+сериализация ячеек), `backend/tests/test_sql_lab_api.py` (прогон против
+настоящей БД, права, история, PATCH со сменой периода). E2E:
+`frontend/e2e/sql-lab.spec.ts` (прогон + история + передача запроса в датасет;
+создание с плейсхолдерами и правка периода; полный цикл — дизайн на
+параметризованном датасете → завершение теста → Fetch results dataset →
+датасет готов к анализу).
 
 ## Теги для A/B тестов
 

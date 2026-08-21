@@ -210,3 +210,96 @@ test('a dataset query with {{date_from}}/{{date_to}} materializes for the chosen
   )
   expect(after.param_date_from).toBe('2001-02-03')
 })
+
+test('the lifecycle loop: design on a parameterized dataset, complete the test, fetch results with one click', async ({
+  page,
+}) => {
+  test.skip(!PG.host || !PG.password, 'E2E_POSTGRES_* not set — see .github/workflows/ci.yml')
+  test.setTimeout(120_000)
+
+  await loginViaUi(page)
+  const request = page.request
+  const connectionId = await createConnection(request, `e2e_loop_${Date.now()}`)
+
+  // Датасет дизайна: тот же запрос, что потом соберет результаты, только за
+  // базовое окно. `id::text as user_id` — эксперименту нужна колонка-юнит.
+  const sql =
+    'SELECT id::text AS user_id, length(email) AS revenue FROM users ' +
+    'WHERE created_at >= {{date_from}}::timestamptz AND created_at < {{date_to}}::timestamptz'
+  const datasetName = `e2e_loop_ds_${Date.now()}`
+  const createResp = await request.post(`${API}/datasets/from-sql`, {
+    data: {
+      connection_id: connectionId,
+      sql,
+      name: datasetName,
+      param_date_from: '2000-01-01',
+      param_date_to: '2100-01-01',
+    },
+  })
+  expect(createResp.status()).toBe(202)
+  const datasetId = (await pollJob(request, (await createResp.json()).job_id)).result as {
+    dataset_id: string
+  }
+
+  const experimentName = `e2e_loop_${Date.now()}`
+  const designResp = await request.post(`${API}/design`, {
+    data: {
+      config: {
+        name: experimentName,
+        unit_col: 'user_id',
+        groups: { control: 0.5, treatment: 0.5 },
+        metrics: [{ name: 'revenue', type: 'continuous', role: 'primary' }],
+        sample_size: 2,
+        split_method: 'simple',
+        isolation: 'off',
+      },
+      dataset_id: datasetId.dataset_id,
+    },
+  })
+  expect(designResp.status()).toBe(202)
+  await pollJob(request, (await designResp.json()).job_id)
+
+  // Кнопки пока НЕТ: тест не завершен. Именно отсутствие, а не «задизейблена
+  // с загадкой» — прямое требование ТЗ.
+  await page.goto(`/experiments/${encodeURIComponent(experimentName)}`)
+  await page.getByRole('tab', { name: 'Analysis' }).click()
+  await expect(page.getByRole('button', { name: 'Fetch results dataset' })).toHaveCount(0)
+
+  // Проставляем даты и завершаем тест — теперь собирать результаты есть за что.
+  const props = await request.put(`${API}/experiments/${encodeURIComponent(experimentName)}/properties`, {
+    data: {
+      name: experimentName,
+      started_at: '2024-01-01T00:00:00Z',
+      planned_end_date: '2024-01-31',
+      set_lifecycle_dates: true,
+    },
+  })
+  expect(props.ok()).toBeTruthy()
+  const status = await request.post(`${API}/experiments/${encodeURIComponent(experimentName)}/status`, {
+    data: { to: 'completed' },
+  })
+  expect(status.ok()).toBeTruthy()
+
+  await page.reload()
+  await page.getByRole('tab', { name: 'Analysis' }).click()
+  const fetchButton = page.getByRole('button', { name: 'Fetch results dataset' })
+  await expect(fetchButton).toBeVisible({ timeout: 15_000 })
+  await fetchButton.click()
+
+  // Даты предзаполнены датами теста — это и есть та ручная правка двух дат,
+  // которую кнопка убирает.
+  const fetchDialog = page.getByRole('dialog').filter({ hasText: 'Fetch results dataset' })
+  await expect(fetchDialog.getByLabel('results-date-from')).toHaveValue('2024-01-01')
+  // Дата окончания — ФАКТИЧЕСКАЯ (completed_at, т.е. сегодня), а не плановая
+  // 2024-01-31: собирали данные именно до момента остановки теста. Поэтому
+  // проверяем, что поле заполнено, а не конкретную дату.
+  await expect(fetchDialog.getByLabel('results-date-to')).not.toHaveValue('')
+  await fetchDialog.getByRole('button', { name: 'Fetch' }).click()
+  await expect(fetchDialog).not.toBeVisible({ timeout: 60_000 })
+
+  // Готовый датасет не просто создан, а СРАЗУ подготовлен к анализу — иначе
+  // пользователь пошел бы искать его в списке руками.
+  await expect(page.getByText(/Data ready: .*results \(2024-01-01\.\./)).toBeVisible({
+    timeout: 30_000,
+  })
+})

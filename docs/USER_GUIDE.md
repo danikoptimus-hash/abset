@@ -181,6 +181,99 @@ have permission to delete some of the selected rows (you're not their owner
 or an Admin), those are skipped and reported separately — "Deleted N,
 skipped M (no permission)" — instead of silently failing the whole batch.
 
+### SQL Lab: exploring data before you commit to a dataset
+
+**SQL Lab** (top navigation, Editors and Admins) is a query console for the
+database connections your Admin has configured. It exists because the previous
+route to "what does this data actually look like?" was to guess a query, create
+a dataset, and look at the result — a slow way to find out you had the wrong
+table.
+
+Pick a connection on the left, optionally drill into a schema and table (which
+fills the editor with `SELECT * FROM "schema"."table"`), write your query, and
+press **Run** or **Ctrl+Enter**. Results come back in a sortable grid with the
+row count and elapsed time.
+
+Two limits apply to interactive runs, and both are deliberate:
+
+- The preview is capped at **1000 rows**. When your query would return more,
+  the grid says *"preview limited to 1000 rows"* — that badge is the whole
+  point: without it you'd read a truncated result as the complete answer.
+- Interactive queries have a short timeout (60 seconds by default). A query
+  that needs longer isn't refused — it belongs in a dataset, where
+  materialization runs in the background with a much longer budget.
+
+Only `SELECT` and `WITH ... SELECT` are allowed, exactly as in the dataset SQL
+box: nothing you write in SQL Lab can modify the source database.
+
+**Query history** at the bottom keeps your last 50 runs (yours only — nobody
+else sees them, not even an Admin), including the ones that failed. Click any
+row to load that query back into the editor. **Clear history** empties it.
+
+When a query is right, **Create dataset from query** opens the normal dataset
+creation dialog with the connection and SQL already filled in. The dataset gets
+the **full** result — the 1000-row cap is a preview limit, not a dataset limit.
+
+### Date placeholders: one query, any period
+
+A dataset built from SQL can carry two placeholders in its query:
+
+```sql
+SELECT user_id, revenue
+FROM orders
+WHERE order_date >= {{date_from}} AND order_date < {{date_to}}
+```
+
+`{{date_from}}` and `{{date_to}}` are the only names allowed. Any other
+`{{...}}` is rejected as you type, naming the placeholder it doesn't
+understand, rather than failing later in the middle of a fetch.
+
+When your query contains them, the creation dialog grows two date pickers, and
+the dataset can't be created until they're filled. ABSet stores the **query
+template**, not the substituted text, plus the dates the current snapshot was
+built with — so the same dataset can be re-run for a different period later.
+Values are substituted server-side as quoted `YYYY-MM-DD` literals; nothing
+else from those fields ever reaches your database.
+
+Afterwards:
+
+- **Refresh** re-runs the query for the **same** period — "same window, current
+  data".
+- **Refresh with new dates…** (and the date fields in **Edit dataset**) re-runs
+  it for a **different** period, and that period becomes the dataset's new
+  stored one, so the next plain Refresh doesn't quietly roll back to the old
+  window.
+
+The dataset's preview drawer shows the period it was built for, so a snapshot
+never leaves you guessing which window you're looking at.
+
+### Closing the loop: fetching results with one click
+
+The two features above pay off at the end of a test. The usual shape of an
+experiment is:
+
+1. **Design** on a *baseline* window — say January, to measure how the metric
+   behaves before you change anything.
+2. **Run** the test — February 1st to 28th.
+3. **Analyze** the *test* window — the same query, the same columns, two
+   different dates.
+
+Step 3 used to mean copying the design query, hand-editing two dates, creating
+a second dataset, and finding it again in the Analyze picker — with a silent
+wrong answer waiting if you edited one date and forgot the other.
+
+Instead, when a completed test was designed on a parameterized SQL dataset,
+the Analyze tab shows **Fetch results dataset**. It re-runs the design query
+with the test's own start and end dates pre-filled (editable — a data pipeline
+with attribution lag may need a day or two more), materializes it as a new
+dataset named `<test> results (<from>..<to>)`, links it to the test, and
+selects it in the Analyze form. One click instead of four steps.
+
+The button is **absent**, not disabled, when there's nothing to fetch — the
+test isn't completed, it has no dates, or its design dataset isn't a SQL
+dataset with placeholders. A greyed-out button with no explanation would just
+be a puzzle.
+
 ### Tags: organizing and finding experiments
 
 Any experiment can carry any number of **tags** — free-form labels for
@@ -623,7 +716,11 @@ access to the app still explains what was tested and how.
 Once you have post-period data, open the experiment's **Analyze** tab:
 
 1. Select the dataset with your post-period results (or click **Generate demo
-   post-period data (+3% effect)** to try the flow without real data).
+   post-period data (+3% effect)** to try the flow without real data). If the
+   test was designed on a SQL dataset with
+   [date placeholders](#date-placeholders-one-query-any-period), **Fetch
+   results dataset** does this for you — same query, test dates — see
+   [Closing the loop](#closing-the-loop-fetching-results-with-one-click).
 2. **Date column** — pick the column that holds each row's date if your
    dataset has more than one row per user (a day-by-day export, for
    instance). ABKit checks the dataset for duplicate user IDs as soon as

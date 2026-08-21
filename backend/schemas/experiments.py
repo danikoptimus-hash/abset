@@ -272,3 +272,24 @@ class UpdateExperimentPropertiesRequest(BaseModel):
     started_at: datetime | None = None
     planned_end_date: date | None = None
     set_lifecycle_dates: bool = False
+
+
+class ResultsFetchInfo(BaseModel):
+    """Доступность кнопки «Fetch results dataset» + предзаполнение диалога."""
+
+    available: bool
+    # Почему недоступно — для лога и отладки; UI по этому полю ничего не
+    # рисует (кнопки просто нет), но без него причина была бы невыяснима.
+    reason: str | None = None
+    dataset_id: str | None = None
+    date_from: str | None = None
+    date_to: str | None = None
+
+
+class FetchResultsDatasetRequest(BaseModel):
+    """Даты редактируются в диалоге перед запуском (ТЗ п.3) — прилетают уже
+    подтвержденными пользователем, но всё равно разбираются строго на
+    сервере (abkit/db_connections/sql_params.py::parse_date)."""
+
+    date_from: str
+    date_to: str

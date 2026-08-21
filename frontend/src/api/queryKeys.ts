@@ -17,6 +17,9 @@ export const queryKeys = {
   // SQL Lab: личная история запросов (инвалидируется после каждого
   // прогона — и успешного, и упавшего).
   sqlLabHistory: () => ['sql-lab-history'] as const,
+  // Доступность кнопки «Fetch results dataset» — считается на сервере
+  // (нужен SQL-датасет с плейсхолдерами + даты завершённого теста).
+  experimentResultsFetchInfo: (name: string) => ['results-fetch-info', name] as const,
   dbConnectionsForSelect: () => ['db-connections-select'] as const,
   tagsTypeahead: (search: string) => ['tags-typeahead', search] as const,
   // Prefix-only (no `search` segment) — TanStack Query's invalidateQueries

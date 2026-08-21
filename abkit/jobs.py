@@ -2360,3 +2360,125 @@ def run_import_experiment(
         "renamed": name != original_name,
         "warnings": warnings,
     }
+
+
+def experiment_results_fetch_info(current_user: CurrentUser, name: str) -> dict[str, Any]:
+    """Можно ли собрать датасет результатов по этому эксперименту, и с какими
+    датами по умолчанию.
+
+    Отдельная функция (а не логика в кнопке на фронте), потому что условие
+    составное и целиком серверное: нужен design-датасет из SQL, в его запросе
+    должны быть плейсхолдеры дат, у эксперимента должны быть даты старта и
+    окончания. Фронт по этому ответу решает ПОКАЗЫВАТЬ ли кнопку — не
+    показывать её задизейбленной с загадкой (ТЗ п.3), поэтому здесь же едет
+    и причина недоступности, для лога/отладки.
+    """
+    from abkit.db.repositories import DatasetRepo
+    from abkit.db_connections.sql_params import has_placeholders
+
+    exp_row = _get_experiment_row(name)
+    pre_design = [d for d in DatasetRepo().list_for_experiment(exp_row.id) if d.kind == "pre_design"]
+    dataset = max(pre_design, key=lambda d: d.uploaded_at) if pre_design else None
+
+    reason: str | None = None
+    if dataset is None or dataset.source != "sql" or not dataset.sql_text:
+        reason = "design dataset is not a SQL dataset"
+    elif not has_placeholders(dataset.sql_text):
+        reason = "the design query has no {{date_from}}/{{date_to}} placeholders"
+    elif exp_row.status != "completed":
+        reason = "the experiment is not completed yet"
+    elif exp_row.started_at is None:
+        reason = "the experiment has no start date"
+
+    # Дата окончания: фактическая (completed_at) либо плановая. Берем
+    # фактическую — именно до неё собирали данные; плановая может отличаться,
+    # если тест остановили раньше или он завершился автоматически позже.
+    end_date = None
+    if exp_row.completed_at is not None:
+        end_date = exp_row.completed_at.date()
+    elif exp_row.planned_end_date is not None:
+        end_date = exp_row.planned_end_date
+    if reason is None and end_date is None:
+        reason = "the experiment has no end date"
+
+    return {
+        "available": reason is None,
+        "reason": reason,
+        "dataset_id": str(dataset.id) if dataset is not None else None,
+        "date_from": exp_row.started_at.date().isoformat() if exp_row.started_at else None,
+        "date_to": end_date.isoformat() if end_date else None,
+    }
+
+
+def run_fetch_results_dataset(
+    current_user: CurrentUser,
+    name: str,
+    *,
+    date_from: Any,
+    date_to: Any,
+    progress_callback: Any = None,
+) -> dict[str, Any]:
+    """«Fetch results dataset» — тот же SQL, что у design-датасета, но с
+    датами периода теста.
+
+    Замыкает цикл: дизайн считали на базовом окне, тест отработал, результаты
+    надо собрать тем же запросом за период теста. Раньше это означало
+    «скопировать запрос, руками поправить две даты» — с тихой ошибкой, если
+    поправил одну.
+
+    Права — Editor+ (создание датасета), владельцем НОВОГО датасета
+    становится нажавший: он его и создал, ему им и распоряжаться.
+    """
+    require_role(current_user, "editor")
+    from abkit.db.repositories import DatasetRepo, ExperimentDatasetRepo
+    from abkit.db_connections.sql_params import parse_date
+
+    info = experiment_results_fetch_info(current_user, name)
+    if not info["available"]:
+        raise AuthError(f"Results dataset cannot be fetched: {info['reason']}")
+
+    exp_row = _get_experiment_row(name)
+    source = DatasetRepo().get_by_id(uuid_mod.UUID(info["dataset_id"]))
+    if source is None or source.connection_id is None or not source.sql_text:
+        raise AuthError("The design dataset is no longer available")
+
+    parsed_from = parse_date(date_from, "date_from")
+    parsed_to = parse_date(date_to, "date_to")
+    if parsed_to < parsed_from:
+        raise AuthError(
+            f"The end date ({parsed_to.isoformat()}) is before the start date "
+            f"({parsed_from.isoformat()})."
+        )
+
+    # Имя по ТЗ: сразу видно, ЧТО это и за какой период — без него список
+    # датасетов быстро превращается в набор одинаковых строк.
+    dataset_name = f"{name} results ({parsed_from.isoformat()}..{parsed_to.isoformat()})"
+
+    result = run_create_dataset_from_sql(
+        current_user,
+        connection_id=str(source.connection_id),
+        sql=source.sql_text,
+        name=dataset_name,
+        kind="post_analysis",
+        param_date_from=parsed_from,
+        param_date_to=parsed_to,
+        source_experiment_id=str(exp_row.id),
+        progress_callback=progress_callback,
+    )
+
+    # Связь «этот датасет использован этим экспериментом» — как и у любого
+    # другого датасета анализа (DB3): запись появляется по факту
+    # использования, а не по факту выбора в UI.
+    ExperimentDatasetRepo().link(
+        exp_row.id, uuid_mod.UUID(result["dataset_id"]), kind="post_analysis"
+    )
+    _audit(
+        current_user, "experiment.results_dataset_fetched",
+        object_type="experiment", object_id=str(exp_row.id), object_name=name,
+        details={
+            "dataset_id": result["dataset_id"], "dataset_name": dataset_name,
+            "date_from": parsed_from.isoformat(), "date_to": parsed_to.isoformat(),
+            "n_rows": result["n_rows"],
+        },
+    )
+    return {**result, "dataset_name": dataset_name}

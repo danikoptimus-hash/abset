@@ -34,6 +34,8 @@ from backend.schemas.design import DesignRequest, JobAccepted
 from backend.schemas.flow_images import FlowImageOut, SetFlowImageGroupOrderRequest
 from backend.schemas.experiments import (
     REPORT_FILENAMES,
+    FetchResultsDatasetRequest,
+    ResultsFetchInfo,
     AddSegmentsRequest,
     AnalyzeDemoRequest,
     AnalyzeRequest,
@@ -1218,6 +1220,47 @@ def start_redesign(
         return {"experiment_name": experiment.name}
 
     job = runner.submit("redesign", uuid_mod.UUID(user.id), _run)
+    return JobAccepted(job_id=str(job.id))
+
+
+@router.get("/{name}/results-dataset", response_model=ResultsFetchInfo)
+def results_dataset_info(
+    name: str, user: CurrentUser = Depends(require_min_role("editor")),
+) -> ResultsFetchInfo:
+    """Показывать ли кнопку «Fetch results dataset» и с какими датами.
+
+    Условие составное и целиком серверное (SQL-датасет + плейсхолдеры + даты
+    эксперимента), поэтому решает сервер, а фронт по ответу либо рисует
+    кнопку, либо НЕ рисует вовсе — задизейбленная кнопка с загадкой хуже
+    отсутствующей (ТЗ п.3)."""
+    from abkit.jobs import experiment_results_fetch_info
+
+    _visible_or_404(_get_experiment_or_404(name), user)
+    info = experiment_results_fetch_info(user, name)
+    return ResultsFetchInfo(**info)
+
+
+@router.post("/{name}/results-dataset", response_model=JobAccepted, status_code=202)
+def fetch_results_dataset(
+    name: str,
+    body: FetchResultsDatasetRequest,
+    user: CurrentUser = Depends(require_min_role("editor")),
+    runner: JobRunner = Depends(get_job_runner),
+) -> JobAccepted:
+    """Собирает датасет результатов тем же запросом, что и design-датасет, но
+    за период теста. Джоба (как и остальные длинные операции): выборка может
+    идти минуты, и держать на ней HTTP-запрос нельзя."""
+    _visible_or_404(_get_experiment_or_404(name), user)
+
+    def _run(reporter) -> dict[str, Any]:
+        from abkit.jobs import run_fetch_results_dataset
+
+        return run_fetch_results_dataset(
+            user, name, date_from=body.date_from, date_to=body.date_to,
+            progress_callback=reporter.stage,
+        )
+
+    job = runner.submit("results_dataset", uuid_mod.UUID(user.id), _run)
     return JobAccepted(job_id=str(job.id))
 
 
