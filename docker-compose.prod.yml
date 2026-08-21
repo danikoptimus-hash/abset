@@ -1,0 +1,65 @@
+# Прод-оверлей: образы тянутся из внутреннего Harbor, ничего не собирается
+# на месте. Применяется ПОВЕРХ docker-compose.yml, а не вместо него:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# (порядок -f важен: последний выигрывает; полные команды — docs/OPERATIONS.md
+# §2). Базовый файл остается dev-дефолтом с `build:` — разработчик на своей
+# машине по-прежнему делает просто `docker compose up -d --build`, ничего про
+# этот файл не зная.
+#
+# Почему оверлей, а не отдельный самодостаточный прод-compose: сервисы, сеть,
+# volumes, healthcheck'и, depends_on и все переменные окружения описаны ровно
+# один раз. Скопированный целиком прод-файл разошелся бы с dev'ом на первой же
+# добавленной переменной, и разошелся бы молча.
+#
+# `build: !reset null` — не косметика. Без него ключ `build:` из базового
+# файла остался бы в итоговой конфигурации, и `docker compose up` на VM мог бы
+# попытаться СОБРАТЬ образ вместо того чтобы честно упасть на недоступном
+# реестре. Собрать он там не сможет никогда (нет интернета для npm/pip), но
+# упал бы посреди сборки с невнятной сетевой ошибкой вместо "pull access
+# denied". `!reset` — штатный механизм Compose (v2.24+) именно для снятия
+# ключа, заданного в другом файле; тем же способом снят bind-mount у nginx.
+
+services:
+  backend:
+    build: !reset null
+    image: ${ABKIT_REGISTRY:?ABKIT_REGISTRY is required in prod (e.g. hb.intra.click.uz/abset)}/abset-backend:${ABKIT_VERSION:?ABKIT_VERSION is required in prod (e.g. v2.6.0)}
+    pull_policy: always
+
+  frontend:
+    build: !reset null
+    image: ${ABKIT_REGISTRY}/abset-frontend:${ABKIT_VERSION}
+    pull_policy: always
+
+  nginx:
+    # Свой образ, а не голый nginx:alpine с bind-mount'ом: см.
+    # docker/nginx.Dockerfile — конфиг прокси должен версионироваться тегом
+    # образа, а не состоянием рабочей копии на VM.
+    image: ${ABKIT_REGISTRY}/abset-nginx:${ABKIT_VERSION}
+    pull_policy: always
+    volumes: !reset []
+
+  postgres:
+    # ДВА варианта, выбрать один и записать в .env (ABKIT_POSTGRES_IMAGE):
+    #
+    # 1) Harbor как proxy cache на Docker Hub (предпочтительно — Harbor сам
+    #    подтянет и закэширует upstream-образ, обновления апстрима приезжают
+    #    без ручного mirror'а):
+    #       ABKIT_POSTGRES_IMAGE=hb.intra.click.uz/dockerhub/library/postgres:16-alpine
+    #    (точный префикс зависит от имени proxy-проекта в Harbor — уточнить у
+    #    администратора Harbor).
+    #
+    # 2) Ручное зеркалирование в тот же проект, что и наши образы — если
+    #    proxy cache не настроен. На машине С интернетом:
+    #       docker pull postgres:16-alpine
+    #       docker tag  postgres:16-alpine hb.intra.click.uz/abset/postgres:16-alpine
+    #       docker push hb.intra.click.uz/abset/postgres:16-alpine
+    #    и в .env:
+    #       ABKIT_POSTGRES_IMAGE=hb.intra.click.uz/abset/postgres:16-alpine
+    #
+    # Дефолт ниже (голый postgres:16-alpine) сработает ТОЛЬКО там, где есть
+    # доступ к Docker Hub, — на CLK2-ABSET-01 его нет, поэтому переменная
+    # обязана быть задана в .env.
+    image: ${ABKIT_POSTGRES_IMAGE:-postgres:16-alpine}
+    pull_policy: always
