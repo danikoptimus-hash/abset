@@ -121,6 +121,19 @@ def register_exception_handlers(app: FastAPI) -> None:
         # follow-up like tags, just a plain rejection.
         return JSONResponse(status_code=400, content=_error_body("folder_name_conflict", str(exc)))
 
+    from abkit.db_connections.sql_params import SqlParamError
+
+    @app.exception_handler(SqlParamError)
+    async def _handle_sql_param_error(request: Request, exc: SqlParamError) -> JSONResponse:
+        # SQL Lab package (п.2): неизвестный {{placeholder}} или значение,
+        # которое не является датой. Синхронные пути (POST
+        # /datasets/inspect-sql-params, PATCH /datasets/{id} со сменой периода)
+        # приходят сюда; асинхронные (материализация, refresh) — в job.error
+        # через backend/jobs/runner.py, где SqlParamError тоже числится
+        # пользовательской ошибкой, а не «Internal processing error».
+        # Сообщение уже называет виновника — плейсхолдер или поле даты.
+        return JSONResponse(status_code=422, content=_error_body("sql_param_error", str(exc)))
+
     @app.exception_handler(RequestValidationError)
     async def _handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
         return JSONResponse(

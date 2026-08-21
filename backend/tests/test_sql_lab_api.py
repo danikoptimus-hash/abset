@@ -258,3 +258,226 @@ def test_history_can_be_cleared(app_client, connection_id):
     assert app_client.get("/api/v1/sql-lab/history").json()["items"]
     assert app_client.delete("/api/v1/sql-lab/history").status_code == 204
     assert app_client.get("/api/v1/sql-lab/history").json()["items"] == []
+
+
+# ---------------------------------------------------------------------------
+# Плейсхолдеры в датасетах
+# ---------------------------------------------------------------------------
+
+
+def _poll(app_client, job_id, timeout=60.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        body = app_client.get(f"/api/v1/jobs/{job_id}").json()
+        if body["status"] not in ("pending", "running"):
+            return body
+        time.sleep(0.1)
+    raise AssertionError("job did not finish")
+
+
+def test_inspect_reports_placeholders(app_client):
+    _login(app_client)
+    resp = app_client.post(
+        "/api/v1/datasets/inspect-sql-params",
+        json={"sql": "SELECT * FROM t WHERE d >= {{date_from}}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "placeholders": ["date_from"], "requires_date_from": True, "requires_date_to": False,
+    }
+
+
+def test_inspect_rejects_unknown_placeholder_naming_it(app_client):
+    _login(app_client)
+    resp = app_client.post(
+        "/api/v1/datasets/inspect-sql-params", json={"sql": "SELECT {{oops}} FROM t"}
+    )
+    assert resp.status_code == 422
+    assert "{{oops}}" in resp.json()["error"]["message"]
+
+
+def test_dataset_from_sql_with_placeholders_stores_parameters(app_client, connection_id):
+    """Снимок собирается с переданными датами, и ИМЕННО ОНИ сохраняются —
+    иначе Refresh не знал бы, за какой период перевыполнять запрос."""
+    _login(app_client)
+    sql = (
+        "SELECT email FROM users "
+        "WHERE created_at >= {{date_from}}::timestamptz AND created_at < {{date_to}}::timestamptz"
+    )
+    resp = app_client.post(
+        "/api/v1/datasets/from-sql",
+        json={
+            "connection_id": connection_id, "sql": sql, "name": "params_ds",
+            "param_date_from": "2000-01-01", "param_date_to": "2100-01-01",
+        },
+    )
+    assert resp.status_code == 202, resp.text
+    job = _poll(app_client, resp.json()["job_id"])
+    assert job["status"] == "completed", job.get("error")
+
+    ds = DatasetRepo().get_by_id(__import__("uuid").UUID(job["result"]["dataset_id"]))
+    assert ds.param_date_from.isoformat() == "2000-01-01"
+    assert ds.param_date_to.isoformat() == "2100-01-01"
+    # Хранится ШАБЛОН, не подставленный текст — иначе Refresh с другими
+    # датами стал бы невозможен после первой же материализации.
+    assert "{{date_from}}" in ds.sql_text
+    assert ds.n_rows >= 1
+
+
+def test_dataset_from_sql_rejects_non_date_parameter(app_client, connection_id):
+    _login(app_client)
+    resp = app_client.post(
+        "/api/v1/datasets/from-sql",
+        json={
+            "connection_id": connection_id,
+            "sql": "SELECT email FROM users WHERE created_at >= {{date_from}}::timestamptz",
+            "name": "bad_params", "param_date_from": "not-a-date",
+        },
+    )
+    job = _poll(app_client, resp.json()["job_id"])
+    assert job["status"] == "failed"
+    assert "YYYY-MM-DD" in job["error"]
+
+
+def test_refresh_reuses_stored_parameters(app_client, connection_id):
+    _login(app_client)
+    sql = "SELECT email FROM users WHERE created_at >= {{date_from}}::timestamptz"
+    created = _poll(
+        app_client,
+        app_client.post(
+            "/api/v1/datasets/from-sql",
+            json={
+                "connection_id": connection_id, "sql": sql, "name": "refresh_stored",
+                "param_date_from": "2000-01-01",
+            },
+        ).json()["job_id"],
+    )
+    dataset_id = created["result"]["dataset_id"]
+
+    # Обычный Refresh — без тела: должен взять СОХРАНЕННУЮ дату.
+    refreshed = _poll(
+        app_client, app_client.post(f"/api/v1/datasets/{dataset_id}/refresh").json()["job_id"]
+    )
+    assert refreshed["status"] == "completed", refreshed.get("error")
+    ds = DatasetRepo().get_by_id(__import__("uuid").UUID(dataset_id))
+    assert ds.param_date_from.isoformat() == "2000-01-01"
+
+
+def test_refresh_with_new_dates_updates_stored_parameters(app_client, connection_id):
+    """«Refresh with new dates…»: новые значения и применяются, И становятся
+    сохраненными — иначе следующий обычный Refresh откатил бы период назад."""
+    _login(app_client)
+    sql = "SELECT email FROM users WHERE created_at >= {{date_from}}::timestamptz"
+    created = _poll(
+        app_client,
+        app_client.post(
+            "/api/v1/datasets/from-sql",
+            json={
+                "connection_id": connection_id, "sql": sql, "name": "refresh_new",
+                "param_date_from": "2000-01-01",
+            },
+        ).json()["job_id"],
+    )
+    dataset_id = created["result"]["dataset_id"]
+
+    refreshed = _poll(
+        app_client,
+        app_client.post(
+            f"/api/v1/datasets/{dataset_id}/refresh", json={"param_date_from": "2010-06-15"}
+        ).json()["job_id"],
+    )
+    assert refreshed["status"] == "completed", refreshed.get("error")
+    ds = DatasetRepo().get_by_id(__import__("uuid").UUID(dataset_id))
+    assert ds.param_date_from.isoformat() == "2010-06-15"
+
+
+def test_patch_with_new_dates_refetches_and_stores_them(app_client, connection_id):
+    """Правка ТОЛЬКО дат (текст запроса не тронут) — тоже повод перевыполнить
+    запрос: «тот же скрипт, другой период» и есть самая частая правка. Раньше
+    PATCH считал изменением исключительно connection/sql, и такая правка молча
+    не делала ничего."""
+    _login(app_client)
+    sql = "SELECT email FROM users WHERE created_at >= {{date_from}}::timestamptz"
+    created = _poll(
+        app_client,
+        app_client.post(
+            "/api/v1/datasets/from-sql",
+            json={
+                "connection_id": connection_id, "sql": sql, "name": "patch_params",
+                "param_date_from": "2000-01-01",
+            },
+        ).json()["job_id"],
+    )
+    dataset_id = created["result"]["dataset_id"]
+
+    resp = app_client.patch(
+        f"/api/v1/datasets/{dataset_id}", json={"param_date_from": "2012-03-04"}
+    )
+    assert resp.status_code == 200, resp.text
+    job_id = resp.json()["job_id"]
+    assert job_id is not None, "смена дат обязана поставить джоб повторной выгрузки"
+    assert _poll(app_client, job_id)["status"] == "completed"
+
+    ds = DatasetRepo().get_by_id(__import__("uuid").UUID(dataset_id))
+    assert ds.param_date_from.isoformat() == "2012-03-04"
+    assert "{{date_from}}" in ds.sql_text  # шаблон на месте, подставленного текста не сохранили
+
+
+def test_patch_rejects_non_date_parameter(app_client, connection_id):
+    _login(app_client)
+    sql = "SELECT email FROM users WHERE created_at >= {{date_from}}::timestamptz"
+    created = _poll(
+        app_client,
+        app_client.post(
+            "/api/v1/datasets/from-sql",
+            json={
+                "connection_id": connection_id, "sql": sql, "name": "patch_bad_params",
+                "param_date_from": "2000-01-01",
+            },
+        ).json()["job_id"],
+    )
+    resp = app_client.patch(
+        f"/api/v1/datasets/{created['result']['dataset_id']}",
+        json={"param_date_from": "01/02/2003"},
+    )
+    assert resp.status_code == 422, resp.text
+    assert "YYYY-MM-DD" in resp.json()["error"]["message"]
+
+
+def test_patch_params_rejected_for_upload_dataset(app_client):
+    """У загруженного файла нет запроса — параметрам неоткуда взяться."""
+    _login(app_client)
+    resp = app_client.post(
+        "/api/v1/datasets",
+        data={"kind": "pre_design"},
+        files={"file": ("plain.csv", "user_id,converted\n1,0\n2,1\n", "text/csv")},
+    )
+    assert resp.status_code in (200, 201), resp.text
+    dataset_id = resp.json()["id"]
+    patched = app_client.patch(
+        f"/api/v1/datasets/{dataset_id}", json={"param_date_from": "2020-01-01"}
+    )
+    # 404 — не описка: StorageError по всему проекту так и маппится, и
+    # соседний случай (правка connection/SQL у не-SQL датасета) отвечает так
+    # же. Проверяем СООБЩЕНИЕ — именно оно объясняет отказ.
+    assert patched.status_code == 404
+    assert "not created from SQL" in patched.json()["error"]["message"]
+
+
+def test_dataset_out_exposes_stored_parameters(app_client, connection_id):
+    _login(app_client)
+    sql = "SELECT email FROM users WHERE created_at >= {{date_from}}::timestamptz"
+    created = _poll(
+        app_client,
+        app_client.post(
+            "/api/v1/datasets/from-sql",
+            json={
+                "connection_id": connection_id, "sql": sql, "name": "visible_params",
+                "param_date_from": "2001-02-03",
+            },
+        ).json()["job_id"],
+    )
+    dataset_id = created["result"]["dataset_id"]
+    items = app_client.get("/api/v1/datasets?page_size=200").json()["items"]
+    row = next(d for d in items if d["id"] == dataset_id)
+    assert row["param_date_from"] == "2001-02-03"

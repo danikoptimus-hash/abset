@@ -241,6 +241,20 @@ class Dataset(Base):
     )
     sql_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Плейсхолдеры дат (миграция 0026): значения, С КОТОРЫМИ СОБРАН текущий
+    # снимок. Без них Refresh не знал бы, за какой период перевыполнять
+    # запрос, и «обновить» означало бы «собрать за другой период» — молча.
+    # DATE, а не timestamptz: параметр это календарный день (граница окна),
+    # а не момент; тот же выбор, что у experiments.planned_end_date.
+    param_date_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    param_date_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Датасет собран кнопкой «Fetch results dataset» на этом эксперименте.
+    # Не то же, что experiment_id выше: тот — первичная привязка/использование,
+    # этот — происхождение. SET NULL: удаление эксперимента не стирает
+    # собранные по нему данные.
+    source_experiment_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("experiments.id", ondelete="SET NULL"), nullable=True
+    )
     # Datasets follow-up: explicit schema/table the user picked via the
     # From SQL cascade, when sql_text was generated from (or later confirmed
     # to still match) that pick — NULL for hand-written queries the cascade

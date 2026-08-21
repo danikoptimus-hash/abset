@@ -6,6 +6,12 @@ import type { UploadProps } from 'antd'
 import { apiClient, errorMessage, toFormData } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { useJobPolling } from '../../api/useJobPolling'
+import {
+  SqlDateParamsFields,
+  sqlParamsComplete,
+  useSqlParams,
+  type SqlDateParamsValue,
+} from '../../components/datasets/SqlDateParams'
 import { useUnsavedGuard } from '../../hooks/useUnsavedGuard'
 import { SchemaTableCascade } from '../../components/datasets/SchemaTableCascade'
 import { QueryResultPreview } from '../../components/datasets/QueryResultPreview'
@@ -387,6 +393,10 @@ function FromSqlTab({
   const [table, setTable] = useState<string | undefined>(undefined)
   const [sql, setSql] = useState(initialSql ?? '')
   const [name, setName] = useState('')
+  // Плейсхолдеры дат: поля появляются только когда они реально есть в
+  // запросе (ТЗ п.2) — разбор серверный, см. SqlDateParams.tsx.
+  const params = useSqlParams(sql)
+  const [paramValue, setParamValue] = useState<SqlDateParamsValue>({ dateFrom: null, dateTo: null })
   const [createError, setCreateError] = useState<string | null>(null)
   // Part 2 (removable columns): set once the create job succeeds — switches
   // this tab to the column-confirm step (drop columns before finishing).
@@ -445,6 +455,8 @@ function FromSqlTab({
         connection_id: connectionId, sql, name, kind: 'pre_design',
         source_schema: sourceMatches ? schema : undefined,
         source_table: sourceMatches ? table : undefined,
+        param_date_from: paramValue.dateFrom ?? undefined,
+        param_date_to: paramValue.dateTo ?? undefined,
       },
     })
     if (error) {
@@ -457,7 +469,11 @@ function FromSqlTab({
   }
 
   const running = phase === 'running'
-  const canCreate = !!connectionId && !!sql.trim() && !!name.trim() && !running
+  // Пока обязательные для этого запроса даты не заполнены, создавать нечего:
+  // материализация упала бы на сервере с «no value was provided», уже потратив
+  // время пользователя.
+  const canCreate =
+    !!connectionId && !!sql.trim() && !!name.trim() && !running && sqlParamsComplete(params, paramValue)
 
   if (createdDatasetId) {
     return <SqlColumnsConfirmStep datasetId={createdDatasetId} onDone={onDone} />
@@ -499,6 +515,8 @@ function FromSqlTab({
         placeholder="SELECT user_id, revenue FROM events WHERE ..."
         style={{ marginBottom: 12, fontFamily: 'monospace' }}
       />
+
+      <SqlDateParamsFields info={params} value={paramValue} onChange={setParamValue} />
 
       <QueryResultPreview connectionId={connectionId} sql={sql} />
 

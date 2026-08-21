@@ -715,6 +715,8 @@ def run_update_dataset(
     column_renames: dict[str, str] | None = None,
     categorical_columns: list[str] | None = None,
     excluded_columns: list[str] | None = None,
+    param_date_from: Any = None,
+    param_date_to: Any = None,
 ) -> dict[str, Any]:
     """PATCH /datasets/{id} (UX package, Datasets п.2.3) — owner or admin,
     same rule as delete. `name` (-> Dataset.filename) applies to any source.
@@ -776,6 +778,30 @@ def run_update_dataset(
                 source_schema=source_schema, source_table=source_table,
             )
             changes["sql_text"] = {"old": ds.sql_text, "new": new_sql}
+            needs_refetch = True
+
+    # Значения плейсхолдеров (ТЗ п.2). Меняются НЕЗАВИСИМО от текста запроса:
+    # «тот же скрипт, другой период» — самый частый случай правки, и требовать
+    # ради него тронуть SQL было бы странно. Сами даты здесь НЕ пишутся в
+    # строку — их применяет run_refresh_sql_dataset и только после успешной
+    # подмены файла (иначе сохраненный снапшот и записанный период разъехались
+    # бы при обрыве на середине выгрузки).
+    if param_date_from is not None or param_date_to is not None:
+        if ds.source != "sql":
+            raise storage.StorageError(
+                f"Dataset '{ds.filename}' was not created from SQL — it has no query parameters"
+            )
+        from abkit.db_connections.sql_params import parse_date
+
+        effective_from = (
+            parse_date(param_date_from, "date_from") if param_date_from is not None else ds.param_date_from
+        )
+        effective_to = parse_date(param_date_to, "date_to") if param_date_to is not None else ds.param_date_to
+        if effective_from != ds.param_date_from or effective_to != ds.param_date_to:
+            changes["params"] = {
+                "old": [str(ds.param_date_from), str(ds.param_date_to)],
+                "new": [str(effective_from), str(effective_to)],
+            }
             needs_refetch = True
 
     if column_renames:
@@ -1098,6 +1124,9 @@ def run_create_dataset_from_sql(
     source_table: str | None = None,
     categorical_columns: list[str] | None = None,
     excluded_columns: list[str] | None = None,
+    param_date_from: Any = None,
+    param_date_to: Any = None,
+    source_experiment_id: str | None = None,
     progress_callback: Any = None,
 ) -> dict[str, Any]:
     """POST /datasets/from-sql (DB2, CLAUDE.md dataset-from-SQL feature) —
@@ -1119,9 +1148,20 @@ def run_create_dataset_from_sql(
     from abkit.db.store import DbExperimentStore
     from abkit.db_connections.sql_dataset import execute_select_to_parquet
 
+    from abkit.db_connections.sql_params import parse_date, render_sql, validate_placeholders
+
     conn_row = DatabaseConnectionRepo().get_by_id(uuid_mod.UUID(connection_id))
     if conn_row is None:
         raise storage.StorageError(f"Database connection '{connection_id}' not found")
+
+    # Плейсхолдеры дат: материализуем ПОДСТАВЛЕННЫЙ текст, а храним ИСХОДНЫЙ
+    # (с {{date_from}}/{{date_to}}) — именно он перевыполняется при Refresh,
+    # уже с сохраненными или новыми датами. Хранить подставленный означало бы
+    # потерять шаблон после первой же материализации.
+    validate_placeholders(sql)
+    parsed_from = parse_date(param_date_from, "date_from") if param_date_from is not None else None
+    parsed_to = parse_date(param_date_to, "date_to") if param_date_to is not None else None
+    executable_sql = render_sql(sql, date_from=parsed_from, date_to=parsed_to)
 
     store = DbExperimentStore()
     dest_path = store.data_dir / "_uploads" / f"{uuid_mod.uuid4().hex}_{name}.parquet"
@@ -1134,7 +1174,7 @@ def run_create_dataset_from_sql(
         "create_dataset_from_sql", user=current_user.email, connection=conn_row.display_name,
     ):
         result = execute_select_to_parquet(
-            _connection_spec(conn_row), sql, dest_path, progress_callback=_progress
+            _connection_spec(conn_row), executable_sql, dest_path, progress_callback=_progress
         )
         sha256 = DatasetRepo.compute_sha256_from_file(str(dest_path))
         exp_uuid = uuid_mod.UUID(experiment_id) if experiment_id else None
@@ -1159,6 +1199,8 @@ def run_create_dataset_from_sql(
             sql_text=sql, fetched_at=datetime.now(timezone.utc),
             source_schema=source_schema, source_table=source_table,
             categorical_columns=categorical_columns, excluded_columns=excluded_columns or None,
+            param_date_from=parsed_from, param_date_to=parsed_to,
+            source_experiment_id=uuid_mod.UUID(source_experiment_id) if source_experiment_id else None,
         )
     _audit(
         current_user, "dataset.create_from_sql",
@@ -1171,7 +1213,11 @@ def run_create_dataset_from_sql(
 
 
 def run_refresh_sql_dataset(
-    current_user: CurrentUser, dataset_id: str, progress_callback: Any = None,
+    current_user: CurrentUser,
+    dataset_id: str,
+    progress_callback: Any = None,
+    param_date_from: Any = None,
+    param_date_to: Any = None,
 ) -> dict[str, Any]:
     """POST /datasets/{id}/refresh (DB2) — re-runs the dataset's stored
     sql_text against its connection. Editor+ (same right as creating a
@@ -1198,6 +1244,24 @@ def run_refresh_sql_dataset(
     if conn_row is None:
         raise storage.StorageError("The database connection for this dataset no longer exists")
 
+    # Плейсхолдеры: по умолчанию перевыполняем с ТЕМИ ЖЕ датами, что и прошлый
+    # снимок (обычный Refresh — «обнови те же данные»). «Refresh with new
+    # dates…» присылает новые значения, и тогда они И применяются, И становятся
+    # новыми сохраненными параметрами — иначе следующий обычный Refresh
+    # откатил бы период назад, к старым датам.
+    from abkit.db_connections.sql_params import has_placeholders, parse_date, render_sql
+
+    effective_from = (
+        parse_date(param_date_from, "date_from") if param_date_from is not None else ds.param_date_from
+    )
+    effective_to = (
+        parse_date(param_date_to, "date_to") if param_date_to is not None else ds.param_date_to
+    )
+    executable_sql = render_sql(ds.sql_text, date_from=effective_from, date_to=effective_to)
+    params_changed = has_placeholders(ds.sql_text) and (
+        effective_from != ds.param_date_from or effective_to != ds.param_date_to
+    )
+
     def _progress(n_rows: int) -> None:
         if progress_callback is not None:
             progress_callback(f"Fetched {n_rows} rows...")
@@ -1208,12 +1272,19 @@ def run_refresh_sql_dataset(
     with _timed("refresh_sql_dataset", user=current_user.email, dataset=ds.filename):
         try:
             result = execute_select_to_parquet(
-                _connection_spec(conn_row), ds.sql_text, tmp_path, progress_callback=_progress
+                _connection_spec(conn_row), executable_sql, tmp_path, progress_callback=_progress
             )
         except Exception:
             tmp_path.unlink(missing_ok=True)
             raise
         tmp_path.replace(live_path)
+        # Параметры записываем ТОЛЬКО после успешной подмены файла: иначе
+        # упавший refresh оставил бы в строке даты, которым не соответствует
+        # лежащий рядом parquet.
+        if params_changed:
+            DatasetRepo().set_query_params(
+                ds.id, param_date_from=effective_from, param_date_to=effective_to
+            )
         sha256 = DatasetRepo.compute_sha256_from_file(ds.storage_path)
         # Part 2: reconcile categorical flags — surviving columns keep the
         # user's flag, new columns get the heuristic, vanished columns drop out.

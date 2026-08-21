@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel
@@ -52,6 +52,14 @@ class DatasetOut(BaseModel):
     # heuristic default). None for datasets created before this feature — the
     # Edit modal computes a default from the preview in that case.
     categorical_columns: list[str] | None = None
+    # Значения плейсхолдеров, С КОТОРЫМИ собран текущий снимок (миграция 0026).
+    # Показываются в списке/деталях датасета: без них «за какой период эта
+    # выборка» выясняется только чтением SQL.
+    param_date_from: date | None = None
+    param_date_to: date | None = None
+    # Датасет собран кнопкой «Fetch results dataset» на этом эксперименте.
+    source_experiment_id: str | None = None
+    source_experiment_name: str | None = None
     # Part 2 (removable columns): the columns the user excluded from this
     # dataset. `columns` above is already the VISIBLE set (excluded names
     # filtered out) — this carries the removed names separately so the Edit /
@@ -84,6 +92,12 @@ class DatasetFromSqlRequest(BaseModel):
     # Part 2 (removable columns): columns to exclude, chosen in the Create
     # modal's confirm step. None/[] = nothing excluded.
     excluded_columns: list[str] | None = None
+    # Значения плейсхолдеров {{date_from}}/{{date_to}}, если запрос их
+    # использует. Отдаются как строки YYYY-MM-DD и разбираются на сервере
+    # (abkit/db_connections/sql_params.py) — в SQL уезжает только результат
+    # разбора, никогда не текст из формы.
+    param_date_from: str | None = None
+    param_date_to: str | None = None
 
 
 class DatasetFromSqlResult(BaseModel):
@@ -303,6 +317,11 @@ class PatchDatasetRequest(BaseModel):
     # mapped to itself is also fine (a no-op rename). source='upload' only;
     # rejected for other sources (item 1.4).
     column_renames: dict[str, str] | None = None
+    # SQL Lab package (п.2): значения {{date_from}}/{{date_to}}. Меняются
+    # независимо от текста запроса — «тот же скрипт, другой период» — и, как и
+    # смена SQL, вызывают повторную выгрузку.
+    param_date_from: str | None = None
+    param_date_to: str | None = None
 
 
 class PatchDatasetResponse(BaseModel):
@@ -331,3 +350,26 @@ class BulkDeleteDatasetsSkipped(BaseModel):
 class BulkDeleteDatasetsResult(BaseModel):
     deleted: list[str]
     skipped: list[BulkDeleteDatasetsSkipped]
+
+
+class RefreshDatasetRequest(BaseModel):
+    """Тело POST /datasets/{id}/refresh. Пустое тело (обе даты None) —
+    обычный Refresh: перевыполнить с УЖЕ СОХРАНЕННЫМИ параметрами. Заданные
+    даты — «Refresh with new dates…»: они и применяются, и становятся новыми
+    сохраненными значениями."""
+
+    param_date_from: str | None = None
+    param_date_to: str | None = None
+
+
+class SqlParamsInfo(BaseModel):
+    """Разбор плейсхолдеров произвольного SQL — для формы: показывать ли поля
+    дат и какие именно."""
+
+    placeholders: list[str]
+    requires_date_from: bool
+    requires_date_to: bool
+
+
+class InspectSqlParamsRequest(BaseModel):
+    sql: str

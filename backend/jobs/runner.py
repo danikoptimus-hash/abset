@@ -45,6 +45,7 @@ def _human_readable_message(exc: BaseException, error_id: str) -> str:
     from abkit import checks, storage
     from abkit.db_connections.sql_dataset import SqlExecutionError
     from abkit.db_connections.sql_guard import SqlValidationError
+    from abkit.db_connections.sql_params import SqlParamError
     from abkit.experiment import DesignError
     from abkit.pipeline import PipelineError
 
@@ -53,6 +54,10 @@ def _human_readable_message(exc: BaseException, error_id: str) -> str:
         (
             checks.AnalysisError, DesignError, PipelineError, storage.StorageError,
             SqlValidationError, SqlExecutionError,
+            # Ошибка ввода (неизвестный плейсхолдер, значение не дата), а не
+            # сбой: без этого пользователь видел бы "Internal processing
+            # error" на собственной опечатке в дате.
+            SqlParamError,
         ),
     ):
         return str(exc)

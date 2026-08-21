@@ -36,6 +36,9 @@ from backend.deps import get_current_user, get_job_runner, require_min_role
 from backend.errors import APIError
 from backend.jobs.runner import JobRunner
 from backend.schemas.datasets import (
+    InspectSqlParamsRequest,
+    RefreshDatasetRequest,
+    SqlParamsInfo,
     BulkDeleteDatasetsRequest,
     BulkDeleteDatasetsResult,
     BulkDeleteDatasetsSkipped,
@@ -95,6 +98,10 @@ def _to_dataset_out(
         renamed_columns=d.renamed_columns,
         categorical_columns=d.categorical_columns,
         excluded_columns=d.excluded_columns,
+        param_date_from=d.param_date_from,
+        param_date_to=d.param_date_to,
+        source_experiment_id=str(d.source_experiment_id) if d.source_experiment_id else None,
+        source_experiment_name=exp_name_by_id.get(d.source_experiment_id),
         # Item 1 bug fix: one entry per real (experiment, kind) use, from
         # experiment_datasets — not the legacy single experiment_id/kind
         # pair above, which only ever reflects a dataset's creation-time
@@ -517,6 +524,27 @@ def preview_strata_power(
     )
 
 
+@router.post("/inspect-sql-params", response_model=SqlParamsInfo)
+def inspect_sql_params(
+    body: InspectSqlParamsRequest, user: CurrentUser = Depends(require_min_role("editor")),
+) -> SqlParamsInfo:
+    """Какие плейсхолдеры есть в этом SQL — чтобы форма знала, показывать ли
+    поля дат. Разбор ЖИВЕТ НА СЕРВЕРЕ и здесь же валидирует: неизвестное имя
+    отклоняется с указанием, какое именно, ещё до того как пользователь
+    нажмёт «Create dataset» и подождёт материализации впустую."""
+    from abkit.db_connections.sql_params import DATE_FROM, DATE_TO, validate_placeholders
+
+    # SqlParamError не перехватывается здесь намеренно: с ним разбирается
+    # ОДИН глобальный хендлер (backend/errors.py), иначе у одной и той же
+    # ошибки было бы два кода — свой у каждого синхронного эндпоинта.
+    names = validate_placeholders(body.sql or "")
+    return SqlParamsInfo(
+        placeholders=names,
+        requires_date_from=DATE_FROM in names,
+        requires_date_to=DATE_TO in names,
+    )
+
+
 @router.post("/from-sql", response_model=JobAccepted, status_code=202)
 def create_dataset_from_sql(
     body: DatasetFromSqlRequest,
@@ -539,6 +567,8 @@ def create_dataset_from_sql(
             source_schema=body.source_schema, source_table=body.source_table,
             categorical_columns=body.categorical_columns,
             excluded_columns=body.excluded_columns,
+            param_date_from=body.param_date_from,
+            param_date_to=body.param_date_to,
         )
 
     job = runner.submit("dataset_from_sql", uuid_mod.UUID(user.id), _run)
@@ -548,15 +578,26 @@ def create_dataset_from_sql(
 @router.post("/{dataset_id}/refresh", response_model=JobAccepted, status_code=202)
 def refresh_sql_dataset(
     dataset_id: str,
+    body: RefreshDatasetRequest | None = None,
     user: CurrentUser = Depends(require_min_role("editor")),
     runner: JobRunner = Depends(get_job_runner),
 ) -> JobAccepted:
     """DB2: re-runs a source='sql' dataset's stored sql_text, overwriting
-    its parquet file in place and bumping fetched_at."""
+    its parquet file in place and bumping fetched_at.
+
+    Тело необязательно: без него перевыполняется с уже сохраненными
+    параметрами дат (обычный Refresh). С датами — «Refresh with new dates…»,
+    новые значения и применяются, и сохраняются."""
+    param_from = body.param_date_from if body else None
+    param_to = body.param_date_to if body else None
+
     def _run(reporter) -> dict:
         from abkit.jobs import run_refresh_sql_dataset
 
-        return run_refresh_sql_dataset(user, dataset_id, progress_callback=reporter.stage)
+        return run_refresh_sql_dataset(
+            user, dataset_id, progress_callback=reporter.stage,
+            param_date_from=param_from, param_date_to=param_to,
+        )
 
     job = runner.submit("dataset_refresh", uuid_mod.UUID(user.id), _run)
     return JobAccepted(job_id=str(job.id))
@@ -656,12 +697,22 @@ def patch_dataset(
         column_renames=body.column_renames,
         categorical_columns=body.categorical_columns,
         excluded_columns=body.excluded_columns,
+        param_date_from=body.param_date_from,
+        param_date_to=body.param_date_to,
     )
 
     job_id = None
     if result["needs_refetch"]:
         def _run(reporter) -> dict:
-            return run_refresh_sql_dataset(user, dataset_id, progress_callback=reporter.stage)
+            # Даты идут прямо в refresh, а не пишутся в строку заранее:
+            # run_refresh_sql_dataset сохраняет их только после успешной
+            # подмены файла, поэтому оборванная выгрузка не оставляет строку с
+            # периодом, которому не соответствует ни один снапшот.
+            return run_refresh_sql_dataset(
+                user, dataset_id,
+                param_date_from=body.param_date_from, param_date_to=body.param_date_to,
+                progress_callback=reporter.stage,
+            )
 
         job = runner.submit("dataset_refresh", uuid_mod.UUID(user.id), _run)
         job_id = str(job.id)

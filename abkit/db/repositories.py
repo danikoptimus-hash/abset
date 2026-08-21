@@ -575,6 +575,9 @@ class DatasetRepo:
         source_table: str | None = None,
         categorical_columns: list[str] | None = None,
         excluded_columns: list[str] | None = None,
+        param_date_from: "date | None" = None,
+        param_date_to: "date | None" = None,
+        source_experiment_id: uuid_mod.UUID | None = None,
     ) -> uuid_mod.UUID:
         with session_scope() as s:
             ds = Dataset(
@@ -592,6 +595,9 @@ class DatasetRepo:
                 fetched_at=fetched_at,
                 source_schema=source_schema,
                 source_table=source_table,
+                param_date_from=param_date_from,
+                param_date_to=param_date_to,
+                source_experiment_id=source_experiment_id,
                 categorical_columns=categorical_columns,
                 excluded_columns=excluded_columns,
             )
@@ -694,6 +700,26 @@ class DatasetRepo:
             ds.storage_path = storage_path
             ds.n_rows = n_rows
             ds.sha256 = sha256
+
+    def set_query_params(
+        self,
+        dataset_id: uuid_mod.UUID,
+        *,
+        param_date_from: "date | None",
+        param_date_to: "date | None",
+    ) -> None:
+        """Записывает даты, С КОТОРЫМИ собран текущий снимок.
+
+        Вызывается ПОСЛЕ успешной материализации, а не до: иначе упавший
+        refresh оставил бы в строке параметры, которым не соответствует ни
+        один байт лежащего рядом parquet — то есть датасет врал бы про то,
+        за какой период он собран."""
+        with session_scope() as s:
+            ds = s.get(Dataset, dataset_id)
+            if ds is None:
+                raise RepoError(f"Dataset '{dataset_id}' not found")
+            ds.param_date_from = param_date_from
+            ds.param_date_to = param_date_to
 
     def update_sql_source(
         self,

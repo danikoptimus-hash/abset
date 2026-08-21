@@ -8,6 +8,12 @@ import {
 } from '@ant-design/icons'
 import { Link } from 'react-router-dom'
 import { apiClient, errorMessage } from '../api/client'
+import {
+  SqlDateParamsFields,
+  sqlParamsComplete,
+  useSqlParams,
+  type SqlDateParamsValue,
+} from '../components/datasets/SqlDateParams'
 import { queryKeys } from '../api/queryKeys'
 import { RelativeTime } from '../components/RelativeTime'
 import { SourceTag } from '../components/DatasetSelect'
@@ -30,11 +36,18 @@ function useRefreshDataset(datasetId: string) {
   const queryClient = useQueryClient()
   const [refreshing, setRefreshing] = useState(false)
 
-  const run = async () => {
+  // params === undefined -> обычный Refresh: перевыполнить с УЖЕ
+  // СОХРАНЁННЫМИ датами. Переданные даты -> «Refresh with new dates…»: они и
+  // применяются, и становятся новыми сохранёнными (иначе следующий обычный
+  // Refresh откатил бы период назад).
+  const run = async (params?: { dateFrom: string | null; dateTo: string | null }) => {
     setRefreshing(true)
     try {
       const { data, error } = await apiClient.POST('/api/v1/datasets/{dataset_id}/refresh', {
         params: { path: { dataset_id: datasetId } },
+        body: params
+          ? { param_date_from: params.dateFrom, param_date_to: params.dateTo }
+          : {},
       })
       if (error) throw new Error(errorMessage(error))
       const deadline = Date.now() + 30_000
@@ -64,17 +77,61 @@ function useRefreshDataset(datasetId: string) {
     }
   }
 
-  const confirmRefresh = () => {
+  const confirmRefresh = (dataset?: DatasetOut) => {
+    const stored = dataset && (dataset.param_date_from || dataset.param_date_to)
+      ? ` Current period: ${dataset.param_date_from ?? '…'}..${dataset.param_date_to ?? '…'}.`
+      : ''
     Modal.confirm({
       title: 'Refresh dataset from source?',
       content:
-        'This will replace the stored snapshot with fresh data from the source. Experiments already analyzed keep their results.',
+        'This will replace the stored snapshot with fresh data from the source. Experiments already analyzed keep their results.' +
+        stored,
       okText: 'Refresh',
-      onOk: run,
+      onOk: () => run(),
     })
   }
 
-  return { refreshing, confirmRefresh }
+  return { refreshing, confirmRefresh, runWithParams: run }
+}
+
+// «Refresh with new dates…» — отдельная кнопка, появляется только у датасетов
+// с плейсхолдерами (ТЗ п.2). Отдельная, а не флажок внутри обычного confirm'а:
+// это два разных намерения — «обнови те же данные» и «пересобери за другой
+// период», и второе меняет сохранённые параметры датасета.
+function RefreshWithDatesButton({ dataset }: { dataset: DatasetOut }) {
+  const { refreshing, runWithParams } = useRefreshDataset(dataset.id)
+  const [open, setOpen] = useState(false)
+  const [value, setValue] = useState<SqlDateParamsValue>({
+    dateFrom: dataset.param_date_from ?? null,
+    dateTo: dataset.param_date_to ?? null,
+  })
+  const params = useSqlParams(dataset.sql_text ?? '')
+
+  if (!params.requiresDateFrom && !params.requiresDateTo) return null
+
+  return (
+    <>
+      <Button size="small" icon={<ReloadOutlined />} loading={refreshing} onClick={() => setOpen(true)}>
+        Refresh with new dates…
+      </Button>
+      <Modal
+        title="Refresh with new dates"
+        open={open}
+        onCancel={() => setOpen(false)}
+        okText="Refresh"
+        okButtonProps={{ disabled: !sqlParamsComplete(params, value) }}
+        onOk={async () => {
+          setOpen(false)
+          await runWithParams(value)
+        }}
+      >
+        <Typography.Paragraph type="secondary">
+          The query is re-run with these dates, and they replace the dataset's stored parameters.
+        </Typography.Paragraph>
+        <SqlDateParamsFields info={params} value={value} onChange={setValue} title="New parameter values" />
+      </Modal>
+    </>
+  )
 }
 
 // Datasets table's Actions column, source=sql only — hover-reveal icon like
@@ -91,7 +148,7 @@ function RefreshRowAction({ dataset }: { dataset: DatasetOut }) {
         loading={refreshing}
         onClick={(e) => {
           e.stopPropagation() // don't also trigger the row's preview-drawer click
-          confirmRefresh()
+          confirmRefresh(dataset)
         }}
       />
     </Tooltip>
@@ -102,7 +159,7 @@ function RefreshRowAction({ dataset }: { dataset: DatasetOut }) {
 function RefreshDrawerButton({ dataset }: { dataset: DatasetOut }) {
   const { refreshing, confirmRefresh } = useRefreshDataset(dataset.id)
   return (
-    <Button size="small" icon={<ReloadOutlined />} loading={refreshing} onClick={confirmRefresh}>
+    <Button size="small" icon={<ReloadOutlined />} loading={refreshing} onClick={() => confirmRefresh(dataset)}>
       Refresh from source
     </Button>
   )
@@ -474,6 +531,17 @@ export function DatasetsPage() {
               {previewedDataset.source_schema && previewedDataset.source_table
                 ? `${previewedDataset.source_schema}.${previewedDataset.source_table}`
                 : 'custom query'}
+              {/* Параметры снимка: «за какой период эта выборка» иначе
+                  выясняется только чтением SQL. */}
+              {(previewedDataset.param_date_from || previewedDataset.param_date_to) && (
+                <>
+                  {' · period '}
+                  {previewedDataset.param_date_from ?? '…'}..{previewedDataset.param_date_to ?? '…'}
+                </>
+              )}
+              {previewedDataset.source_experiment_name && (
+                <> · fetched from experiment {previewedDataset.source_experiment_name}</>
+              )}
             </Typography.Text>
             <Space style={{ marginBottom: 4, justifyContent: 'space-between', width: '100%' }}>
               <Space align="center">
@@ -485,7 +553,10 @@ export function DatasetsPage() {
                   </Typography.Text>
                 )}
               </Space>
-              {canRefresh && <RefreshDrawerButton dataset={previewedDataset} />}
+              <Space>
+                {canRefresh && <RefreshDrawerButton dataset={previewedDataset} />}
+                {canRefresh && <RefreshWithDatesButton dataset={previewedDataset} />}
+              </Space>
             </Space>
             <Typography.Paragraph
               code

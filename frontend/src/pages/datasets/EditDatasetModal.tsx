@@ -10,6 +10,7 @@ import { SchemaTableCascade } from '../../components/datasets/SchemaTableCascade
 import { QueryResultPreview } from '../../components/datasets/QueryResultPreview'
 import { DatasetSnapshotPreview } from '../../components/datasets/DatasetSnapshotPreview'
 import { buildSelectAllSql, parseSchemaTableFromSql } from '../../components/datasets/parseSchemaTableFromSql'
+import { SqlDateParamsFields, sqlParamsComplete, useSqlParams } from '../../components/datasets/SqlDateParams'
 import { StopClickPropagation } from '../../components/StopClickPropagation'
 import {
   ColumnTypeEditor,
@@ -46,6 +47,10 @@ export function EditDatasetModal({
   const [schema, setSchema] = useState<string | undefined>(undefined)
   const [table, setTable] = useState<string | undefined>(undefined)
   const [sql, setSql] = useState('')
+  // SQL Lab package (п.2): значения плейсхолдеров текущего снапшота. Правятся
+  // независимо от текста запроса — «тот же скрипт, другой период».
+  const [dateFrom, setDateFrom] = useState<string | null>(null)
+  const [dateTo, setDateTo] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Part 2: categorical column flags. null = untouched (fall back to the
@@ -118,6 +123,8 @@ export function EditDatasetModal({
         setSchema(parsed.schema)
         setTable(parsed.table)
       }
+      setDateFrom(dataset.param_date_from ?? null)
+      setDateTo(dataset.param_date_to ?? null)
       lastAutoFilledSql.current = null
       setCategorical(null)
       setExcluded(null)
@@ -153,14 +160,22 @@ export function EditDatasetModal({
   // `dataset` goes null) with an explicit `!!dataset` guard so isDirty
   // correctly reads false once the modal has no dataset to edit, rather
   // than throwing or reading stale true.
+  // Разбор плейсхолдеров — серверный (см. SqlDateParams.tsx). Для не-SQL
+  // датасетов спрашивать нечего, поэтому хук получает пустую строку: вызвать
+  // его надо на каждом рендере (правила хуков), а сходить на сервер — нет.
+  const paramsInfo = useSqlParams(isSql ? sql : '')
   const sqlChanged =
     !!dataset && isSql && (connectionId !== (dataset.connection_id ?? undefined) || sql !== (dataset.sql_text ?? ''))
+  const paramsChanged =
+    !!dataset && isSql &&
+    (dateFrom !== (dataset.param_date_from ?? null) || dateTo !== (dataset.param_date_to ?? null))
   const categoricalChanged =
     !!dataset && categorical !== null && !sameStringSet(categorical, dataset.categorical_columns)
   const excludedChanged =
     !!dataset && excluded !== null && !sameStringSet(excluded, dataset.excluded_columns)
   const isDirty =
-    !!dataset && open && (name.trim() !== dataset.filename || sqlChanged || categoricalChanged || excludedChanged)
+    !!dataset && open &&
+    (name.trim() !== dataset.filename || sqlChanged || paramsChanged || categoricalChanged || excludedChanged)
   const { guard } = useUnsavedGuard(isDirty)
 
   if (!dataset) return null
@@ -197,6 +212,8 @@ export function EditDatasetModal({
         source_table?: string
         categorical_columns?: string[]
         excluded_columns?: string[]
+        param_date_from?: string
+        param_date_to?: string
       } = {}
       if (name.trim() && name.trim() !== dataset.filename) body.name = name.trim()
       // Send the resolved categorical list whenever it differs from what's
@@ -221,6 +238,12 @@ export function EditDatasetModal({
           body.source_schema = schema
           body.source_table = table
         }
+      }
+      // Даты шлём и когда сам SQL не менялся — это и есть «пересобрать тем же
+      // скриптом за другой период», отдельная и самая частая правка.
+      if (paramsChanged) {
+        if (dateFrom) body.param_date_from = dateFrom
+        if (dateTo) body.param_date_to = dateTo
       }
       const { data, error } = await apiClient.PATCH('/api/v1/datasets/{dataset_id}', {
         params: { path: { dataset_id: dataset.id } },
@@ -247,7 +270,7 @@ export function EditDatasetModal({
   }
 
   const handleSave = () => {
-    if (sqlChanged) {
+    if (sqlChanged || paramsChanged) {
       const n = usage?.length ?? 0
       Modal.confirm({
         title: 'Save changes?',
@@ -317,6 +340,16 @@ export function EditDatasetModal({
             value={sql}
             onChange={(e) => setSql(e.target.value)}
             style={{ marginBottom: 12, fontFamily: 'monospace' }}
+          />
+
+          <SqlDateParamsFields
+            info={paramsInfo}
+            value={{ dateFrom, dateTo }}
+            onChange={(next) => {
+              setDateFrom(next.dateFrom)
+              setDateTo(next.dateTo)
+            }}
+            title="Parameter values — saving re-runs the query for this period"
           />
         </>
       ) : (
@@ -388,7 +421,14 @@ export function EditDatasetModal({
       {(error || jobError) && <Alert type="error" showIcon message={error ?? jobError} style={{ marginBottom: 12 }} />}
 
       <Space>
-        <Button type="primary" onClick={handleSave} loading={saving || running} disabled={!name.trim()}>
+        <Button
+          type="primary"
+          onClick={handleSave}
+          loading={saving || running}
+          // Незаполненный плейсхолдер — не ошибка сервера, а незаконченная
+          // форма: сохранение всё равно упало бы на рендеринге запроса.
+          disabled={!name.trim() || (isSql && !sqlParamsComplete(paramsInfo, { dateFrom, dateTo }))}
+        >
           Save
         </Button>
         <Button onClick={guardedClose}>Cancel</Button>
