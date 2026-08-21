@@ -48,6 +48,14 @@ test('design report download filename contains the design dataset name', async (
     `a[href="/api/v1/experiments/${name}/reports/design_report.html?download=1"]`,
   )
   await expect(reportLink).toBeVisible()
+  // Дождаться и СОСЕДЕЙ по строке: кнопки отдельных sample-файлов приезжают
+  // ОТДЕЛЬНЫМ запросом и рендерятся ВЫШЕ отчёта в том же `Space wrap`. Если
+  // они долетают после проверки видимости (а под нагрузкой это случается),
+  // строка переносится ровно в момент клика — и клик уезжает на соседнюю
+  // кнопку. Ровно так этот спек и падал в полном прогоне: скачивался
+  // samples.zip вместо design_report.html.
+  await expect(page.locator(`a[href="/api/v1/experiments/${name}/samples.zip"]`)).toBeVisible()
+  await expect(page.locator('a[href*="/samples/"]').first()).toBeVisible()
   const downloadPromise = page.waitForEvent('download')
   await reportLink.click()
   const download = await downloadPromise

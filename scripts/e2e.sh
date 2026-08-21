@@ -76,6 +76,12 @@ EOF
 fi
 
 cleanup() {
+    # ПЕРВОЙ строкой: код возврата самого прогона (playwright). В bash статус
+    # выхода скрипта — это статус ПОСЛЕДНЕЙ команды EXIT-трапа, а не того, что
+    # его вызвало; `rm -f` в конце этой функции успешен всегда, поэтому
+    # упавшие тесты возвращали 0, и прогон выглядел зеленым. Восстанавливаем
+    # исходный код явным exit в конце.
+    local status=$?
     echo "==> Tearing down $PROJECT (docker compose down -v)"
     # -f "$PROJECT_DIR/..." и явный cd: этот trap срабатывает ПОСЛЕ `cd frontend`
     # ниже, где docker-compose.yml не существует. Раньше пути были
@@ -90,6 +96,7 @@ cleanup() {
         docker compose --env-file "$ENV_FILE" "${COMPOSE_FILES[@]}" -p "$PROJECT" down -v --remove-orphans
     ) || echo "!!! teardown FAILED — run: docker compose -p $PROJECT down -v"
     rm -f "$ENV_FILE"
+    exit "$status"
 }
 trap cleanup EXIT
 
