@@ -3278,6 +3278,8 @@ export interface components {
         SchemasResponse: {
             /** Schemas */
             schemas: string[];
+            /** Default Schema */
+            default_schema?: string | null;
         };
         /** SetExperimentFolderRequest */
         SetExperimentFolderRequest: {

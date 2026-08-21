@@ -117,6 +117,86 @@ test('SQL Lab runs a query, shows the grid and history, and hands the query off 
   expect(pageErrors).toEqual([])
 })
 
+test('SQL Lab lists tables for a schema, defaults to public, and hides system schemas', async ({
+  page,
+}) => {
+  test.skip(!PG.host || !PG.password, 'E2E_POSTGRES_* not set — see .github/workflows/ci.yml')
+  test.setTimeout(60_000)
+
+  await loginViaUi(page)
+  const connectionName = `e2e_browser_${Date.now()}`
+  await createConnection(page.request, connectionName)
+
+  await page.goto('/sql-lab')
+  await page.getByRole('combobox', { name: 'sql-lab-connection' }).click()
+  await page.getByTitle(new RegExp(connectionName)).click()
+
+  // Схема выбирается сама: без этого первый заход всегда начинался с ручного
+  // выбора, а первым в списке постгрес отдает information_schema — попав в
+  // нее, пользователь и делал вывод, что пикер сломан.
+  //
+  // Проверяем ПОВЕДЕНИЕМ, а не классами AntD: пикер таблиц заблокирован, пока
+  // схема не выбрана (disabled={!schema}), так что его доступность и означает
+  // «схема выбралась сама». Какая именно — докажет автоподстановка запроса ниже.
+  const schemaSelect = page.getByRole('combobox', { name: 'from-sql-schema-select' })
+  const tableSelect = page.getByRole('combobox', { name: 'from-sql-table-select' })
+  await expect(tableSelect).toBeEnabled({ timeout: 15_000 })
+
+  // РЕГРЕССИЯ, ради которой этот тест и написан: пикер таблиц оставался
+  // пустым навсегда — обвязка SQL Lab пересобирала состояние из устаревшего
+  // замыкания и отменяла выбор схемы в том же тике, так что запрос таблиц не
+  // уходил вовсе.
+  await tableSelect.click()
+  // Сначала сузить поиском: AntD виртуализирует список, и `users` (таблица
+  // приложения) в первый экран опций не попадает — как и в
+  // database-connections.spec.ts, где этот же пикер уже так и водится.
+  await tableSelect.fill('users')
+  await expect(page.getByTitle('users', { exact: true })).toBeVisible({ timeout: 15_000 })
+  await page.getByTitle('users', { exact: true }).click()
+
+  // И то, ради чего пикер вообще нужен: выбор таблицы наполняет редактор.
+  // Заодно это и есть доказательство, что схемой по умолчанию стала public.
+  await expect(page.getByRole('textbox', { name: 'sql-lab-editor' })).toHaveValue(
+    'SELECT * FROM "public"."users"',
+  )
+
+  // Служебные схемы не показываются вовсе — фильтр серверный, поэтому один и
+  // тот же список видят и SQL Lab, и форма создания датасета. Ищем строго
+  // ВНУТРИ раскрытого выпадающего списка: title="public" есть и у уже
+  // выбранного значения в самом селекте.
+  await schemaSelect.click()
+  const dropdown = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)')
+  await expect(dropdown.getByTitle('public', { exact: true })).toBeVisible()
+  await expect(dropdown.getByTitle('information_schema')).toHaveCount(0)
+  await expect(dropdown.getByTitle('pg_catalog')).toHaveCount(0)
+})
+
+test('the dataset form gets the same defaulted, filtered schema list', async ({ page }) => {
+  test.skip(!PG.host || !PG.password, 'E2E_POSTGRES_* not set — see .github/workflows/ci.yml')
+  test.setTimeout(60_000)
+
+  await loginViaUi(page)
+  const connectionName = `e2e_browser_ds_${Date.now()}`
+  await createConnection(page.request, connectionName)
+
+  await page.goto('/datasets')
+  await page.getByRole('button', { name: 'Dataset' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('tab', { name: 'From SQL' }).click()
+  await dialog.getByRole('combobox', { name: 'from-sql-connection-select' }).click()
+  await page.getByTitle(new RegExp(connectionName)).click()
+
+  // Та же автоподстановка схемы, что и в SQL Lab, — компонент общий, поэтому
+  // проверка одна и та же: пикер таблиц доступен без единого клика по схеме.
+  await expect(dialog.getByRole('combobox', { name: 'from-sql-table-select' })).toBeEnabled({
+    timeout: 15_000,
+  })
+  await dialog.getByRole('combobox', { name: 'from-sql-schema-select' }).click()
+  const dropdown = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)')
+  await expect(dropdown.getByTitle('public', { exact: true })).toBeVisible()
+  await expect(dropdown.getByTitle('information_schema')).toHaveCount(0)
+})
+
 test('a viewer sees no SQL Lab entry, and the page itself refuses a direct link', async ({ page }) => {
   // SQL Lab — Editor+. Показать пункт меню и встретить viewer'а страницей, где
   // любое действие возвращает 403, — та же загадка, что задизейбленная кнопка

@@ -112,11 +112,18 @@ export function SqlLabPage() {
     }
   }
 
-  const onCascadeChange = (nextSchema?: string, nextTable?: string) => {
-    setSchema(nextSchema)
-    setTable(nextTable)
-    if (!nextSchema || !nextTable) return
-    const generated = buildSelectAllSql(nextSchema, nextTable)
+  // Обработчики — ОТДЕЛЬНЫЕ на схему и на таблицу, ровно как в
+  // CreateDatasetModal. Один общий обработчик, восстанавливающий вторую
+  // половину состояния из замыкания, здесь и был багом: выбор схемы
+  // приводит к двум вызовам подряд — onSchemaChange(value) и
+  // onTableChange(undefined), — и второй записывал в схему УСТАРЕВШЕЕ (еще
+  // undefined) значение из того же рендера, отменяя первый. Схема
+  // сбрасывалась в тот же тик, запрос таблиц не уходил вовсе, и пикер
+  // таблиц оставался пустым навсегда.
+  const handleTableChange = (next: string | undefined) => {
+    setTable(next)
+    if (!next || !schema) return
+    const generated = buildSelectAllSql(schema, next)
     // Подставляем молча, только если поле пустое или содержит ровно то, что
     // мы же и сгенерировали в прошлый раз: затирать написанный руками запрос
     // выбором таблицы в дереве — верный способ потерять работу.
@@ -186,8 +193,9 @@ export function SqlLabPage() {
               connectionId={connectionId}
               schema={schema}
               table={table}
-              onSchemaChange={(next) => onCascadeChange(next, undefined)}
-              onTableChange={(next) => onCascadeChange(schema, next)}
+              onSchemaChange={setSchema}
+              onTableChange={handleTableChange}
+              autoSelectDefaultSchema
             />
           )}
         </Card>

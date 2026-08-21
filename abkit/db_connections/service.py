@@ -178,12 +178,15 @@ def list_connection_schemas(current_user: CurrentUser, conn_id: uuid_mod.UUID, *
     schema browser, not connection management."""
     require_role(current_user, "editor")
     from abkit import storage
-    from abkit.db_connections.introspection import list_schemas
+    from abkit.db_connections.introspection import default_schema, list_schemas
 
     conn = DatabaseConnectionRepo().get_by_id(conn_id)
     if conn is None:
         raise storage.StorageError(f"Database connection '{conn_id}' not found")
-    return list_schemas(_spec_from_row(conn), str(conn_id), force_refresh=force_refresh)
+    schemas = list_schemas(_spec_from_row(conn), str(conn_id), force_refresh=force_refresh)
+    # Схема по умолчанию считается ЗДЕСЬ, а не на клиенте: правило зависит от
+    # движка, а движок известен только на сервере (см. introspection.py).
+    return schemas, default_schema(conn.engine, schemas)
 
 
 def list_connection_tables(

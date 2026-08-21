@@ -110,7 +110,9 @@ Validation anymore — everything reads from a **dataset**, created once on the
 - the **result of a SQL query** against a database connection your Admin has
   configured (PostgreSQL, ClickHouse, MSSQL) — pick a connection, optionally a
   schema/table from a searchable picker (which fills in
-  `SELECT * FROM "schema"."table"` for you), preview the first rows, and save.
+  `SELECT * FROM "schema"."table"` for you — the same picker SQL Lab uses, with
+  system schemas hidden and the engine's usual default preselected), preview the
+  first rows, and save.
   The query result is materialized once into ABSet's own storage — deleting
   the source table afterward does not affect your dataset. Use **Refresh** on
   the dataset (Editor+) to re-run the query and pull current data later.
@@ -193,6 +195,13 @@ Pick a connection on the left, optionally drill into a schema and table (which
 fills the editor with `SELECT * FROM "schema"."table"`), write your query, and
 press **Run** or **Ctrl+Enter**. Results come back in a sortable grid with the
 row count and elapsed time.
+
+The schema list shows only schemas that hold your data — the database's own
+internals (`information_schema` and `pg_*` on PostgreSQL, `sys`/`INFORMATION_SCHEMA`
+and the fixed database roles on MSSQL, `system` on ClickHouse) are left out. The
+usual default (`public`, `dbo`, or `default` depending on the engine) is selected
+for you when the connection has one, so the table list is populated the moment you
+pick a connection.
 
 Two limits apply to interactive runs, and both are deliberate:
 

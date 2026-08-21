@@ -84,7 +84,10 @@ test('create a database connection, test it, preview SQL, create a dataset, and 
   const schemaSelect = page.getByRole('combobox', { name: 'from-sql-schema-select' })
   await schemaSelect.click()
   await schemaSelect.fill('public')
-  await page.getByTitle('public').click()
+  // Именно в РАСКРЫТОМ списке: `public` теперь выбирается автоматически (см.
+  // SchemaTableCascade), и уже выбранное значение несет тот же title —
+  // неограниченный getByTitle('public') матчит два элемента сразу.
+  await page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').getByTitle('public').click()
 
   const tableSelect = page.getByRole('combobox', { name: 'from-sql-table-select' })
   await tableSelect.click()
@@ -320,7 +323,10 @@ test('Creating via the schema/table cascade persists source_schema/source_table,
   const schemaSelect = page.getByRole('combobox', { name: 'from-sql-schema-select' })
   await schemaSelect.click()
   await schemaSelect.fill('public')
-  await page.getByTitle('public').click()
+  // Именно в РАСКРЫТОМ списке: `public` теперь выбирается автоматически (см.
+  // SchemaTableCascade), и уже выбранное значение несет тот же title —
+  // неограниченный getByTitle('public') матчит два элемента сразу.
+  await page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').getByTitle('public').click()
 
   const tableSelect = page.getByRole('combobox', { name: 'from-sql-table-select' })
   await tableSelect.click()

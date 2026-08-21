@@ -28,6 +28,64 @@ from abkit.db_connections.sql_dataset import SqlExecutionError
 _CACHE_TTL_SEC = 60
 _cache: dict[tuple[str, str | None], tuple[float, list[str]]] = {}
 
+# Служебные схемы, которые НЕ показываются в браузере схем. Фильтр живет
+# здесь, а не в компоненте: набор служебных имен — свойство ДВИЖКА, а движок
+# известен только тут; в React-компоненте пришлось бы протаскивать engine
+# через три формы и держать три копии одного списка.
+#
+# Первым в списке схем postgres идет `information_schema`, и пользователь,
+# открыв селектор, попадал именно в нее — таблиц там нет в привычном смысле,
+# и вывод «пикер сломан» напрашивался сам (ровно с этого начался баг-репорт).
+_SYSTEM_SCHEMAS: dict[str, frozenset[str]] = {
+    # pg_* — зарезервированный постгресом префикс (pg_catalog, pg_toast,
+    # pg_temp_N, pg_toast_temp_N), поэтому он же и правило, см. _is_system.
+    "postgresql": frozenset({"information_schema"}),
+    # db_* — фиксированные роли БД (db_owner, db_datareader, ...), которые
+    # MSSQL показывает как схемы; guest/sys — тем более не данные.
+    "mssql": frozenset({"information_schema", "sys", "guest"}),
+    "clickhouse": frozenset({"system", "information_schema"}),
+}
+_SYSTEM_PREFIXES: dict[str, tuple[str, ...]] = {
+    "postgresql": ("pg_",),
+    "mssql": ("db_",),
+    "clickhouse": (),
+}
+
+# Схема, в которой пользователь почти наверняка и хочет оказаться. Выбирается
+# автоматически, если существует — иначе первый заход всегда начинается с
+# ручного выбора, хотя выбор очевиден.
+_DEFAULT_SCHEMA: dict[str, str] = {
+    "postgresql": "public",
+    "mssql": "dbo",
+    "clickhouse": "default",
+}
+
+
+def _is_system_schema(engine: str, name: str) -> bool:
+    lowered = name.lower()
+    if lowered in _SYSTEM_SCHEMAS.get(engine, frozenset()):
+        return True
+    return lowered.startswith(_SYSTEM_PREFIXES.get(engine, ()))
+
+
+def visible_schemas(engine: str, schemas: list[str]) -> list[str]:
+    """Схемы за вычетом служебных. Отдельная чистая функция — чтобы правило
+    можно было проверить без подключения к БД."""
+    return [s for s in schemas if not _is_system_schema(engine, s)]
+
+
+def default_schema(engine: str, schemas: list[str]) -> str | None:
+    """public/dbo/default, если такая схема реально есть в списке. Сравнение
+    регистронезависимое, но возвращается ИМЕННО то написание, что пришло из
+    БД: оно поедет в кавычках в `SELECT * FROM "schema"."table"`."""
+    wanted = _DEFAULT_SCHEMA.get(engine)
+    if wanted is None:
+        return None
+    for name in schemas:
+        if name.lower() == wanted:
+            return name
+    return None
+
 
 def _cache_get(key: tuple[str, str | None]) -> list[str] | None:
     entry = _cache.get(key)
@@ -78,6 +136,9 @@ def list_schemas(spec: ConnectionSpec, cache_key: str, *, force_refresh: bool = 
     finally:
         engine.dispose()
 
+    # Фильтруем ДО кэша: в кэше лежит ровно то, что увидит пользователь, и
+    # `?refresh=true` не может внезапно принести другой набор.
+    schemas = visible_schemas(spec.engine, schemas)
     _cache_set(key, schemas)
     return schemas
 

@@ -503,6 +503,7 @@ function FromSqlTab({
         table={table}
         onSchemaChange={setSchema}
         onTableChange={handleTableChange}
+        autoSelectDefaultSchema
       />
 
       <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>

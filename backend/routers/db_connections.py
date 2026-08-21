@@ -115,10 +115,10 @@ def list_connection_schemas(
     from abkit.db_connections.sql_dataset import SqlExecutionError
 
     try:
-        schemas = service.list_connection_schemas(user, _parse_id(conn_id), force_refresh=refresh)
+        schemas, default = service.list_connection_schemas(user, _parse_id(conn_id), force_refresh=refresh)
     except SqlExecutionError as e:
         raise APIError(422, "sql_execution_error", str(e)) from e
-    return SchemasResponse(schemas=schemas)
+    return SchemasResponse(schemas=schemas, default_schema=default)
 
 
 @public_router.get("/{conn_id}/schemas/{schema}/tables", response_model=TablesResponse)

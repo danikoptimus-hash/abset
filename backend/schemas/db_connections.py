@@ -79,6 +79,11 @@ class TestDraftConnectionRequest(BaseModel):
 
 class SchemasResponse(BaseModel):
     schemas: list[str]
+    # public/dbo/default, если такая схема есть у этого подключения. Форма
+    # выбирает ее сама при первом заходе — правило зависит от движка, поэтому
+    # считается на сервере (abkit/db_connections/introspection.py), а не
+    # угадывается тремя формами по отдельности.
+    default_schema: str | None = None
 
 
 class TablesResponse(BaseModel):

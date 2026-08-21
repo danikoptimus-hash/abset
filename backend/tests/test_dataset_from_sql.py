@@ -187,6 +187,36 @@ def test_list_connection_schemas_includes_public(app_client, db_url, tmp_path, m
     assert "public" in resp.json()["schemas"]
 
 
+def test_schemas_response_hides_system_schemas_and_names_the_default(
+    app_client, db_url, tmp_path, monkeypatch
+):
+    """Против НАСТОЯЩЕГО постгреса: тот всегда отдает information_schema и
+    pg_catalog, и раньше именно они и открывались первыми в селекторе —
+    пользователь попадал в служебную схему и делал вывод, что пикер сломан."""
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _seed_table(db_url, n=5)
+    _login(app_client, role="admin")
+    conn_id = _create_connection(app_client, db_url)
+
+    body = app_client.get(f"/api/v1/db-connections/{conn_id}/schemas").json()
+    assert body["schemas"], body
+    assert not [s for s in body["schemas"] if s.startswith("pg_") or s == "information_schema"], body
+    assert body["default_schema"] == "public"
+
+
+def test_schema_filtering_survives_the_refresh_bypass(app_client, db_url, tmp_path, monkeypatch):
+    """`?refresh=true` обходит кэш — и не должен приносить другой набор:
+    фильтр применяется ДО записи в кэш, а не поверх кэшированного значения."""
+    monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
+    _seed_table(db_url, n=5)
+    _login(app_client, role="admin")
+    conn_id = _create_connection(app_client, db_url)
+
+    cached = app_client.get(f"/api/v1/db-connections/{conn_id}/schemas").json()
+    fresh = app_client.get(f"/api/v1/db-connections/{conn_id}/schemas?refresh=true").json()
+    assert cached == fresh
+
+
 def test_list_connection_tables_in_schema(app_client, db_url, tmp_path, monkeypatch):
     monkeypatch.setenv("ABKIT_DATA_DIR", str(tmp_path))
     _seed_table(db_url, n=5)

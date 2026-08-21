@@ -19,12 +19,19 @@ export function SchemaTableCascade({
   table,
   onSchemaChange,
   onTableChange,
+  autoSelectDefaultSchema = false,
 }: {
   connectionId: string | undefined
   schema: string | undefined
   table: string | undefined
   onSchemaChange: (schema: string | undefined) => void
   onTableChange: (table: string | undefined) => void
+  // Выбрать public/dbo/default сразу, как только список схем приехал. Включено
+  // там, где пустой выбор — просто «еще не начали» (создание датасета, SQL
+  // Lab), и ВЫКЛЮЧЕНО в Edit: там пустая схема означает «запрос написан
+  // руками, таблицы у него нет» (подсказка «Custom query — table picker not
+  // applicable»), и подставленный public врал бы про источник данных.
+  autoSelectDefaultSchema?: boolean
 }) {
   const forceRefreshSchemas = useRef(false)
   const forceRefreshTables = useRef(false)
@@ -44,7 +51,7 @@ export function SchemaTableCascade({
   }, [connectionId])
 
   const {
-    data: schemas, isFetching: schemasLoading, refetch: refetchSchemas,
+    data: schemaInfo, isFetching: schemasLoading, refetch: refetchSchemas,
   } = useQuery({
     queryKey: queryKeys.dbConnectionSchemas(connectionId),
     enabled: !!connectionId,
@@ -55,9 +62,27 @@ export function SchemaTableCascade({
         params: { path: { conn_id: connectionId! }, query: { refresh } },
       })
       if (error) throw new Error(errorMessage(error))
-      return data.schemas
+      // Возвращаем ответ целиком: кроме списка нужен default_schema —
+      // служебные схемы отфильтрованы, а какая из оставшихся «та самая»,
+      // знает сервер (правило зависит от движка).
+      return data
     },
   })
+  const schemas = schemaInfo?.schemas
+
+  // Автовыбор схемы по умолчанию — РОВНО ОДИН раз на подключение: если
+  // пользователь очистил селектор сам (allowClear), возвращать туда public
+  // против его воли нельзя.
+  const autoSelectedFor = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    if (!autoSelectDefaultSchema || !connectionId) return
+    if (autoSelectedFor.current === connectionId) return
+    const preferred = schemaInfo?.default_schema
+    if (!preferred || schema) return
+    autoSelectedFor.current = connectionId
+    onSchemaChange(preferred)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSelectDefaultSchema, connectionId, schemaInfo?.default_schema])
 
   const {
     data: tables, isFetching: tablesLoading, refetch: refetchTables,
